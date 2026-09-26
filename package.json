@@ -1,0 +1,14 @@
+{
+  "name": "wayselect",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Explainable model selection with models.dev catalog discovery and explicit capability checks. Early development.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "preview": "node web/server.js"
+  }
+}
