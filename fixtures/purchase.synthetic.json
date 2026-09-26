@@ -1,0 +1,23 @@
+{
+  "valid": {
+    "providerId": "northstar",
+    "modelId": "alpha-chat",
+    "buyerId": "buyer-001",
+    "confirm": true,
+    "provenance": {
+      "source": "synthetic://wayselect/purchase-fixture-v1",
+      "fetchedAt": "2026-09-24T10:00:00.000Z"
+    }
+  },
+  "minimal": {
+    "providerId": "northstar",
+    "modelId": "image-lite",
+    "buyerId": "buyer-002",
+    "confirm": true,
+    "provenance": {
+      "source": "synthetic://wayselect/purchase-fixture-v1",
+      "fetchedAt": "2026-09-24T10:00:00.000Z",
+      "etag": "synthetic-etag-1"
+    }
+  }
+}

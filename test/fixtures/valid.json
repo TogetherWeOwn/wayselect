@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "v1",
+  "providerId": "deepinfra",
+  "modelId": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "provenance": {
+    "source": "https://models.dev/api.json",
+    "fetchedAt": "2026-09-26T05:00:00.000Z"
+  },
+  "entry": {
+    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "name": "Llama 3.3 70B Turbo",
+    "description": "Compact Llama instruction model for fast chat and local deployment",
+    "family": "llama",
+    "attachment": false,
+    "reasoning": false,
+    "tool_call": true,
+    "structured_output": true,
+    "release_date": "2024-12-06",
+    "last_updated": "2024-12-06",
+    "modalities": {
+      "input": ["text"],
+      "output": ["text"]
+    },
+    "open_weights": true,
+    "limit": {
+      "context": 131072,
+      "output": 16384
+    },
+    "cost": {
+      "input": 0.1,
+      "output": 0.32
+    }
+  }
+}

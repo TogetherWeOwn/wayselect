@@ -62,6 +62,32 @@ node bin/wayselect \
   --request fixtures/request.synthetic.json
 ```
 
+## Staging catalog snapshots and diffs
+
+Staging-only automation with no network access and no production writes.
+Snapshots reuse the `normalizeCatalog` boundary, record a recomputed
+SHA-256 content hash, and report provenance gaps (unverified declared
+hash, stale/future snapshot, missing capabilities, missing rates,
+no catalogued operations). Non-`synthetic://` sources are refused.
+
+```sh
+node bin/wayselect-snapshot \
+  --now 2026-09-24T12:00:00.000Z \
+  --max-catalog-age-hours 24 \
+  --out snapshots
+node bin/wayselect-snapshot \
+  --now 2026-09-24T12:05:00.000Z \
+  --max-catalog-age-hours 24 \
+  --out snapshots \
+  --previous snapshots/snapshot-20260924T120000000Z-c6cdb62e.json
+```
+
+The second run writes a second snapshot plus a Markdown diff report
+(added/removed/changed routes, gap deltas). A stale or future-dated
+catalog fails closed instead of writing a snapshot. See
+`snapshots/diff-report-consecutive-green.md` and
+`snapshots/sample-diff-with-changes.md` for sample evidence.
+
 ## Library boundaries
 
 - `src/catalog.js` validates a narrow provider-keyed, models.dev-shaped fixture subset and preserves provenance. Unknown fields are rejected at the boundary.

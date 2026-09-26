@@ -39,6 +39,35 @@ test("rejects configuration for a route that is absent from the catalog", async 
   );
 });
 
+test("malformed catalog input fails closed with SupportConfigurationError", async () => {
+  assert.throws(
+    () => applySupportConfiguration(null, { candidates: [] }),
+    /catalog.entries must be an array/,
+  );
+  assert.throws(
+    () => applySupportConfiguration({ entries: "nope" }, { candidates: [] }),
+    /catalog.entries must be an array/,
+  );
+});
+
+test("explicit null operations fail closed instead of defaulting to empty", async () => {
+  const catalog = await loadCatalog();
+
+  assert.throws(
+    () =>
+      applySupportConfiguration(catalog, {
+        candidates: [
+          {
+            routeId: "northstar/alpha-chat",
+            supportState: "configured",
+            operations: null,
+          },
+        ],
+      }),
+    SupportConfigurationError,
+  );
+});
+
 test("requires explicit operations for configured support", async () => {
   const catalog = await loadCatalog();
 
@@ -54,5 +83,26 @@ test("requires explicit operations for configured support", async () => {
         ],
       }),
     /operations must not be empty/,
+  );
+});
+
+test("malformed catalog entries fail closed with SupportConfigurationError", async () => {
+  const catalog = await loadCatalog();
+
+  assert.throws(
+    () => applySupportConfiguration({ entries: [null] }, { candidates: [] }),
+    SupportConfigurationError,
+  );
+  assert.throws(
+    () => applySupportConfiguration({ entries: [{}] }, { candidates: [] }),
+    SupportConfigurationError,
+  );
+  assert.throws(
+    () =>
+      applySupportConfiguration(
+        { entries: [catalog.entries[0], catalog.entries[0]] },
+        { candidates: [] },
+      ),
+    SupportConfigurationError,
   );
 });

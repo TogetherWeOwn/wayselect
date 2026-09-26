@@ -68,13 +68,33 @@ function normalizeEvidence(value, label) {
 }
 
 export function applySupportConfiguration(catalog, configurationInput) {
+  if (catalog === null || typeof catalog !== "object" || !Array.isArray(catalog.entries)) {
+    throw new SupportConfigurationError("catalog.entries must be an array");
+  }
   const configuration = requireObject(configurationInput, "configuration");
   assertKnownKeys(configuration, CONFIGURATION_KEYS, "configuration");
   if (!Array.isArray(configuration.candidates)) {
     throw new SupportConfigurationError("configuration.candidates must be an array");
   }
 
-  const catalogByRoute = new Map(catalog.entries.map((entry) => [entry.routeId, entry]));
+  const catalogByRoute = new Map();
+  for (const [index, entry] of catalog.entries.entries()) {
+    const label = `catalog.entries[${index}]`;
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new SupportConfigurationError(`${label} must be an object`);
+    }
+    if (typeof entry.routeId !== "string" || entry.routeId.trim() === "") {
+      throw new SupportConfigurationError(
+        `${label}.routeId must be a non-empty string`,
+      );
+    }
+    if (catalogByRoute.has(entry.routeId)) {
+      throw new SupportConfigurationError(
+        `${label}.routeId is duplicated: ${entry.routeId}`,
+      );
+    }
+    catalogByRoute.set(entry.routeId, entry);
+  }
   const configuredByRoute = new Map();
 
   for (const [index, rawCandidate] of configuration.candidates.entries()) {
@@ -95,7 +115,10 @@ export function applySupportConfiguration(catalog, configurationInput) {
       throw new SupportConfigurationError(`${label}.supportState is unknown: ${supportState}`);
     }
 
-    const operations = normalizeOperations(candidate.operations ?? [], `${label}.operations`);
+    const operations = normalizeOperations(
+      candidate.operations === undefined ? [] : candidate.operations,
+      `${label}.operations`,
+    );
     const evidence = normalizeEvidence(candidate.evidence, `${label}.evidence`);
     if (
       (supportState === SupportState.CONFIGURED ||

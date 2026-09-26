@@ -1,0 +1,51 @@
+{
+  "issue": "TOG-4873",
+  "ranAt": "2026-09-26T07:19:35.475Z",
+  "repoHead": "1b10a184d4e62cae4991bd72d5f48c3d274b0fd0",
+  "cli": {
+    "ref": "origin/tog-4404-fixture-slice",
+    "sha": "562941a5626dda364628b152badf4d98e7b95a9c"
+  },
+  "schema": {
+    "ref": "origin/TOG-4830-wayselect-catalog-entry-json-schema-fail-closed-validation-tests",
+    "sha": "f17c467d3658fae2302f783ad6d1172c10614b01"
+  },
+  "stagingEndpoint": "undeclared (local validator run)",
+  "checks": [
+    {
+      "name": "publish: valid entry accepted",
+      "status": "pass",
+      "detail": "accepted locally; no staging endpoint declared, POST skipped"
+    },
+    {
+      "name": "fail-closed: malformed.json rejected with provenance",
+      "status": "pass",
+      "detail": "Catalog entry rejected [source=https://models.dev/api.json fetchedAt=2026-09-26T05:00:00.000Z]: /entry must have required property 'reasoning' (required); /entr"
+    },
+    {
+      "name": "fail-closed: stale.json rejected with provenance",
+      "status": "pass",
+      "detail": "Catalog entry rejected [source=https://models.dev/api.json fetchedAt=2025-01-01T00:00:00.000Z]: unsupported schemaVersion \"v0\" (expected \"v1\"); stale or unautho"
+    },
+    {
+      "name": "fail-closed: unknown-field.json rejected with provenance",
+      "status": "pass",
+      "detail": "Catalog entry rejected [source=https://models.dev/api.json fetchedAt=2026-09-26T05:00:00.000Z]: /entry must NOT have additional properties (additionalProperties"
+    },
+    {
+      "name": "dry-run: default fixtures select northstar/alpha-chat",
+      "status": "pass",
+      "detail": "selected northstar/alpha-chat; 6 candidates explained; networkUsed=false"
+    },
+    {
+      "name": "dry-run: impossible request explains no-eligible-route",
+      "status": "pass",
+      "detail": "6 candidates, all ineligible with reasons"
+    }
+  ],
+  "defects": [
+    "D1 (CLI slice / TOG-4836): bin/wayselect exposes no --dry-run flag; dry-run is the implicit only mode (mode=dry-run-only). Step 2 verified the mode field instead.",
+    "D2 (staging infra): no staging catalog endpoint is declared in any repo history; step 1 ran as a local validator gate only."
+  ],
+  "verdict": "PASS"
+}
