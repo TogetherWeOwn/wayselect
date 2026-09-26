@@ -1,0 +1,17 @@
+{
+  "description": "Tie on synthetic estimated rate: northstar/alpha-chat and orbit/orbit-chat are both eligible at est. 3/million, so the lexicographic route id wins.",
+  "configuration": null,
+  "selection": {
+    "operation": "chat",
+    "requiredCapabilities": ["toolUse"],
+    "providerAllowlist": ["northstar", "orbit"]
+  },
+  "evaluationTime": "2026-09-24T12:00:00.000Z",
+  "maxEvidenceAgeHours": 72,
+  "expect": {
+    "status": "selected",
+    "selectedRouteId": "northstar/alpha-chat",
+    "tiedRouteIds": ["northstar/alpha-chat", "orbit/orbit-chat"],
+    "tiedEstimatedRatePerMillion": 3
+  }
+}

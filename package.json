@@ -12,6 +12,7 @@
   },
   "scripts": {
     "demo": "node bin/wayselect select",
-    "test": "node --test"
+    "test": "node --test --import ./support/no-network-guard.js",
+    "acceptance": "scripts/acceptance.sh"
   }
 }

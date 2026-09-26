@@ -1,0 +1,21 @@
+dry-run explain — dry-run / synthetic estimate — no live model calls, credentials, or network use
+Request: operation=chat, require=[toolUse], allow=[northstar, orbit]
+Evaluation time: 2026-09-24T12:00:00.000Z, max evidence age: 72h
+
+northstar/alpha-chat: eligible (provider northstar, support configured, est. 3 / million tokens)
+orbit/orbit-chat: eligible (provider orbit, support conformance-tested, est. 3 / million tokens)
+legacy/old-chat: excluded (provider legacy, support configured, est. 2 / million tokens)
+  - provider-not-allowed
+  - stale-evidence
+northstar/image-lite: excluded (provider northstar, support configured, est. 2 / million tokens)
+  - operation-not-catalogued
+  - operation-not-configured
+  - unsupported-capability:toolUse
+northstar/unknown-tools: excluded (provider northstar, support configured, est. 0.75 / million tokens)
+  - missing-capability:toolUse
+orbit/retired-chat: excluded (provider orbit, support unsupported, est. 0.2 / million tokens)
+  - support-state:unsupported
+  - operation-not-configured
+
+verdict: selected northstar/alpha-chat
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-24T10:00:00.000Z

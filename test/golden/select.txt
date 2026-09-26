@@ -1,0 +1,14 @@
+dry-run select — dry-run / synthetic estimate — no live model calls, credentials, or network use
+Selected route: northstar/alpha-chat
+Policy: lowest-synthetic-estimated-rate-then-lexicographic-route-id
+Rates are synthetic/list-price estimates only; not actual cost or savings.
+
+Ranked candidates (2 eligible, 4 excluded):
+  1. northstar/alpha-chat — eligible, est. 3 / million tokens
+  2. orbit/orbit-chat — eligible, est. 3 / million tokens
+  3. legacy/old-chat — excluded (provider-not-allowed, stale-evidence)
+  4. northstar/image-lite — excluded (operation-not-catalogued, operation-not-configured, unsupported-capability:toolUse)
+  5. northstar/unknown-tools — excluded (missing-capability:toolUse)
+  6. orbit/retired-chat — excluded (support-state:unsupported, operation-not-configured)
+
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-24T10:00:00.000Z

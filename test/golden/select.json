@@ -1,0 +1,100 @@
+{
+  "command": "select",
+  "dryRun": true,
+  "dryRunLabel": "dry-run / synthetic estimate — no live model calls, credentials, or network use",
+  "status": "selected",
+  "selectedRouteId": "northstar/alpha-chat",
+  "policy": "lowest-synthetic-estimated-rate-then-lexicographic-route-id",
+  "rateDisclaimer": "Synthetic/list-price estimates only; not actual cost or savings.",
+  "provenance": {
+    "source": "synthetic://wayselect/fixture-v1",
+    "snapshotTimestamp": "2026-09-24T10:00:00.000Z",
+    "snapshotHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "request": {
+    "operation": "chat",
+    "requiredCapabilities": [
+      "toolUse"
+    ],
+    "providerAllowlist": [
+      "northstar",
+      "orbit"
+    ]
+  },
+  "evaluationTime": "2026-09-24T12:00:00.000Z",
+  "maxEvidenceAgeHours": 72,
+  "rankedCandidates": [
+    {
+      "rank": 1,
+      "routeId": "northstar/alpha-chat",
+      "providerId": "northstar",
+      "modelId": "alpha-chat",
+      "supportState": "configured",
+      "eligible": true,
+      "estimatedRatePerMillion": 3,
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "routeId": "orbit/orbit-chat",
+      "providerId": "orbit",
+      "modelId": "orbit-chat",
+      "supportState": "conformance-tested",
+      "eligible": true,
+      "estimatedRatePerMillion": 3,
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "routeId": "legacy/old-chat",
+      "providerId": "legacy",
+      "modelId": "old-chat",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 2,
+      "reasons": [
+        "provider-not-allowed",
+        "stale-evidence"
+      ]
+    },
+    {
+      "rank": 4,
+      "routeId": "northstar/image-lite",
+      "providerId": "northstar",
+      "modelId": "image-lite",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 2,
+      "reasons": [
+        "operation-not-catalogued",
+        "operation-not-configured",
+        "unsupported-capability:toolUse"
+      ]
+    },
+    {
+      "rank": 5,
+      "routeId": "northstar/unknown-tools",
+      "providerId": "northstar",
+      "modelId": "unknown-tools",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 0.75,
+      "reasons": [
+        "missing-capability:toolUse"
+      ]
+    },
+    {
+      "rank": 6,
+      "routeId": "orbit/retired-chat",
+      "providerId": "orbit",
+      "modelId": "retired-chat",
+      "supportState": "unsupported",
+      "eligible": false,
+      "estimatedRatePerMillion": 0.2,
+      "reasons": [
+        "support-state:unsupported",
+        "operation-not-configured"
+      ]
+    }
+  ]
+}

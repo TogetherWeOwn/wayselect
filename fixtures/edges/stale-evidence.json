@@ -1,0 +1,19 @@
+{
+  "description": "Stale evidence: evaluation runs 36 days after the freshest observation, so every configured candidate fails closed with stale-evidence.",
+  "configuration": null,
+  "selection": {
+    "operation": "chat",
+    "requiredCapabilities": ["toolUse"],
+    "providerAllowlist": ["northstar", "orbit"]
+  },
+  "evaluationTime": "2026-10-30T12:00:00.000Z",
+  "maxEvidenceAgeHours": 72,
+  "expect": {
+    "status": "no-eligible-route",
+    "selectedRouteId": null,
+    "reasonIncludes": {
+      "northstar/alpha-chat": ["stale-evidence"],
+      "orbit/orbit-chat": ["stale-evidence"]
+    }
+  }
+}
