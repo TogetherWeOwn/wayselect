@@ -68,6 +68,9 @@ function normalizeEvidence(value, label) {
 }
 
 export function applySupportConfiguration(catalog, configurationInput) {
+  if (catalog === null || typeof catalog !== "object" || !Array.isArray(catalog.entries)) {
+    throw new SupportConfigurationError("catalog.entries must be an array");
+  }
   const configuration = requireObject(configurationInput, "configuration");
   assertKnownKeys(configuration, CONFIGURATION_KEYS, "configuration");
   if (!Array.isArray(configuration.candidates)) {
@@ -95,7 +98,10 @@ export function applySupportConfiguration(catalog, configurationInput) {
       throw new SupportConfigurationError(`${label}.supportState is unknown: ${supportState}`);
     }
 
-    const operations = normalizeOperations(candidate.operations ?? [], `${label}.operations`);
+    const operations = normalizeOperations(
+      candidate.operations === undefined ? [] : candidate.operations,
+      `${label}.operations`,
+    );
     const evidence = normalizeEvidence(candidate.evidence, `${label}.evidence`);
     if (
       (supportState === SupportState.CONFIGURED ||
