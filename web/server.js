@@ -64,10 +64,16 @@ export function createApp(env = process.env) {
         return;
       }
       const [, providerId, modelId] = listingMatch;
-      const listing = getStubListing(
-        decodeURIComponent(providerId),
-        decodeURIComponent(modelId),
-      );
+      let decodedProviderId;
+      let decodedModelId;
+      try {
+        decodedProviderId = decodeURIComponent(providerId);
+        decodedModelId = decodeURIComponent(modelId);
+      } catch {
+        sendHtml(res, 404, renderNotFound(providerId, modelId));
+        return;
+      }
+      const listing = getStubListing(decodedProviderId, decodedModelId);
       if (!listing) {
         sendHtml(res, 404, renderNotFound(providerId, modelId));
         return;

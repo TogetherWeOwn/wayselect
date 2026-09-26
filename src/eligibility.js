@@ -82,7 +82,14 @@ function evidenceReasons(candidate, now, maxEvidenceAgeMs) {
     return ["missing-evidence"];
   }
 
-  const observedAt = Date.parse(candidate.evidence.observedAt);
+  const rawObservedAt =
+    candidate.evidence !== null && typeof candidate.evidence === "object"
+      ? candidate.evidence.observedAt
+      : undefined;
+  const observedAt = typeof rawObservedAt === "string" ? Date.parse(rawObservedAt) : Number.NaN;
+  if (!Number.isFinite(observedAt)) {
+    return ["invalid-evidence"];
+  }
   const ageMs = now.getTime() - observedAt;
   if (ageMs < 0) {
     return ["future-evidence"];
