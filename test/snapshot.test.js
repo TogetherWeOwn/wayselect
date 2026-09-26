@@ -6,8 +6,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { normalizeCatalog } from "../src/index.js";
-import { diffSnapshots, formatDiffReport } from "../src/catalogDiff.js";
-import { buildSnapshot, computeContentHash, SnapshotError } from "../src/snapshot.js";
+import {
+  SnapshotDiffError,
+  compareEntries,
+  diffSnapshots,
+  formatDiffReport,
+} from "../src/catalogDiff.js";
+import {
+  buildSnapshot,
+  computeContentHash,
+  findEntryGaps,
+  snapshotIsClean,
+  SnapshotError,
+} from "../src/snapshot.js";
 import { readFixture } from "../support/helpers.js";
 
 const execFileAsync = promisify(execFile);
@@ -195,5 +206,54 @@ test("snapshot CLI fails closed on a stale catalog", async () => {
       { cwd: new URL("..", import.meta.url) },
     ),
     /stale/,
+  );
+});
+
+test("malformed snapshot/diff inputs fail closed with typed errors", async () => {
+  assert.throws(() => computeContentHash(null), SnapshotError);
+  assert.throws(() => computeContentHash([null]), SnapshotError);
+  assert.throws(() => computeContentHash([{ providerId: "p" }]), SnapshotError);
+  assert.throws(() => findEntryGaps(null), SnapshotError);
+  assert.throws(
+    () => findEntryGaps({ routeId: "r", catalogOperations: ["chat"] }),
+    SnapshotError,
+  );
+  assert.throws(
+    () => findEntryGaps({ routeId: "r", capabilities: {} }),
+    SnapshotError,
+  );
+  assert.throws(() => snapshotIsClean(null), SnapshotError);
+  assert.throws(() => snapshotIsClean({}), SnapshotError);
+  assert.throws(() => compareEntries(null, null), SnapshotDiffError);
+  assert.throws(
+    () =>
+      diffSnapshots(
+        { sourcePrefix: "synthetic://", entries: [null], gaps: [] },
+        { sourcePrefix: "synthetic://", entries: [], gaps: [] },
+      ),
+    SnapshotDiffError,
+  );
+  assert.throws(
+    () =>
+      diffSnapshots(
+        { sourcePrefix: "synthetic://", entries: [], gaps: "x" },
+        { sourcePrefix: "synthetic://", entries: [], gaps: [] },
+      ),
+    SnapshotDiffError,
+  );
+  assert.throws(() => formatDiffReport(null), SnapshotDiffError);
+
+  const fixture = await readFixture("catalog.synthetic.json");
+  assert.throws(
+    () =>
+      buildSnapshot(fixture.catalog, fixture.provenance, {
+        sourcePrefix: null,
+        now: NOW,
+      }),
+    SnapshotError,
+  );
+  assert.throws(
+    () => buildSnapshot(fixture.catalog, fixture.provenance, null),
+    SnapshotError,
   );
 });

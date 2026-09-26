@@ -77,7 +77,24 @@ export function applySupportConfiguration(catalog, configurationInput) {
     throw new SupportConfigurationError("configuration.candidates must be an array");
   }
 
-  const catalogByRoute = new Map(catalog.entries.map((entry) => [entry.routeId, entry]));
+  const catalogByRoute = new Map();
+  for (const [index, entry] of catalog.entries.entries()) {
+    const label = `catalog.entries[${index}]`;
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new SupportConfigurationError(`${label} must be an object`);
+    }
+    if (typeof entry.routeId !== "string" || entry.routeId.trim() === "") {
+      throw new SupportConfigurationError(
+        `${label}.routeId must be a non-empty string`,
+      );
+    }
+    if (catalogByRoute.has(entry.routeId)) {
+      throw new SupportConfigurationError(
+        `${label}.routeId is duplicated: ${entry.routeId}`,
+      );
+    }
+    catalogByRoute.set(entry.routeId, entry);
+  }
   const configuredByRoute = new Map();
 
   for (const [index, rawCandidate] of configuration.candidates.entries()) {

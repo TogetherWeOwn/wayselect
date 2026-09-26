@@ -5,6 +5,16 @@ export class SnapshotDiffError extends Error {
   }
 }
 
+function requireDiffEntry(entry, label) {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new SnapshotDiffError(`${label} must be a snapshot entry object`);
+  }
+  if (typeof entry.routeId !== "string" || entry.routeId === "") {
+    throw new SnapshotDiffError(`${label}.routeId must be a non-empty string`);
+  }
+  return entry;
+}
+
 function requireSnapshot(value, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new SnapshotDiffError(`${label} must be a snapshot object`);
@@ -12,10 +22,22 @@ function requireSnapshot(value, label) {
   if (!Array.isArray(value.entries)) {
     throw new SnapshotDiffError(`${label}.entries must be an array`);
   }
+  value.entries.forEach((entry, index) =>
+    requireDiffEntry(entry, `${label}.entries[${index}]`),
+  );
+  if (value.gaps !== undefined && !Array.isArray(value.gaps)) {
+    throw new SnapshotDiffError(`${label}.gaps must be an array when present`);
+  }
   return value;
 }
 
 export function compareEntries(previous, current) {
+  if (previous === null || typeof previous !== "object" || Array.isArray(previous)) {
+    throw new SnapshotDiffError("previous entry must be a snapshot entry object");
+  }
+  if (current === null || typeof current !== "object" || Array.isArray(current)) {
+    throw new SnapshotDiffError("current entry must be a snapshot entry object");
+  }
   return {
     changed: previous.name !== current.name,
     fields: {
@@ -109,7 +131,23 @@ export function diffSnapshots(previousInput, currentInput) {
   });
 }
 
-export function formatDiffReport(diff) {
+function requireDiffReport(diff) {
+  if (diff === null || typeof diff !== "object" || Array.isArray(diff)) {
+    throw new SnapshotDiffError("diff must be a snapshot diff object");
+  }
+  for (const field of ["added", "removed", "changed", "newGaps", "resolvedGaps", "currentGaps"]) {
+    if (!Array.isArray(diff[field])) {
+      throw new SnapshotDiffError(`diff.${field} must be an array`);
+    }
+  }
+  if (diff.summary === null || typeof diff.summary !== "object" || Array.isArray(diff.summary)) {
+    throw new SnapshotDiffError("diff.summary must be an object");
+  }
+  return diff;
+}
+
+export function formatDiffReport(diffInput) {
+  const diff = requireDiffReport(diffInput);
   const lines = [
     "# Wayselect staging catalog snapshot diff",
     "",
