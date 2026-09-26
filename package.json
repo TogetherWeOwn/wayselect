@@ -19,7 +19,8 @@
     "accept:seller": "node bin/accept-wayselect-seller",
     "accept:eligibility": "node bin/accept-wayselect-eligibility",
     "accept:dryrun-explain": "node bin/accept-wayselect-dryrun-explain",
-    "snapshot": "node bin/wayselect-snapshot"
+    "snapshot": "node bin/wayselect-snapshot",
+    "check:provenance": "node bin/check-ingestion-provenance"
   },
   "dependencies": {
     "ajv": "^8.17.1",
