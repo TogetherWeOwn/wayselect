@@ -11,6 +11,7 @@ export {
 } from "./eligibility.js";
 export { selectRoute } from "./selection.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
+export { SellerSubmissionError, validateSellerSubmission } from "./sellerSubmission.js";
 export { FakeTransport } from "./transport.js";
 export {
   CatalogFreshnessError,
@@ -33,3 +34,12 @@ export {
   diffSnapshots,
   formatDiffReport,
 } from "./catalogDiff.js";
+export {
+  failOnGapsMessage,
+  formatCliFailure,
+  futureSnapshotMessage,
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  staleSnapshotMessage,
+  unknownArgumentMessage,
+} from "./cliErrors.js";

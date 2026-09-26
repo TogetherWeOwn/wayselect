@@ -8,6 +8,12 @@ import {
   normalizeCatalog,
   selectRoute,
 } from "../src/index.js";
+import {
+  formatCliFailure,
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
 
 function parseArguments(argv) {
   const values = {
@@ -21,7 +27,7 @@ function parseArguments(argv) {
     const flag = argv[index];
     const value = argv[index + 1];
     if (!value) {
-      throw new Error(`Missing value for ${flag}`);
+      throw new Error(missingValueMessage(flag));
     }
     if (flag === "--catalog") {
       values.catalog = value;
@@ -32,11 +38,11 @@ function parseArguments(argv) {
     } else if (flag === "--max-catalog-age-hours") {
       const parsed = Number(value);
       if (!Number.isFinite(parsed) || parsed < 0) {
-        throw new Error("--max-catalog-age-hours must be a non-negative number");
+        throw new Error(invalidMaxCatalogAgeMessage());
       }
       values.maxCatalogAgeHours = parsed;
     } else {
-      throw new Error(`Unknown argument: ${flag}`);
+      throw new Error(unknownArgumentMessage(flag));
     }
   }
 
@@ -94,6 +100,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error.name}: ${error.message}\n`);
+  process.stderr.write(formatCliFailure(error));
   process.exitCode = 1;
 });
