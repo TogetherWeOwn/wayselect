@@ -83,6 +83,9 @@ function evidenceReasons(candidate, now, maxEvidenceAgeMs) {
   }
 
   const observedAt = Date.parse(candidate.evidence.observedAt);
+  if (!Number.isFinite(observedAt)) {
+    return ["invalid-evidence"];
+  }
   const ageMs = now.getTime() - observedAt;
   if (ageMs < 0) {
     return ["future-evidence"];
