@@ -1,0 +1,16 @@
+{
+  "name": "wayselect",
+  "version": "0.1.0",
+  "description": "Explainable model selection with models.dev catalog discovery and explicit capability checks.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
