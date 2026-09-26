@@ -12,6 +12,7 @@
   },
   "scripts": {
     "demo": "node bin/wayselect",
-    "test": "node --test"
+    "test": "node --test",
+    "preview": "node web/server.js"
   }
 }
