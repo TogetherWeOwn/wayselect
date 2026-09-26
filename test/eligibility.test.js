@@ -147,3 +147,52 @@ test("unknown required capabilities fail closed as missing data", async () => {
     ),
   );
 });
+
+test("malformed candidates fail closed with EligibilityRequestError", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const valid = candidates.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+
+  assert.throws(
+    () => evaluateEligibility(null, defaultRequest, evaluationOptions),
+    EligibilityRequestError,
+  );
+  assert.throws(
+    () => evaluateEligibility([{ ...valid, capabilities: null }], defaultRequest, evaluationOptions),
+    /capabilities must be an object/,
+  );
+  assert.throws(
+    () => evaluateEligibility([{ ...valid, catalogOperations: undefined }], defaultRequest, evaluationOptions),
+    /catalogOperations must be an array/,
+  );
+  assert.throws(
+    () =>
+      evaluateEligibility(
+        candidates,
+        { ...defaultRequest, requiredCapabilities: null },
+        evaluationOptions,
+      ),
+    EligibilityRequestError,
+  );
+});
+
+test("malformed evidence observedAt fails closed as invalid-evidence", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const base = candidates.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+  const malformed = [
+    { observedAt: "garbage-not-a-date" },
+    { observedAt: 12345 },
+    { observedAt: "" },
+    "not-an-object",
+  ];
+
+  for (const evidence of malformed) {
+    const tampered = [{ ...base, evidence }];
+    const evaluations = evaluateEligibility(
+      tampered,
+      defaultRequest,
+      evaluationOptions,
+    );
+    assert.equal(evaluations[0].eligible, false);
+    assert.ok(evaluations[0].reasons.includes("invalid-evidence"));
+  }
+});

@@ -29,6 +29,36 @@ function stableStringify(value) {
   return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
 }
 
+function requireSnapshotEntry(entry, label) {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new SnapshotError(`${label} must be a snapshot entry object`);
+  }
+  if (typeof entry.routeId !== "string" || entry.routeId === "") {
+    throw new SnapshotError(`${label}.routeId must be a non-empty string`);
+  }
+  if (
+    !Array.isArray(entry.catalogOperations) ||
+    entry.catalogOperations.some((item) => typeof item !== "string" || item === "")
+  ) {
+    throw new SnapshotError(
+      `${label}.catalogOperations must be an array of non-empty strings`,
+    );
+  }
+  if (
+    entry.capabilities === null ||
+    typeof entry.capabilities !== "object" ||
+    Array.isArray(entry.capabilities)
+  ) {
+    throw new SnapshotError(`${label}.capabilities must be an object`);
+  }
+  if (entry.rates !== null && entry.rates !== undefined) {
+    if (typeof entry.rates !== "object" || Array.isArray(entry.rates)) {
+      throw new SnapshotError(`${label}.rates must be an object when present`);
+    }
+  }
+  return entry;
+}
+
 function canonicalEntry(entry) {
   return {
     routeId: entry.routeId,
@@ -57,11 +87,16 @@ function compareRouteId(left, right) {
 }
 
 export function computeContentHash(entries) {
+  if (!Array.isArray(entries)) {
+    throw new SnapshotError("entries must be an array");
+  }
+  entries.forEach((entry, index) => requireSnapshotEntry(entry, `entries[${index}]`));
   const canonical = [...entries].map(canonicalEntry).sort(compareRouteId);
   return `sha256:${createHash("sha256").update(stableStringify(canonical)).digest("hex")}`;
 }
 
 export function findEntryGaps(entry) {
+  requireSnapshotEntry(entry, "entry");
   const gaps = [];
   for (const name of KNOWN_CAPABILITY_NAMES) {
     if (entry.capabilities[name] === null || entry.capabilities[name] === undefined) {
@@ -88,6 +123,14 @@ function normalizeCollectedAt(value) {
 }
 
 export function buildSnapshot(catalogInput, provenanceInput, options = {}) {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw new SnapshotError("options must be an object when present");
+  }
+  if (options.sourcePrefix !== undefined) {
+    if (typeof options.sourcePrefix !== "string" || options.sourcePrefix === "") {
+      throw new SnapshotError("options.sourcePrefix must be a non-empty string when present");
+    }
+  }
   const sourcePrefix = options.sourcePrefix ?? DEFAULT_STAGING_SOURCE_PREFIX;
   const declaredSource = provenanceInput?.source;
   if (typeof declaredSource !== "string" || !declaredSource.startsWith(sourcePrefix)) {
@@ -150,5 +193,11 @@ export function buildSnapshot(catalogInput, provenanceInput, options = {}) {
 }
 
 export function snapshotIsClean(snapshot) {
+  if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new SnapshotError("snapshot must be a snapshot object");
+  }
+  if (!Array.isArray(snapshot.gaps)) {
+    throw new SnapshotError("snapshot.gaps must be an array");
+  }
   return snapshot.gaps.length === 0;
 }

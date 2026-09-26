@@ -67,7 +67,10 @@ export function normalizeSelectionRequest(request) {
   return Object.freeze({
     operation: nonEmptyString(request.operation, "request.operation"),
     requiredCapabilities: Object.freeze(
-      uniqueStringArray(request.requiredCapabilities ?? [], "request.requiredCapabilities"),
+      uniqueStringArray(
+        request.requiredCapabilities === undefined ? [] : request.requiredCapabilities,
+        "request.requiredCapabilities",
+      ),
     ),
     providerAllowlist: Object.freeze(
       uniqueStringArray(request.providerAllowlist, "request.providerAllowlist", {
@@ -82,7 +85,11 @@ function evidenceReasons(candidate, now, maxEvidenceAgeMs) {
     return ["missing-evidence"];
   }
 
-  const observedAt = Date.parse(candidate.evidence.observedAt);
+  const rawObservedAt =
+    candidate.evidence !== null && typeof candidate.evidence === "object"
+      ? candidate.evidence.observedAt
+      : undefined;
+  const observedAt = typeof rawObservedAt === "string" ? Date.parse(rawObservedAt) : Number.NaN;
   if (!Number.isFinite(observedAt)) {
     return ["invalid-evidence"];
   }
@@ -96,7 +103,46 @@ function evidenceReasons(candidate, now, maxEvidenceAgeMs) {
   return [];
 }
 
+function requireCandidate(candidate, index) {
+  const label = `candidates[${index}]`;
+  if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+    throw new EligibilityRequestError(`${label} must be an object`);
+  }
+  for (const field of ["routeId", "providerId", "modelId", "supportState"]) {
+    if (typeof candidate[field] !== "string" || candidate[field].trim() === "") {
+      throw new EligibilityRequestError(`${label}.${field} must be a non-empty string`);
+    }
+  }
+  for (const field of ["catalogOperations", "configuredOperations"]) {
+    const value = candidate[field];
+    if (
+      !Array.isArray(value) ||
+      value.some((item) => typeof item !== "string" || item === "")
+    ) {
+      throw new EligibilityRequestError(
+        `${label}.${field} must be an array of non-empty strings`,
+      );
+    }
+  }
+  if (
+    candidate.capabilities === null ||
+    typeof candidate.capabilities !== "object" ||
+    Array.isArray(candidate.capabilities)
+  ) {
+    throw new EligibilityRequestError(`${label}.capabilities must be an object`);
+  }
+  if (candidate.rates !== null && candidate.rates !== undefined) {
+    if (typeof candidate.rates !== "object" || Array.isArray(candidate.rates)) {
+      throw new EligibilityRequestError(`${label}.rates must be an object when present`);
+    }
+  }
+}
+
 export function evaluateEligibility(candidates, requestInput, optionsInput) {
+  if (!Array.isArray(candidates)) {
+    throw new EligibilityRequestError("candidates must be an array");
+  }
+  candidates.forEach(requireCandidate);
   const request = normalizeSelectionRequest(requestInput);
   const { now, maxEvidenceAgeMs, catalogProbe } = normalizeOptions(optionsInput);
   const allowedProviders = new Set(request.providerAllowlist);
