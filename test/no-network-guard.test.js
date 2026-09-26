@@ -29,3 +29,26 @@ test("raw socket constructors are blocked", () => {
   assert.throws(() => net.createConnection(443, "example.invalid"), FORBIDDEN);
   assert.throws(() => tls.connect(443, "example.invalid"), FORBIDDEN);
 });
+
+test("loopback server traffic is allowed; non-loopback still blocked", async (t) => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("loopback-ok");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const res = await globalThis.fetch(`${base}/health`);
+  assert.equal(await res.text(), "loopback-ok");
+
+  // Non-loopback destinations still fail before any socket opens, including
+  // the loopback-looking suffix attack ("localhost.example.invalid").
+  await assert.rejects(globalThis.fetch("https://example.invalid/"), FORBIDDEN);
+  await assert.rejects(
+    globalThis.fetch("http://localhost.example.invalid/"),
+    FORBIDDEN,
+  );
+  assert.throws(() => http.request("https://example.invalid/"), FORBIDDEN);
+  assert.throws(() => net.connect(443, "localhost.example.invalid"), FORBIDDEN);
+});
