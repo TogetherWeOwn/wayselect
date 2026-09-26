@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "v0",
+  "providerId": "deepinfra",
+  "modelId": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "provenance": {
+    "source": "https://models.dev/api.json",
+    "fetchedAt": "2025-01-01T00:00:00.000Z"
+  },
+  "entry": {
+    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "name": "Llama 3.3 70B Turbo"
+  }
+}

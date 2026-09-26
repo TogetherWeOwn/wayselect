@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "v1",
+  "providerId": "deepinfra",
+  "modelId": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "provenance": {
+    "source": "https://models.dev/api.json",
+    "fetchedAt": "2026-09-26T05:00:00.000Z"
+  },
+  "entry": {
+    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "name": "Llama 3.3 70B Turbo",
+    "description": "Missing required capability flags and limits",
+    "attachment": "maybe",
+    "modalities": {
+      "input": ["text"]
+    },
+    "limit": {
+      "context": -5
+    }
+  }
+}
