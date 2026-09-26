@@ -72,3 +72,25 @@ test("unknown required capabilities fail closed as missing data", async () => {
     ),
   );
 });
+
+test("malformed evidence observedAt fails closed as invalid-evidence", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const base = candidates.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+  const malformed = [
+    { observedAt: "garbage-not-a-date" },
+    { observedAt: 12345 },
+    { observedAt: "" },
+    "not-an-object",
+  ];
+
+  for (const evidence of malformed) {
+    const tampered = [{ ...base, evidence }];
+    const evaluations = evaluateEligibility(
+      tampered,
+      defaultRequest,
+      evaluationOptions,
+    );
+    assert.equal(evaluations[0].eligible, false);
+    assert.ok(evaluations[0].reasons.includes("invalid-evidence"));
+  }
+});

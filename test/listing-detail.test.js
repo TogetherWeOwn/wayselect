@@ -116,3 +116,23 @@ describe("preview server routes", () => {
     strictEqual(get.status, 405);
   });
 });
+
+describe("malformed percent-encoding on detail route", () => {
+  it("returns 404 instead of crashing the server", async () => {
+    const { createApp: newApp } = await import("../web/server.js");
+    const server = newApp({ WAYSELECT_PREVIEW: "1" });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const base = `http://127.0.0.1:${server.address().port}`;
+      const before = await fetch(`${base}/listings`);
+      strictEqual(before.status, 200);
+      const malformed = await fetch(`${base}/listings/%E0%A4%A/broken`);
+      strictEqual(malformed.status, 404);
+      // Server survives: a follow-up request still works.
+      const after = await fetch(`${base}/listings`);
+      strictEqual(after.status, 200);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
