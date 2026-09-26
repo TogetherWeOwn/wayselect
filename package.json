@@ -1,13 +1,17 @@
 {
   "name": "wayselect",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "private": true,
-  "description": "Explainable model selection with models.dev catalog discovery and explicit capability checks. Early development.",
+  "description": "Fixture-only, explainable dry-run model selection",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
+  "bin": {
+    "wayselect": "bin/wayselect"
+  },
   "scripts": {
+    "demo": "node bin/wayselect",
     "test": "node --test",
     "preview": "node web/server.js"
   }
