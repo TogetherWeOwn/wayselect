@@ -1,19 +1,20 @@
-# QA Evidence - TOG-4858 (run `65b78681`, 2026-09-26)
+# QA Evidence - TOG-4858 (run `f23e7598`, 2026-09-26)
 
 Issue: TOG-4858 Wayselect eligibility matrix test script (QA)
-Head SHA: e25fc8872cdc2d09e31cbbaad9bca401ef743473
+Head SHA: 150e2f7ae25862795ee3419584fc524c1bb71823
 Branch: TOG-4858-wayselect-eligibility-matrix-test-script-qa
 Date (UTC): 2026-09-26
 Node: v24.21.0
 Command: `npm test` (`node --test test/*.test.js`)
 
-## Re-verification (board-resume run `65b78681-ae34-4304-b306-c8256f05847a`, 2026-09-26T10:32Z)
+## Re-verification (board-resume run `f23e7598-2ddd-4a85-8ced-94f3731388db`, 2026-09-26T11:36Z)
 
-- Head `e25fc88`; code tree unchanged since `10321da` (only `qa-evidence-TOG-4858.md`
-  added in between: `git diff 10321da..HEAD --stat` shows 1 file, +88).
-- `npm test` re-run: **14 pass, 0 fail, exit 0** (~353ms, node v24.21.0). Verdict below re-confirmed.
+- Head `150e2f7`; code tree unchanged since `10321da` (only `qa-evidence-TOG-4858.md`
+  added in between: `git diff 10321da..HEAD --stat` shows 1 file, +91).
+- `npm test` re-run: **14 pass, 0 fail, exit 0** (~355ms, node v24.21.0). Verdict below re-confirmed.
 - Key citations re-checked (`test/eligibility-matrix.test.js` 123 lines,
-  stale rows at `:57-67`; `src/validate-catalog-entry.js` 70 lines;
+  stale rows at `:57-67`; `test/validate-catalog-entry.test.js` 45 lines;
+  `src/validate-catalog-entry.js` 70 lines;
   `schema/catalog-entry/v1.json` 244 lines): accurate.
 
 ## Prior runs (history)
@@ -22,6 +23,8 @@ Command: `npm test` (`node --test test/*.test.js`)
 - Run `725c2c2d-eecf-45d7-a82c-8862a0a94a58`: same head, 14 pass / 0 fail (~364ms).
 - Run `b3ea7581-7573-4f17-b47b-8b895e435c0f`: same head, 14 pass / 0 fail (~327ms).
 - Run `d3aa1a8a-cb8e-4fcb-8a0e-aedcd82f1408`: same head, 14 pass / 0 fail (~334ms).
+- Run `65b78681-ae34-4304-b306-c8256f05847a`: head `e25fc88` (code unchanged since `10321da`), 14 pass / 0 fail (~353ms); upload + PATCH failed (503 then 409 indeterminate).
+- Run `927f432e-43e0-4ac9-8674-7658a78732c7`: head `150e2f7` (code unchanged; only evidence file added), 14 pass / 0 fail; read probe 409 indeterminate, no writes attempted per bounded-retry.
 
 ## Result
 
@@ -56,7 +59,30 @@ Command: `npm test` (`node --test test/*.test.js`)
 
 ## Verdict
 
-`QA e25fc8872cdc2d09e31cbbaad9bca401ef743473: PASS` (local)
+`QA 150e2f7ae25862795ee3419584fc524c1bb71823: PASS` (local — registration pending)
+
+## Control-plane registration (run `f23e7598`, 2026-09-26T11:36-11:48Z) - DEGRADED (attempted per board-continue)
+
+Board-resume `continue` required a disposition this run; all control-plane writes attempted
+via run-scoped bridge (`PAPERCLIP_API_URL` loopback, 10s worker timeouts):
+
+- Read probe `GET heartbeat-context`: 1x409 `outcome: indeterminate` (bridge timeout). Same as runs `65b78681`, `927f432e`.
+- Evidence upload (`paperclip-upload-artifact.sh qa-evidence-TOG-4858.md`, isolated state dir
+  `.paperclip-runtime/upload-state` to dodge cross-run `/tmp` lock owned by `pcworker1`):
+  attempt 1 -> 409 `outcome: indeterminate`; attempt 2 -> 409 `outcome: indeterminate`.
+  Retries stopped per bounded-write rule (2 consecutive failures, same write).
+- Disposition PATCH (`in_progress` + verdict comment + `executionPolicy.monitor`
+  `nextCheckAt 2026-09-26T12:30:00Z`, `kind external_service`, `serviceName paperclip-bridge`,
+  `externalRef TOG-4858-qa-reregister-f23e7598`, `timeoutAt 2026-09-27T12:30:00Z`, `maxAttempts 3`;
+  payload at `.paperclip-runtime/upload-state/patch-body.json`):
+  attempt 1 (validation) -> 400 `kind` must be `external_service` (fixed);
+  attempt 2 (bridge) -> 409 `outcome: indeterminate`, `retryable: false`. NOT retried further:
+  server marked it non-retryable and indeterminate may have committed — retry risks a duplicate
+  verdict comment.
+- **Disposition NOT confirmed; evidence NOT registered; monitor NOT confirmed.** `PATCH` response
+  was an error body, not issue JSON, so `monitorNextCheckAt`/`assigneeAgentId`/`status` could not
+  be verified. This file (committed locally) plus the adapter/runtime status channel are the
+  fallback record.
 
 ## Control-plane registration (run `65b78681`, 2026-09-26T10:32Z) - DEGRADED
 
