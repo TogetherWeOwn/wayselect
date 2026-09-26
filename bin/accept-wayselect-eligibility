@@ -23,6 +23,14 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BUDGET_MS = 15 * 60 * 1000;
+// Refresh-proof clocks: derived from the live catalog snapshot so provenance
+// refreshes never break the stale/future boundary checks below.
+const SNAPSHOT_MS = Date.parse(
+  JSON.parse(
+    await readFile(join(REPO_ROOT, "fixtures/catalog.synthetic.json"), "utf8"),
+  ).provenance.snapshotTimestamp,
+);
+const DAY_MS = 24 * 60 * 60 * 1000;
 const startedAt = Date.now();
 const results = [];
 
@@ -197,7 +205,7 @@ const base = await runCli([]);
     const baseRequest = JSON.parse(
       await readFile(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
     );
-    baseRequest.evaluationTime = "2026-09-25T10:00:01.000Z"; // snapshot 2026-09-24T10Z + 24h
+    baseRequest.evaluationTime = new Date(SNAPSHOT_MS + DAY_MS + 1000).toISOString(); // snapshot + 24h limit + 1s
     const requestPath = join(dir, "request.json");
     await writeFile(requestPath, JSON.stringify(baseRequest));
     return runCli(["--request", requestPath]);
@@ -219,7 +227,7 @@ const base = await runCli([]);
     const baseRequest = JSON.parse(
       await readFile(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
     );
-    baseRequest.evaluationTime = "2026-09-24T09:59:59.000Z"; // before snapshotTimestamp
+    baseRequest.evaluationTime = new Date(SNAPSHOT_MS - 1000).toISOString(); // just before snapshotTimestamp
     const requestPath = join(dir, "request.json");
     await writeFile(requestPath, JSON.stringify(baseRequest));
     return runCli(["--request", requestPath]);
