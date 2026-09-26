@@ -10,6 +10,7 @@ export {
   normalizeSelectionRequest,
 } from "./eligibility.js";
 export { selectRoute } from "./selection.js";
+export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
 export { FakeTransport } from "./transport.js";
 export {
   CatalogFreshnessError,
