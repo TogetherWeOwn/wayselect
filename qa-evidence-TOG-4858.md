@@ -1,4 +1,4 @@
-# QA Evidence - TOG-4858 (run `f23e7598`, 2026-09-26)
+# QA Evidence - TOG-4858 (run `ded2bc51`, 2026-09-26)
 
 Issue: TOG-4858 Wayselect eligibility matrix test script (QA)
 Head SHA: 150e2f7ae25862795ee3419584fc524c1bb71823
@@ -6,6 +6,16 @@ Branch: TOG-4858-wayselect-eligibility-matrix-test-script-qa
 Date (UTC): 2026-09-26
 Node: v24.21.0
 Command: `npm test` (`node --test test/*.test.js`)
+
+## Re-verification (board-resume run `ded2bc51-b3f7-49dc-bf84-6550aaf07cb2`, 2026-09-26T12:07Z)
+
+- Head `1daa9b4`; code tree unchanged since `10321da` (only `qa-evidence-TOG-4858.md`
+  added in between).
+- `npm test` re-run: **14 pass, 0 fail, exit 0** (~310ms, node v24.21.0). Verdict below re-confirmed.
+- Key citations re-checked (`test/eligibility-matrix.test.js` 123 lines,
+  stale rows at `:57-67`; `test/validate-catalog-entry.test.js` 45 lines;
+  `src/validate-catalog-entry.js` 70 lines;
+  `schema/catalog-entry/v1.json` 244 lines): accurate.
 
 ## Re-verification (board-resume run `f23e7598-2ddd-4a85-8ced-94f3731388db`, 2026-09-26T11:36Z)
 
