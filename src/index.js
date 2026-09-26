@@ -3,6 +3,7 @@ export {
   CatalogValidationError,
   computeCatalogSnapshotHash,
   normalizeCatalog,
+  stableStringify,
   verifyCatalogSnapshotHash,
 } from "./catalog.js";
 export {
