@@ -40,27 +40,31 @@ npm test
 npm run demo
 ```
 
-The demo reads only:
+The demo (`wayselect select`) reads only:
 
 - `fixtures/catalog.synthetic.json`
 - `fixtures/configuration.synthetic.json`
 - `fixtures/request.synthetic.json`
 
-It prints JSON containing:
+It prints:
 
-1. fixture provenance;
-2. every candidate and its eligibility or exclusion reasons;
-3. the deterministic selected route or `no-eligible-route`;
-4. a response from `FakeTransport` with `networkUsed: false`.
+1. the deterministic selected route or `no eligible route`, labelled dry-run;
+2. the ranked candidates with eligibility or exclusion reasons;
+3. fixture provenance.
 
 Use alternate fixture files without adding code or network access:
 
 ```sh
-node bin/wayselect \
+node bin/wayselect select \
   --catalog fixtures/catalog.synthetic.json \
   --configuration fixtures/configuration.synthetic.json \
   --request fixtures/request.synthetic.json
 ```
+
+Use `wayselect select --json` or `wayselect explain` for the machine-readable
+shape and per-candidate detail. See `docs/cli.md` for copy-pasteable examples,
+including exit codes (0 selected, 1 invalid input, 2 usage error,
+3 no eligible route).
 
 ## Library boundaries
 
@@ -69,7 +73,7 @@ node bin/wayselect \
 - `src/eligibility.js` applies operation, capability, provider, and evidence-age rules. An empty provider allowlist is invalid.
 - `src/selection.js` produces a dry-run decision and full candidate explanations.
 - `src/transport.js` exposes only `FakeTransport`; executable location fields are rejected.
-- `bin/wayselect` is the reproducible fixture demo.
+- `bin/wayselect` is the thin CLI (`select`/`explain`, `--help`, `--version`); see `docs/cli.md`.
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.
 

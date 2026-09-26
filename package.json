@@ -11,7 +11,7 @@
     "wayselect": "bin/wayselect"
   },
   "scripts": {
-    "demo": "node bin/wayselect",
+    "demo": "node bin/wayselect select",
     "test": "node --test"
   }
 }
