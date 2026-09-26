@@ -58,6 +58,27 @@ test("marks old support evidence stale", async () => {
   assert.ok(legacy.reasons.includes("stale-evidence"));
 });
 
+test("malformed evidence timestamps fail closed as invalid evidence", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const tampered = structuredClone(candidates);
+  const target = tampered.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+  target.evidence = { observedAt: "not-a-date" };
+
+  const evaluations = evaluateEligibility(
+    tampered,
+    {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+    },
+    evaluationOptions,
+  );
+  const alpha = evaluations.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+
+  assert.equal(alpha.eligible, false);
+  assert.ok(alpha.reasons.includes("invalid-evidence"));
+});
+
 test("unknown required capabilities fail closed as missing data", async () => {
   const { candidates } = await loadConfiguredCandidates();
   const evaluations = evaluateEligibility(
