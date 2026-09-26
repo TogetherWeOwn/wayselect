@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+/**
+ * Provenance backfill check for the Wayselect ingestion pipeline (TOG-5289).
+ *
+ * Follow-up to the nightly smoke (TOG-5246): audits the persisted pipeline
+ * outputs — the committed staging snapshot backfill files in snapshots/ —
+ * instead of the live in-memory boundaries. Every backfill must carry pinned
+ * provenance (source + hash + timestamp), every entry must be traceable to
+ * that provenance through the content-hash pinning chain, and stale/future
+ * backfills are flagged as failures.
+ *
+ * No network, no credentials, no spend, no production authority. Exit code
+ * is 0 only when every backfill passes. Usage (from the wayselect repo root):
+ *
+ *   node bin/check-ingestion-provenance
+ *   node bin/check-ingestion-provenance --dir snapshots
+ *   node bin/check-ingestion-provenance --dir snapshots --now 2026-09-24T13:00:00.000Z
+ *   node bin/check-ingestion-provenance snapshots/a.json snapshots/b.json
+ *   node bin/check-ingestion-provenance --max-catalog-age-hours 48
+ */
+
+import { readdir, readFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
+import {
+  DEFAULT_BACKFILL_MAX_AGE_MS,
+  auditIngestionSnapshot,
+} from "../src/provenanceAudit.js";
+import {
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
+
+function parseArguments(argv) {
+  const values = { dir: "snapshots", now: null, maxCatalogAgeHours: null, files: [] };
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--dir" || flag === "--now" || flag === "--max-catalog-age-hours") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error(missingValueMessage(flag));
+      }
+      if (flag === "--dir") {
+        values.dir = value;
+      } else if (flag === "--now") {
+        values.now = value;
+      } else {
+        values.maxCatalogAgeHours = value;
+      }
+      index += 1;
+      continue;
+    }
+    if (flag.startsWith("--")) {
+      throw new Error(unknownArgumentMessage(flag));
+    }
+    values.files.push(flag);
+  }
+  return values;
+}
+
+async function discoverBackfills(dir) {
+  const names = await readdir(resolve(dir));
+  return names
+    .filter((name) => name.startsWith("snapshot-") && name.endsWith(".json"))
+    .sort()
+    .map((name) => join(resolve(dir), name));
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+
+  let maxCatalogAgeMs = DEFAULT_BACKFILL_MAX_AGE_MS;
+  if (args.maxCatalogAgeHours !== null) {
+    const hours = Number(args.maxCatalogAgeHours);
+    if (!Number.isFinite(hours) || hours < 0) {
+      throw new Error(invalidMaxCatalogAgeMessage());
+    }
+    maxCatalogAgeMs = hours * 60 * 60 * 1000;
+  }
+
+  let now;
+  if (args.now !== null) {
+    now = new Date(args.now);
+    if (!Number.isFinite(now.getTime())) {
+      throw new Error("options.now must be a valid date");
+    }
+  }
+
+  const paths =
+    args.files.length > 0 ? args.files.map((file) => resolve(file)) : await discoverBackfills(args.dir);
+  if (paths.length === 0) {
+    throw new Error(`no snapshot backfill files found in ${args.dir}`);
+  }
+
+  let failed = 0;
+  for (const path of paths) {
+    const raw = await readFile(path, "utf8");
+    const audit = auditIngestionSnapshot(JSON.parse(raw), {
+      filename: basename(path),
+      maxCatalogAgeMs,
+      ...(now === undefined ? {} : { now }),
+    });
+    if (audit.ok) {
+      process.stdout.write(
+        `PASS  ${audit.filename} — ${audit.entryCount} entries pinned to ` +
+          `${audit.provenance.source} @ ${audit.provenance.snapshotTimestamp}\n`,
+      );
+    } else {
+      failed += 1;
+      process.stdout.write(`FAIL  ${audit.filename}:\n`);
+      for (const failure of audit.failures) {
+        process.stdout.write(`      - ${failure}\n`);
+      }
+    }
+  }
+
+  process.stdout.write(
+    `\nprovenance-backfill: ${paths.length - failed}/${paths.length} backfills passed\n`,
+  );
+  if (failed > 0) {
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(
+    `${JSON.stringify({ mode: "staging-only", networkUsed: false, backfills: paths.length, failures: 0 })}\n`,
+  );
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.name}: ${error.message}\n`);
+  process.exitCode = 1;
+});
