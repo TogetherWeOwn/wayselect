@@ -1,4 +1,5 @@
 import { SupportState } from "./support.js";
+import { checkCatalogFreshness } from "./freshness.js";
 
 const ELIGIBLE_STATES = new Set([
   SupportState.CONFIGURED,
@@ -41,7 +42,21 @@ function normalizeOptions(options) {
     throw new EligibilityRequestError("options.maxEvidenceAgeMs must be a non-negative number");
   }
 
-  return { now, maxEvidenceAgeMs };
+  const catalog = options?.catalog ?? null;
+  let catalogProbe = null;
+  if (catalog !== null) {
+    if (!Number.isFinite(options?.maxCatalogAgeMs) || options.maxCatalogAgeMs < 0) {
+      throw new EligibilityRequestError(
+        "options.maxCatalogAgeMs must be a non-negative number",
+      );
+    }
+    catalogProbe = checkCatalogFreshness(catalog, {
+      now,
+      maxCatalogAgeMs: options.maxCatalogAgeMs,
+    });
+  }
+
+  return { now, maxEvidenceAgeMs, catalogProbe };
 }
 
 export function normalizeSelectionRequest(request) {
@@ -80,13 +95,26 @@ function evidenceReasons(candidate, now, maxEvidenceAgeMs) {
 
 export function evaluateEligibility(candidates, requestInput, optionsInput) {
   const request = normalizeSelectionRequest(requestInput);
-  const { now, maxEvidenceAgeMs } = normalizeOptions(optionsInput);
+  const { now, maxEvidenceAgeMs, catalogProbe } = normalizeOptions(optionsInput);
   const allowedProviders = new Set(request.providerAllowlist);
 
   return Object.freeze(
     [...candidates]
       .sort((left, right) => left.routeId.localeCompare(right.routeId))
       .map((candidate) => {
+        if (catalogProbe !== null && !catalogProbe.fresh) {
+          const catalogReason = catalogProbe.ageMs < 0 ? "future-catalog" : "stale-catalog";
+          return Object.freeze({
+            routeId: candidate.routeId,
+            providerId: candidate.providerId,
+            modelId: candidate.modelId,
+            supportState: candidate.supportState,
+            eligible: false,
+            reasons: Object.freeze([catalogReason]),
+            rates: candidate.rates,
+          });
+        }
+
         const reasons = [];
 
         if (!ELIGIBLE_STATES.has(candidate.supportState)) {

@@ -11,3 +11,9 @@ export {
 } from "./eligibility.js";
 export { selectRoute } from "./selection.js";
 export { FakeTransport } from "./transport.js";
+export {
+  CatalogFreshnessError,
+  CatalogStaleError,
+  checkCatalogFreshness,
+  requireFreshCatalog,
+} from "./freshness.js";
