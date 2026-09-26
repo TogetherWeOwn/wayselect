@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  FakeTransport,
+  applySupportConfiguration,
+  normalizeCatalog,
+  selectRoute,
+} from "../src/index.js";
+
+function parseArguments(argv) {
+  const values = {
+    catalog: "fixtures/catalog.synthetic.json",
+    configuration: "fixtures/configuration.synthetic.json",
+    request: "fixtures/request.synthetic.json",
+  };
+
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index];
+    const value = argv[index + 1];
+    if (!value) {
+      throw new Error(`Missing value for ${flag}`);
+    }
+    if (flag === "--catalog") {
+      values.catalog = value;
+    } else if (flag === "--configuration") {
+      values.configuration = value;
+    } else if (flag === "--request") {
+      values.request = value;
+    } else {
+      throw new Error(`Unknown argument: ${flag}`);
+    }
+  }
+
+  return values;
+}
+
+async function readJson(path) {
+  return JSON.parse(await readFile(resolve(path), "utf8"));
+}
+
+async function main() {
+  const paths = parseArguments(process.argv.slice(2));
+  const [catalogFixture, configuration, demoRequest] = await Promise.all([
+    readJson(paths.catalog),
+    readJson(paths.configuration),
+    readJson(paths.request),
+  ]);
+
+  const catalog = normalizeCatalog(catalogFixture.catalog, catalogFixture.provenance);
+  const candidates = applySupportConfiguration(catalog, configuration);
+  const result = selectRoute(candidates, demoRequest.selection, {
+    now: new Date(demoRequest.evaluationTime),
+    maxEvidenceAgeMs: demoRequest.maxEvidenceAgeHours * 60 * 60 * 1000,
+  });
+
+  let transport = null;
+  if (result.selected) {
+    const fake = new FakeTransport();
+    transport = await fake.send({
+      route: result.selected,
+      payload: demoRequest.syntheticPayload,
+    });
+  }
+
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        earlyDevelopment: true,
+        mode: "dry-run-only",
+        provenance: catalog.provenance,
+        selection: result,
+        transport,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.name}: ${error.message}\n`);
+  process.exitCode = 1;
+});

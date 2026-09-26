@@ -1,0 +1,52 @@
+{
+  "candidates": [
+    {
+      "routeId": "legacy/old-chat",
+      "supportState": "configured",
+      "operations": ["chat"],
+      "evidence": {
+        "observedAt": "2026-08-01T00:00:00.000Z"
+      }
+    },
+    {
+      "routeId": "northstar/alpha-chat",
+      "supportState": "configured",
+      "operations": ["chat"],
+      "evidence": {
+        "observedAt": "2026-09-23T12:00:00.000Z"
+      }
+    },
+    {
+      "routeId": "northstar/image-lite",
+      "supportState": "configured",
+      "operations": ["vision-chat"],
+      "evidence": {
+        "observedAt": "2026-09-23T12:00:00.000Z"
+      }
+    },
+    {
+      "routeId": "northstar/unknown-tools",
+      "supportState": "configured",
+      "operations": ["chat"],
+      "evidence": {
+        "observedAt": "2026-09-23T12:00:00.000Z"
+      }
+    },
+    {
+      "routeId": "orbit/orbit-chat",
+      "supportState": "conformance-tested",
+      "operations": ["chat"],
+      "evidence": {
+        "observedAt": "2026-09-23T12:00:00.000Z"
+      }
+    },
+    {
+      "routeId": "orbit/retired-chat",
+      "supportState": "unsupported",
+      "operations": [],
+      "evidence": {
+        "observedAt": "2026-09-20T12:00:00.000Z"
+      }
+    }
+  ]
+}

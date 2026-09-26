@@ -1,0 +1,17 @@
+{
+  "name": "wayselect",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fixture-only, explainable dry-run model selection",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "wayselect": "bin/wayselect"
+  },
+  "scripts": {
+    "demo": "node bin/wayselect",
+    "test": "node --test"
+  }
+}
