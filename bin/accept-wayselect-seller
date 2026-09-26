@@ -1,0 +1,387 @@
+#!/usr/bin/env node
+
+// Executable acceptance script for the Wayselect seller slice (TOG-5142).
+//
+// Spec: docs/wayselect-seller-acceptance.md (§1 list baseline; §2 offer and
+// §3 accept forward contracts; §4 flag gating).
+//
+// Usage: node bin/accept-wayselect-seller   (or: npm run accept:seller)
+// Zero dependencies: Node standard library only. Starts the real server from
+// web/server.js on ephemeral ports, probes it, exits 0 when there are zero
+// failures (skips allowed), 1 otherwise. Budget: under 15 minutes.
+//
+// Until the seller slice lands, §2–§4 seller probes report
+// SKIP (seller slice not present) and the run still exits 0. The next slice
+// is accepted when this command reports zero skips and zero fails.
+
+import { createApp } from "../web/server.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function skip(id, label, reason) {
+  record("skip", id, label, reason);
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+function baseOf(server) {
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function close(server) {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+async function request(base, path, options = {}) {
+  const res = await fetch(`${base}${path}`, options);
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return {
+    status: res.status,
+    text,
+    json,
+    contentType: res.headers.get("content-type") ?? "",
+  };
+}
+
+function postJson(base, path, body) {
+  return request(base, path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+const on = await listen({ WAYSELECT_PREVIEW: "1" });
+const off = await listen({});
+const baseOn = baseOf(on);
+const baseOff = baseOf(off);
+
+const SKIP_REASON = "seller slice not present";
+
+try {
+  // ---- §1 list step baseline (shipped slice; must pass today and later) ----
+  const index = await request(baseOn, "/listings");
+  check(
+    index.status === 200 && index.text.includes("Alpha Chat"),
+    "L0",
+    "seller listing visible in GET /listings",
+    `got ${index.status}`,
+  );
+  const detail = await request(baseOn, "/listings/northstar/alpha-chat");
+  check(
+    detail.status === 200 && detail.text.includes("<h1>Alpha Chat</h1>"),
+    "L0b",
+    "seller listing detail page renders",
+    `got ${detail.status}`,
+  );
+  const purchase = await request(baseOn, "/listings/northstar/alpha-chat/purchase", {
+    method: "POST",
+  });
+  check(
+    purchase.status === 403 && purchase.json?.error === "preview_only",
+    "P0",
+    "purchase stub still refuses 403 preview_only",
+    `got ${purchase.status}`,
+  );
+
+  // ---- seller-slice detection (read-only: empty offers list on flag-on) ----
+  const detect = await request(baseOn, "/listings/northstar/alpha-chat/offers");
+  const sellerPresent =
+    detect.status === 200 && detect.json !== null && Array.isArray(detect.json.offers);
+
+  if (!sellerPresent) {
+    for (const [id, label] of [
+      ["O0", "offers list starts empty for a fresh listing"],
+      ["O1", "valid offer posts 201 with id/buyer/price/status open"],
+      ["O2", "offers list contains the posted open offer"],
+      ["O3", "single offer fetch returns the open offer"],
+      ["O4", "invalid price is a 400 invalid_offer"],
+      ["O5", "invalid buyer is a 400 invalid_offer"],
+      ["O6", "offer on unknown listing is a 404 not_found"],
+      ["O7", "offers list on unknown listing is a 404 not_found"],
+      ["O8", "malformed JSON / wrong content-type is a 400 invalid_offer"],
+      ["O9", "evil buyer string round-trips as JSON data, never raw HTML"],
+      ["A1", "accepting an open offer returns 200 accepted"],
+      ["A2", "accepted offer reads back accepted"],
+      ["A3", "sibling open offer supersedes (exactly one accepted)"],
+      ["A4", "double-accept is a 409 offer_conflict"],
+      ["A5", "accepting an unknown offer is a 404 not_found"],
+      ["A6", "accepting on an unknown listing is a 404 not_found"],
+      ["A7", "GET on the accept route is a 405"],
+      ["A8", "purchase stub still refuses 403 after accept"],
+      ["OFF1", "flag off hides the offers list behind preview-disabled"],
+      ["OFF2", "flag off refuses offer posts behind preview-disabled"],
+      ["OFF3", "flag off refuses accepts behind preview-disabled"],
+    ]) {
+      skip(id, label, SKIP_REASON);
+    }
+  } else {
+    // ---- §2 offer step ----
+    check(
+      detect.json.listing === "northstar/alpha-chat" && detect.json.offers.length === 0,
+      "O0",
+      "offers list starts empty for a fresh listing",
+      `got ${detect.status} ${detect.text.slice(0, 120)}`,
+    );
+    const created = await postJson(baseOn, "/listings/northstar/alpha-chat/offers", {
+      buyer: "mia",
+      price: 12,
+    });
+    check(
+      created.status === 201 &&
+        created.json?.id === "offer-1" &&
+        created.json?.listing === "northstar/alpha-chat" &&
+        created.json?.buyer === "mia" &&
+        created.json?.price === 12 &&
+        created.json?.status === "open",
+      "O1",
+      "valid offer posts 201 with id/buyer/price/status open",
+      `got ${created.status} ${created.text.slice(0, 160)}`,
+    );
+    const listed = await request(baseOn, "/listings/northstar/alpha-chat/offers");
+    check(
+      listed.status === 200 &&
+        Array.isArray(listed.json?.offers) &&
+        listed.json.offers.some((o) => o.id === "offer-1" && o.status === "open"),
+      "O2",
+      "offers list contains the posted open offer",
+      `got ${listed.status}`,
+    );
+    const single = await request(baseOn, "/listings/northstar/alpha-chat/offers/offer-1");
+    check(
+      single.status === 200 && single.json?.id === "offer-1" && single.json?.status === "open",
+      "O3",
+      "single offer fetch returns the open offer",
+      `got ${single.status}`,
+    );
+    const badPrices = await Promise.all([
+      postJson(baseOn, "/listings/northstar/alpha-chat/offers", { buyer: "mia" }),
+      postJson(baseOn, "/listings/northstar/alpha-chat/offers", { buyer: "mia", price: -1 }),
+      postJson(baseOn, "/listings/northstar/alpha-chat/offers", { buyer: "mia", price: "12" }),
+    ]);
+    check(
+      badPrices.every((r) => r.status === 400 && r.json?.error === "invalid_offer"),
+      "O4",
+      "invalid price is a 400 invalid_offer",
+      `got ${badPrices.map((r) => r.status).join("/")}`,
+    );
+    const longBuyer = "b".repeat(121);
+    const badBuyers = await Promise.all([
+      postJson(baseOn, "/listings/northstar/alpha-chat/offers", { price: 5 }),
+      postJson(baseOn, "/listings/northstar/alpha-chat/offers", { buyer: "   ", price: 5 }),
+      postJson(baseOn, "/listings/northstar/alpha-chat/offers", { buyer: longBuyer, price: 5 }),
+    ]);
+    check(
+      badBuyers.every((r) => r.status === 400 && r.json?.error === "invalid_offer"),
+      "O5",
+      "invalid buyer is a 400 invalid_offer",
+      `got ${badBuyers.map((r) => r.status).join("/")}`,
+    );
+    const unknownPost = await postJson(baseOn, "/listings/northstar/nope/offers", {
+      buyer: "mia",
+      price: 5,
+    });
+    check(
+      unknownPost.status === 404 && unknownPost.json?.error === "not_found",
+      "O6",
+      "offer on unknown listing is a 404 not_found",
+      `got ${unknownPost.status}`,
+    );
+    const unknownList = await request(baseOn, "/listings/northstar/nope/offers");
+    check(
+      unknownList.status === 404 && unknownList.json?.error === "not_found",
+      "O7",
+      "offers list on unknown listing is a 404 not_found",
+      `got ${unknownList.status}`,
+    );
+    const malformed = await request(baseOn, "/listings/northstar/alpha-chat/offers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not-json",
+    });
+    const wrongType = await request(baseOn, "/listings/northstar/alpha-chat/offers", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "buyer=mia&price=5",
+    });
+    check(
+      malformed.status === 400 &&
+        malformed.json?.error === "invalid_offer" &&
+        wrongType.status === 400 &&
+        wrongType.json?.error === "invalid_offer",
+      "O8",
+      "malformed JSON / wrong content-type is a 400 invalid_offer",
+      `got ${malformed.status}/${wrongType.status}`,
+    );
+    const evilBuyer = "<script>alert(1)</script>";
+    const evil = await postJson(baseOn, "/listings/northstar/alpha-chat/offers", {
+      buyer: evilBuyer,
+      price: 7,
+    });
+    check(
+      evil.status === 201 &&
+        evil.json?.buyer === evilBuyer &&
+        evil.contentType.includes("application/json"),
+      "O9",
+      "evil buyer string round-trips as JSON data, never raw HTML",
+      `got ${evil.status}`,
+    );
+
+    // ---- §3 accept step ----
+    // offer-1 (mia) is open; evil offer is open-2. Accept offer-1, expect
+    // siblings to supersede so exactly one offer is accepted per listing.
+    const accepted = await request(
+      baseOn,
+      "/listings/northstar/alpha-chat/offers/offer-1/accept",
+      { method: "POST" },
+    );
+    check(
+      accepted.status === 200 &&
+        accepted.json?.id === "offer-1" &&
+        accepted.json?.status === "accepted",
+      "A1",
+      "accepting an open offer returns 200 accepted",
+      `got ${accepted.status} ${accepted.text.slice(0, 160)}`,
+    );
+    const reread = await request(baseOn, "/listings/northstar/alpha-chat/offers/offer-1");
+    check(
+      reread.status === 200 && reread.json?.status === "accepted",
+      "A2",
+      "accepted offer reads back accepted",
+      `got ${reread.status}`,
+    );
+    const sibling = await request(baseOn, "/listings/northstar/alpha-chat/offers/offer-2");
+    check(
+      sibling.status === 200 && sibling.json?.status === "superseded",
+      "A3",
+      "sibling open offer supersedes (exactly one accepted)",
+      `got ${sibling.status} ${sibling.text.slice(0, 120)}`,
+    );
+    const double = await request(baseOn, "/listings/northstar/alpha-chat/offers/offer-1/accept", {
+      method: "POST",
+    });
+    check(
+      double.status === 409 && double.json?.error === "offer_conflict",
+      "A4",
+      "double-accept is a 409 offer_conflict",
+      `got ${double.status}`,
+    );
+    const missing = await request(
+      baseOn,
+      "/listings/northstar/alpha-chat/offers/offer-999/accept",
+      { method: "POST" },
+    );
+    check(
+      missing.status === 404 && missing.json?.error === "not_found",
+      "A5",
+      "accepting an unknown offer is a 404 not_found",
+      `got ${missing.status}`,
+    );
+    const missingListing = await request(
+      baseOn,
+      "/listings/northstar/nope/offers/offer-1/accept",
+      { method: "POST" },
+    );
+    check(
+      missingListing.status === 404 && missingListing.json?.error === "not_found",
+      "A6",
+      "accepting on an unknown listing is a 404 not_found",
+      `got ${missingListing.status}`,
+    );
+    const acceptGet = await request(baseOn, "/listings/northstar/alpha-chat/offers/offer-1/accept");
+    check(
+      acceptGet.status === 405 && acceptGet.json?.error === "method_not_allowed",
+      "A7",
+      "GET on the accept route is a 405",
+      `got ${acceptGet.status}`,
+    );
+    const purchaseAfter = await request(baseOn, "/listings/northstar/alpha-chat/purchase", {
+      method: "POST",
+    });
+    check(
+      purchaseAfter.status === 403 && purchaseAfter.json?.error === "preview_only",
+      "A8",
+      "purchase stub still refuses 403 after accept",
+      `got ${purchaseAfter.status}`,
+    );
+
+    // ---- §4 flag-off gating for seller routes ----
+    const offList = await request(baseOff, "/listings/northstar/alpha-chat/offers");
+    check(
+      offList.status === 404 &&
+        (offList.json?.error === "preview_disabled" ||
+          (offList.text.includes("Preview unavailable") &&
+            offList.text.includes("WAYSELECT_PREVIEW"))),
+      "OFF1",
+      "flag off hides the offers list behind preview-disabled",
+      `got ${offList.status}`,
+    );
+    const offPost = await postJson(baseOff, "/listings/northstar/alpha-chat/offers", {
+      buyer: "mia",
+      price: 5,
+    });
+    check(
+      offPost.status === 404 &&
+        (offPost.json?.error === "preview_disabled" ||
+          offPost.text.includes("WAYSELECT_PREVIEW")),
+      "OFF2",
+      "flag off refuses offer posts behind preview-disabled",
+      `got ${offPost.status}`,
+    );
+    const offAccept = await request(
+      baseOff,
+      "/listings/northstar/alpha-chat/offers/offer-1/accept",
+      { method: "POST" },
+    );
+    check(
+      offAccept.status === 404 &&
+        (offAccept.json?.error === "preview_disabled" ||
+          offAccept.text.includes("WAYSELECT_PREVIEW")),
+      "OFF3",
+      "flag off refuses accepts behind preview-disabled",
+      `got ${offAccept.status}`,
+    );
+  }
+} finally {
+  await Promise.all([close(on), close(off)]);
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const skipped = results.filter((r) => r.status === "skip").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(
+  `SUMMARY: ${pass} pass, ${fail} fail, ${skipped} skip — ${elapsedS}s (budget 15m)\n`,
+);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;
