@@ -58,9 +58,24 @@ Command: `npm test` (`node --test test/*.test.js`)
 
 `QA e25fc8872cdc2d09e31cbbaad9bca401ef743473: PASS` (local)
 
-## Control-plane registration (run `65b78681`, 2026-09-26T10:32Z) - PENDING RESULT
+## Control-plane registration (run `65b78681`, 2026-09-26T10:32Z) - DEGRADED
 
-(TBD this run: evidence upload + disposition PATCH outcome recorded here before commit.)
+Bridge still degraded (run-scoped `PAPERCLIP_API_URL`, 10s worker timeouts):
+
+- Evidence upload (`paperclip-upload-artifact.sh qa-evidence-TOG-4858.md`, workspace-local state dir):
+  attempt 1 -> 503 `Sandbox callback bridge ... timed out after 10000ms`.
+  attempt 2 (after 20s) -> 409 `outcome: indeterminate`, `retryable: false`.
+  Retries stopped per bounded-write rule (2 consecutive failures, same write).
+- Disposition PATCH (`in_progress` + verdict comment + `executionPolicy.monitor`
+  `nextCheckAt 2026-09-26T11:15:00Z`; payload at `.paperclip-runtime/scratch/patch.json`):
+  attempt 1 -> 409 `outcome: indeterminate`, `retryable: false`. NOT retried: server marked
+  it non-retryable, and this very monitor wake firing suggests indeterminate writes may commit -
+  retry risks a duplicate verdict comment.
+- **Disposition NOT confirmed; evidence NOT registered; monitor NOT confirmed.** Third consecutive run
+  on this card ending without confirmed disposition due to the same bridge error (runs `725c2c2d`,
+  `6e55da2c`). Per TOG-4712 pilot rule: status, blockers and monitor left as they are, nothing posted
+  to the thread. Manager notified once via run report; then stop. This file (committed locally) plus
+  the adapter/runtime status channel are the fallback record.
 
 ## What could NOT be verified / done by QA
 
