@@ -1,8 +1,21 @@
-// Listing-detail page renderer for the Wayselect web slice (TOG-4882).
+// Listing-detail page renderer for the Wayselect web slice (TOG-4882) with
+// per-model eligibility display (TOG-5221).
 //
 // Pure functions: listing in, HTML string out. All dynamic values are
 // HTML-escaped. The purchase CTA is a stub — a disabled form that posts to a
 // route which refuses with 403. No backend writes anywhere on this page.
+//
+// Eligibility is a read-only display over existing capability-check output
+// (web/eligibility.js consuming src/eligibility.js): granted / blocked /
+// unknown badges with fail-closed copy on unknown. Rendering never throws:
+// an evaluation failure degrades to unknown.
+
+import {
+  ELIGIBILITY_STATE,
+  describeEligibility,
+  evaluateListingEligibility,
+  evaluateListingsEligibility,
+} from "./eligibility.js";
 
 function escapeHtml(value) {
   return String(value)
@@ -13,11 +26,24 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function capabilityRow(label, enabled) {
-  const badge = enabled
+function capabilityRow(label, value) {
+  // Fail closed: a missing (non-boolean) capability value renders as Unknown,
+  // never as Yes and never silently as No.
+  if (typeof value !== "boolean") {
+    return `<tr><th scope="row">${escapeHtml(label)}</th><td><span class="badge badge-unknown" aria-label="capability unknown">Unknown</span></td></tr>`;
+  }
+  const badge = value
     ? '<span class="badge badge-on" aria-label="supported">Yes</span>'
     : '<span class="badge badge-off" aria-label="not supported">No</span>';
   return `<tr><th scope="row">${escapeHtml(label)}</th><td>${badge}</td></tr>`;
+}
+
+function modalityList(modalities, key) {
+  const values = modalities?.[key];
+  if (!Array.isArray(values)) {
+    return "unknown";
+  }
+  return values.join(", ");
 }
 
 function layout({ title, body }) {
@@ -37,6 +63,11 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 .badge { display: inline-block; border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.85rem; }
 .badge-on { background: #d3f9d8; color: #1a4d1f; }
 .badge-off { background: #f1f3f5; color: #495057; }
+.badge-granted { background: #d3f9d8; color: #1a4d1f; }
+.badge-blocked { background: #ffe3e3; color: #7a1f1f; }
+.badge-unknown { background: #fff3bf; color: #5c4a00; }
+.eligibility { margin-top: 1.5rem; padding: 1rem; border: 1px solid #888; border-radius: 0.5rem; }
+.eligibility ul { margin-bottom: 0; }
 .cta { margin-top: 1.5rem; padding: 1rem; border: 1px solid #888; border-radius: 0.5rem; }
 .cta button { font-size: 1rem; padding: 0.6rem 1.2rem; cursor: not-allowed; }
 .cta p { font-size: 0.9rem; margin-bottom: 0; }
@@ -52,16 +83,70 @@ ${body}
 `;
 }
 
-export function renderListingDetail(listing) {
+function eligibilityBadge(described) {
+  const badgeClass =
+    described.state === ELIGIBILITY_STATE.GRANTED
+      ? "badge-granted"
+      : described.state === ELIGIBILITY_STATE.BLOCKED
+        ? "badge-blocked"
+        : "badge-unknown";
+  return `<span class="badge ${badgeClass}" aria-label="eligibility: ${escapeHtml(described.state)}">${escapeHtml(described.label)}</span>`;
+}
+
+function resolveDetailEvaluation(listing, override) {
+  if (override !== undefined) {
+    return override;
+  }
+  try {
+    return evaluateListingEligibility(listing);
+  } catch {
+    // Fail closed: an evaluation failure renders as unknown, never as granted.
+    return null;
+  }
+}
+
+function resolveIndexEvaluations(listings, overrides) {
+  if (overrides instanceof Map) {
+    return overrides;
+  }
+  try {
+    return evaluateListingsEligibility(listings);
+  } catch {
+    return new Map();
+  }
+}
+
+function eligibilitySection(listing, override) {
+  const evaluation = resolveDetailEvaluation(listing, override);
+  const described = describeEligibility(evaluation);
+  const reasons =
+    described.reasons.length > 0
+      ? `<ul>${described.reasons.map((reason) => `<li><code>${escapeHtml(reason)}</code></li>`).join("")}</ul>`
+      : "";
+  return `<section class="eligibility" aria-label="Eligibility">
+<h2>Eligibility</h2>
+<p>${eligibilityBadge(described)} ${escapeHtml(described.headline)}</p>
+${reasons}</section>`;
+}
+
+function costCell(cost, key) {
+  const value = cost?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? `$${escapeHtml(value)}` : "unknown";
+}
+
+export function renderListingDetail(listing, evaluationOverride) {
   const { entry } = listing;
   const title = `${entry.name} (${listing.providerId}/${listing.modelId})`;
-  const modalities = [...entry.modalities.input, ...entry.modalities.output].filter(
+  const inputModalities = Array.isArray(entry.modalities?.input) ? entry.modalities.input : [];
+  const outputModalities = Array.isArray(entry.modalities?.output) ? entry.modalities.output : [];
+  const modalities = [...inputModalities, ...outputModalities].filter(
     (value, index, all) => all.indexOf(value) === index,
   );
 
   const body = `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
 <h1>${escapeHtml(entry.name)}</h1>
 <p>Listing <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code> from ${escapeHtml(listing.providerName)}.</p>
+${eligibilitySection(listing, evaluationOverride)}
 <h2>Capabilities</h2>
 <table>
 <tbody>
@@ -69,15 +154,15 @@ ${capabilityRow("Attachments", entry.attachment)}
 ${capabilityRow("Reasoning", entry.reasoning)}
 ${capabilityRow("Tool calls", entry.tool_call)}
 ${capabilityRow("Structured output", entry.structured_output)}
-<tr><th scope="row">Input modalities</th><td>${escapeHtml(entry.modalities.input.join(", "))}</td></tr>
-<tr><th scope="row">Output modalities</th><td>${escapeHtml(entry.modalities.output.join(", "))}</td></tr>
+<tr><th scope="row">Input modalities</th><td>${escapeHtml(modalityList(entry.modalities, "input"))}</td></tr>
+<tr><th scope="row">Output modalities</th><td>${escapeHtml(modalityList(entry.modalities, "output"))}</td></tr>
 </tbody>
 </table>
 <h2>List-price estimate</h2>
 <table>
 <tbody>
-<tr><th scope="row">Input (per 1M tokens)</th><td>$${escapeHtml(entry.cost.input)}</td></tr>
-<tr><th scope="row">Output (per 1M tokens)</th><td>$${escapeHtml(entry.cost.output)}</td></tr>
+<tr><th scope="row">Input (per 1M tokens)</th><td>${costCell(entry.cost, "input")}</td></tr>
+<tr><th scope="row">Output (per 1M tokens)</th><td>${costCell(entry.cost, "output")}</td></tr>
 </tbody>
 </table>
 <p><small>Synthetic list-price estimates only; not actual cost or savings. Modalities covered: ${escapeHtml(modalities.join(", "))}.</small></p>
@@ -105,12 +190,15 @@ export function renderPreviewDisabled() {
   return layout({ title: "Preview unavailable", body });
 }
 
-export function renderListingIndex(listings) {
+export function renderListingIndex(listings, evaluationsOverride) {
+  const evaluations = resolveIndexEvaluations(listings, evaluationsOverride);
   const items = listings
-    .map(
-      (listing) =>
-        `<li><a href="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a></li>`,
-    )
+    .map((listing) => {
+      const described = describeEligibility(
+        evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
+      );
+      return `<li><a href="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+    })
     .join("\n");
   const body = `<div class="preview-banner" role="note">Preview build: stub data only.</div>
 <h1>Listings</h1>
