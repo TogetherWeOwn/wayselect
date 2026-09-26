@@ -1,4 +1,4 @@
-export { CatalogValidationError, normalizeCatalog } from "./catalog.js";
+export { CatalogValidationError, normalizeCatalog, stableStringify } from "./catalog.js";
 export {
   SupportConfigurationError,
   SupportState,
