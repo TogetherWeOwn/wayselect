@@ -117,6 +117,35 @@ describe("preview server routes", () => {
   });
 });
 
+describe("malformed request target", () => {
+  it("returns 404 instead of crashing the process", async () => {
+    const { connect } = await import("node:net");
+    const { createApp: targetApp } = await import("../web/server.js");
+    const server = targetApp({ WAYSELECT_PREVIEW: "1" });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = server.address().port;
+      const statusLine = await new Promise((resolve, reject) => {
+        const socket = connect(port, "127.0.0.1", () => {
+          socket.write("GET //[invalid HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        });
+        let data = "";
+        socket.on("data", (chunk) => {
+          data += chunk;
+        });
+        socket.on("end", () => resolve(data.split("\r\n")[0]));
+        socket.on("error", reject);
+      });
+      ok(statusLine.includes("404"), statusLine);
+      // Server survives: a follow-up request still works.
+      const after = await fetch(`http://127.0.0.1:${port}/listings`);
+      strictEqual(after.status, 200);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
 describe("malformed percent-encoding on detail route", () => {
   it("returns 404 instead of crashing the server", async () => {
     const { createApp: newApp } = await import("../web/server.js");
