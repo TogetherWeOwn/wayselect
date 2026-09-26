@@ -59,10 +59,62 @@ test("marks old support evidence stale", async () => {
 });
 
 test("malformed evidence timestamps fail closed as invalid evidence", async () => {
+  // TOG-4951 HIGH-1: Date.parse returns NaN for malformed input, and NaN
+  // comparisons are always false, so without the invalid-evidence guard these
+  // tampered timestamps passed with zero reasons (fail-open). Every variant
+  // below must yield exactly ["invalid-evidence"] and eligible === false.
+  const tamperedValues = [
+    "not-a-date",
+    "",
+    "   ",
+    "2026-13-45",
+    "Infinity",
+    "NaN",
+    undefined,
+    null,
+    1727265600000,
+    true,
+    {},
+    [],
+  ];
+  const { candidates } = await loadConfiguredCandidates();
+
+  for (const observedAt of tamperedValues) {
+    const tampered = structuredClone(candidates);
+    const target = tampered.find(
+      (candidate) => candidate.routeId === "northstar/alpha-chat",
+    );
+    target.evidence = { observedAt };
+
+    const evaluations = evaluateEligibility(
+      tampered,
+      {
+        operation: "chat",
+        requiredCapabilities: [],
+        providerAllowlist: ["northstar"],
+      },
+      evaluationOptions,
+    );
+    const alpha = evaluations.find(
+      (candidate) => candidate.routeId === "northstar/alpha-chat",
+    );
+
+    assert.equal(alpha.eligible, false, `observedAt=${String(observedAt)}`);
+    assert.deepEqual(
+      [...alpha.reasons],
+      ["invalid-evidence"],
+      `observedAt=${String(observedAt)}`,
+    );
+  }
+});
+
+test("absent support evidence fails closed as missing evidence", async () => {
   const { candidates } = await loadConfiguredCandidates();
   const tampered = structuredClone(candidates);
-  const target = tampered.find((candidate) => candidate.routeId === "northstar/alpha-chat");
-  target.evidence = { observedAt: "not-a-date" };
+  const target = tampered.find(
+    (candidate) => candidate.routeId === "northstar/alpha-chat",
+  );
+  delete target.evidence;
 
   const evaluations = evaluateEligibility(
     tampered,
@@ -73,10 +125,12 @@ test("malformed evidence timestamps fail closed as invalid evidence", async () =
     },
     evaluationOptions,
   );
-  const alpha = evaluations.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+  const alpha = evaluations.find(
+    (candidate) => candidate.routeId === "northstar/alpha-chat",
+  );
 
   assert.equal(alpha.eligible, false);
-  assert.ok(alpha.reasons.includes("invalid-evidence"));
+  assert.deepEqual([...alpha.reasons], ["missing-evidence"]);
 });
 
 test("unknown required capabilities fail closed as missing data", async () => {
