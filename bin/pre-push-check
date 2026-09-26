@@ -1,0 +1,162 @@
+#!/usr/bin/env node
+
+// Local pre-push check for Wayselect (TOG-5049).
+//
+// Scope: content only — no workflow or permission change. This script never
+// installs hooks, never touches .git/hooks, and never edits CI. Hook install
+// is a manual, local-only opt-in documented in docs/pre-push-check.md.
+//
+// What it runs (stdlib only, no new dependencies):
+//   1. Node version gate (>= 20, matches package.json engines)
+//   2. node --check over every shipped JS entry (lint/parse gate)
+//   3. JSON.parse over package.json + fixtures/*.json
+//   4. Structural parse of .github/workflows/ci.yml (tabs, required keys;
+//      full YAML load via python3+pyyaml only when already present locally)
+//   5. npm test (node --test suite)
+//
+// Usage:
+//   node bin/pre-push-check        # full gate, exit 0 = push-ready
+//   npm run pre-push               # same gate via package script
+//
+// Exit code: 0 when every step passes, 1 otherwise.
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const ROOT = resolve(new URL(".", import.meta.url).pathname, "..");
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function pass(id, label) {
+  record("pass", id, label);
+  return true;
+}
+
+function fail(id, label, detail = "") {
+  record("fail", id, label, detail);
+  return false;
+}
+
+let ok = true;
+
+// ---- P1: node version gate ----
+const major = Number(process.versions.node.split(".")[0]);
+if (major >= 20) {
+  pass("P1", `node >= 20 (got ${process.version})`);
+} else {
+  ok = fail("P1", "node >= 20 required", `got ${process.version}`) && ok;
+}
+
+// ---- P2: node --check over shipped JS ----
+const CHECK_DIRS = ["src", "test", "web", "support"];
+const CHECK_FILES = ["bin/wayselect", "bin/accept-wayselect-web", "bin/pre-push-check"];
+const targets = [...CHECK_FILES];
+for (const dir of CHECK_DIRS) {
+  const abs = join(ROOT, dir);
+  if (!existsSync(abs)) continue;
+  for (const entry of readdirSync(abs).sort()) {
+    if (entry.endsWith(".js")) targets.push(`${dir}/${entry}`);
+  }
+}
+let checkFailed = [];
+for (const rel of targets) {
+  try {
+    execFileSync(process.execPath, ["--check", join(ROOT, rel)], { stdio: "pipe" });
+  } catch {
+    checkFailed.push(rel);
+  }
+}
+if (checkFailed.length === 0) {
+  pass("P2", `node --check clean (${targets.length} files)`);
+} else {
+  ok = fail("P2", "node --check failures", checkFailed.join(", ")) && ok;
+}
+
+// ---- P3: JSON parse (package.json + fixtures) ----
+const jsonTargets = ["package.json"];
+const fixturesDir = join(ROOT, "fixtures");
+if (existsSync(fixturesDir)) {
+  for (const entry of readdirSync(fixturesDir).sort()) {
+    if (entry.endsWith(".json")) jsonTargets.push(`fixtures/${entry}`);
+  }
+}
+const jsonBad = [];
+for (const rel of jsonTargets) {
+  try {
+    JSON.parse(readFileSync(join(ROOT, rel), "utf8"));
+  } catch (error) {
+    jsonBad.push(`${rel} (${error.message})`);
+  }
+}
+if (jsonBad.length === 0) {
+  pass("P3", `JSON parse clean (${jsonTargets.length} files)`);
+} else {
+  ok = fail("P3", "JSON parse failures", jsonBad.join("; ")) && ok;
+}
+
+// ---- P4: CI workflow YAML structural parse ----
+// No yaml dependency in this repo (stdlib only by design). This gate does a
+// deterministic structural check that catches the common push-breakers
+// (tabs, missing top-level keys, empty file). When python3+pyyaml happens to
+// be installed locally it additionally runs a real yaml.safe_load; absence
+// of python/yaml is not a failure.
+const ciRel = ".github/workflows/ci.yml";
+const ciAbs = join(ROOT, ciRel);
+if (!existsSync(ciAbs)) {
+  ok = fail("P4", "CI workflow missing", ciRel) && ok;
+} else {
+  const text = readFileSync(ciAbs, "utf8");
+  const problems = [];
+  if (text.trim().length === 0) problems.push("empty file");
+  if (/\t/.test(text)) problems.push("tab indentation found (YAML requires spaces)");
+  for (const key of ["name:", "on:", "jobs:"]) {
+    if (!text.includes(key)) problems.push(`missing required key ${key}`);
+  }
+  let yamlNote = "structural";
+  try {
+    execFileSync("python3", ["-c", "import yaml,sys; yaml.safe_load(open(sys.argv[1]))", ciAbs], {
+      stdio: "pipe",
+    });
+    yamlNote = "structural + yaml.safe_load";
+  } catch {
+    // safe_load failed or python/yaml unavailable. Re-probe: if `import yaml`
+    // succeeds, yaml exists so the failure is a real parse error; otherwise
+    // python3 or pyyaml is simply absent locally (not a failure).
+    try {
+      execFileSync("python3", ["-c", "import yaml"], { stdio: "pipe" });
+      problems.push("yaml.safe_load failed (see python3 output)");
+      yamlNote = "structural + yaml.safe_load FAILED";
+    } catch {
+      yamlNote = "structural (python3+pyyaml not installed locally — skipped)";
+    }
+  }
+  if (problems.length === 0) {
+    pass("P4", `${ciRel} parses (${yamlNote})`);
+  } else {
+    ok = fail("P4", `${ciRel} problems`, problems.join("; ")) && ok;
+  }
+}
+
+// ---- P5: test suite ----
+process.stdout.write("RUN P5 — npm test\n");
+const testRun = spawnSync("npm", ["test", "--silent"], {
+  cwd: ROOT,
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
+if (testRun.status === 0) {
+  pass("P5", "npm test green");
+} else {
+  ok = fail("P5", "npm test failed", `exit ${testRun.status}`) && ok;
+}
+
+const passCount = results.filter((r) => r.status === "pass").length;
+const failCount = results.filter((r) => r.status === "fail").length;
+process.stdout.write(`SUMMARY: ${passCount} pass, ${failCount} fail — pre-push ${ok ? "READY" : "NOT READY"}\n`);
+process.exitCode = ok ? 0 : 1;
