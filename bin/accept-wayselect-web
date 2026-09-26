@@ -1,0 +1,332 @@
+#!/usr/bin/env node
+
+// Executable acceptance script for the Wayselect web slices (TOG-5010).
+//
+// Spec: docs/wayselect-web-acceptance.md (§1 field contract, §3 empty/error
+// states, §4 preview-flag gating; §2 search/filter probes auto-skip until
+// that slice lands).
+//
+// Usage: node bin/accept-wayselect-web   (or: npm run accept:web)
+// Zero dependencies: Node standard library only. Starts the real server from
+// web/server.js on ephemeral ports, probes it, exits 0 when there are zero
+// failures (skips allowed), 1 otherwise. Budget: under 15 minutes.
+
+import { createApp } from "../web/server.js";
+import { isPreviewEnabled } from "../web/preview.js";
+import {
+  renderListingDetail,
+  renderListingIndex,
+  renderNotFound,
+} from "../web/listing-detail.js";
+import { getStubListing } from "../web/stub-listing.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function skip(id, label, reason) {
+  record("skip", id, label, reason);
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+function baseOf(server) {
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function close(server) {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+async function request(base, path, options) {
+  const res = await fetch(`${base}${path}`, options);
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status: res.status, text, json };
+}
+
+const on = await listen({ WAYSELECT_PREVIEW: "1" });
+const off = await listen({});
+const baseOn = baseOf(on);
+const baseOff = baseOf(off);
+
+try {
+  // ---- §1 listing-detail field contract (flag on) ----
+  const detail = await request(baseOn, "/listings/northstar/alpha-chat");
+  check(detail.status === 200, "F1", "detail returns 200", `got ${detail.status}`);
+  check(
+    detail.text.includes("<h1>Alpha Chat</h1>") && detail.text.includes("<title>Alpha Chat"),
+    "F1b",
+    "entry.name rendered as h1 and title",
+  );
+  check(
+    detail.text.includes("<code>northstar/alpha-chat</code>"),
+    "F2",
+    "provider/model route line rendered",
+  );
+  check(
+    detail.text.includes("Northstar Synthetic Provider"),
+    "F3",
+    "provider display name rendered",
+  );
+  check(
+    ["Attachments", "Reasoning", "Tool calls", "Structured output"].every((row) =>
+      detail.text.includes(row),
+    ) && detail.text.includes('aria-label="supported"'),
+    "F4",
+    "all four capability rows with Yes/No badges",
+  );
+  check(
+    detail.text.includes("Input modalities") &&
+      detail.text.includes("Output modalities") &&
+      detail.text.includes("Modalities covered:"),
+    "F5",
+    "input/output modality rows plus covered disclaimer",
+  );
+  check(
+    detail.text.includes("per 1M tokens") &&
+      detail.text.includes("Synthetic list-price estimates only"),
+    "F6",
+    "list-price rows with synthetic-only disclaimer",
+  );
+  const index = await request(baseOn, "/listings");
+  check(
+    index.status === 200 &&
+      detail.text.includes("Preview build: stub data only") &&
+      index.text.includes("Preview build: stub data only"),
+    "F7",
+    "preview banner on detail and index pages",
+  );
+  const forms = detail.text.match(/<form[\s\S]*?<\/form>/g) ?? [];
+  check(
+    detail.text.includes("Purchase (stub") &&
+      detail.text.includes("disabled") &&
+      detail.text.includes('aria-disabled="true"') &&
+      forms.length === 1 &&
+      forms[0].includes("/listings/northstar/alpha-chat/purchase"),
+    "F8",
+    "purchase CTA disabled, single form posting to the stub route",
+  );
+  const notFound = await request(baseOn, "/listings/northstar/nope");
+  check(
+    detail.text.includes('href="/listings"') && notFound.text.includes('href="/listings"'),
+    "F9",
+    "back-to-listings link on detail and not-found pages",
+  );
+
+  // ---- §3 empty/error states ----
+  check(
+    notFound.status === 404 && notFound.text.includes("Listing not found"),
+    "E1",
+    "unknown listing is a 404 not-found page",
+    `got ${notFound.status}`,
+  );
+  const unknown = await request(baseOn, "/nope");
+  check(
+    unknown.status === 404 && unknown.json?.error === "not_found",
+    "E2",
+    "unknown path is a 404 JSON not_found",
+    `got ${unknown.status}`,
+  );
+  const purchaseOn = await request(baseOn, "/listings/northstar/alpha-chat/purchase", {
+    method: "POST",
+  });
+  const purchaseOff = await request(baseOff, "/listings/northstar/alpha-chat/purchase", {
+    method: "POST",
+  });
+  check(
+    purchaseOn.status === 403 &&
+      purchaseOn.json?.error === "preview_only" &&
+      purchaseOff.status === 403,
+    "E3",
+    "purchase stub refuses 403 preview_only on and off the flag",
+    `got ${purchaseOn.status}/${purchaseOff.status}`,
+  );
+  const purchaseGet = await request(baseOn, "/listings/northstar/alpha-chat/purchase");
+  check(
+    purchaseGet.status === 405 && purchaseGet.json?.error === "method_not_allowed",
+    "E4",
+    "GET on the purchase stub is 405",
+    `got ${purchaseGet.status}`,
+  );
+
+  // ---- §4 preview-flag gating ----
+  const offIndex = await request(baseOff, "/listings");
+  const offDetail = await request(baseOff, "/listings/northstar/alpha-chat");
+  check(
+    offIndex.status === 404 &&
+      offIndex.text.includes("Preview unavailable") &&
+      offIndex.text.includes("WAYSELECT_PREVIEW"),
+    "E5",
+    "flag off hides the listing index behind the preview-disabled page",
+    `got ${offIndex.status}`,
+  );
+  check(
+    offDetail.status === 404 && offDetail.text.includes("Preview unavailable"),
+    "E5b",
+    "flag off hides listing detail (even for unknown listings)",
+    `got ${offDetail.status}`,
+  );
+  check(
+    isPreviewEnabled({}) === false &&
+      isPreviewEnabled({ WAYSELECT_PREVIEW: "0" }) === false &&
+      isPreviewEnabled({ WAYSELECT_PREVIEW: "false" }) === false &&
+      ["1", "true", "TRUE", " on ", "yes"].every((v) =>
+        isPreviewEnabled({ WAYSELECT_PREVIEW: v }),
+      ),
+    "FLAG",
+    "flag truthy set is exactly 1/true/yes/on (trimmed, case-insensitive)",
+  );
+
+  // ---- renderer-level XSS rule (evil values never render raw) ----
+  const evil = getStubListing("northstar", "alpha-chat");
+  const withEvil = {
+    ...evil,
+    providerId: 'a"><script>alert(1)</script>',
+    modelId: "m",
+    entry: { ...evil.entry, name: "<b>evil</b>" },
+  };
+  const evilHtml = renderListingDetail(withEvil);
+  check(
+    !evilHtml.includes("<script>alert(1)</script>") &&
+      evilHtml.includes("&lt;b&gt;evil&lt;/b&gt;") &&
+      !renderNotFound("<img src=x>", "y").includes("<img src=x>") &&
+      !renderListingIndex([withEvil]).includes("<b>evil</b>"),
+    "XSS",
+    "untrusted values escaped in detail, index, and not-found pages",
+  );
+
+  // ---- §2 search/filter baseline (runnable today; deeper probes skip until the slice lands) ----
+  const alphaPos = index.text.indexOf("Alpha Chat");
+  const imagePos = index.text.indexOf("Image Lite");
+  check(
+    alphaPos !== -1 && imagePos !== -1,
+    "S1",
+    "unfiltered index lists every stub listing",
+  );
+  check(
+    alphaPos !== -1 && imagePos !== -1 && alphaPos < imagePos,
+    "S7",
+    "index preserves stub order (deterministic, no re-ranking)",
+  );
+
+  // ---- §2 search/filter (forward contract; skip until the slice lands) ----
+  const SKIP_REASON = "search/filter slice not present";
+  const bogus = await request(baseOn, "/listings?capability=__bogus__");
+  const searchPresent = bogus.status === 400;
+  if (!searchPresent) {
+    for (const [id, label] of [
+      ["S2", "q text search filters the index"],
+      ["S4", "capability filter keeps all-named-true listings"],
+      ["S5", "modality filter matches input or output"],
+      ["S6", "combined q x capability x modality is AND"],
+      ["S8", "no matches render the empty state with a clear link"],
+      ["S9", "unknown filter value is a 400 naming valid values"],
+      ["S10", "index exposes a GET filter form with clear link"],
+      ["S12", "flag off gates filtered index requests too"],
+    ]) {
+      skip(id, label, SKIP_REASON);
+    }
+  } else {
+    const q = await request(baseOn, "/listings?q=alpha");
+    check(
+      q.status === 200 && q.text.includes("Alpha Chat") && !q.text.includes("Image Lite"),
+      "S2",
+      "q text search filters the index",
+      `got ${q.status}`,
+    );
+    const cap = await request(baseOn, "/listings?capability=tool_call");
+    check(
+      cap.status === 200 && cap.text.includes("Alpha Chat") && !cap.text.includes("Image Lite"),
+      "S4",
+      "capability filter keeps all-named-true listings",
+      `got ${cap.status}`,
+    );
+    const mod = await request(baseOn, "/listings?modality=image");
+    check(
+      mod.status === 200 && mod.text.includes("Image Lite") && !mod.text.includes("Alpha Chat"),
+      "S5",
+      "modality filter matches input or output",
+      `got ${mod.status}`,
+    );
+    const both = await request(baseOn, "/listings?q=image&capability=attachment");
+    check(
+      both.status === 200 &&
+        both.text.includes("Image Lite") &&
+        !both.text.includes("Alpha Chat"),
+      "S6",
+      "combined q x capability x modality is AND",
+      `got ${both.status}`,
+    );
+    const empty = await request(baseOn, "/listings?q=zzz-no-such-listing");
+    check(
+      empty.status === 200 &&
+        empty.text.includes("No listings match these filters") &&
+        empty.text.includes('href="/listings"'),
+      "S8",
+      "no matches render the empty state with a clear link",
+      `got ${empty.status}`,
+    );
+    check(
+      bogus.status === 400 && bogus.text.includes("tool_call"),
+      "S9",
+      "unknown filter value is a 400 naming valid values",
+      `got ${bogus.status}`,
+    );
+    const form = await request(baseOn, "/listings");
+    check(
+      form.text.includes("<form") &&
+        form.text.includes('name="q"') &&
+        form.text.includes('name="capability"') &&
+        form.text.includes('name="modality"'),
+      "S10",
+      "index exposes a GET filter form with clear link",
+    );
+    const offFiltered = await request(baseOff, "/listings?q=alpha");
+    check(
+      offFiltered.status === 404 && offFiltered.text.includes("Preview unavailable"),
+      "S12",
+      "flag off gates filtered index requests too",
+      `got ${offFiltered.status}`,
+    );
+  }
+} finally {
+  await Promise.all([close(on), close(off)]);
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const skipped = results.filter((r) => r.status === "skip").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(
+  `SUMMARY: ${pass} pass, ${fail} fail, ${skipped} skip — ${elapsedS}s (budget 15m)\n`,
+);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;

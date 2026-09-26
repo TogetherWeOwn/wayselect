@@ -12,7 +12,9 @@
   },
   "scripts": {
     "demo": "node bin/wayselect",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "preview": "node web/server.js",
+    "accept:web": "node bin/accept-wayselect-web"
   },
   "dependencies": {
     "ajv": "^8.17.1",
