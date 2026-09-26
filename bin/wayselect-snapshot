@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
+import { buildSnapshot } from "../src/snapshot.js";
+import { diffSnapshots, formatDiffReport } from "../src/catalogDiff.js";
+
+const STAGING_SOURCE_PREFIX = "synthetic://";
+
+function parseArguments(argv) {
+  const values = {
+    catalog: "fixtures/catalog.synthetic.json",
+    out: "snapshots",
+    previous: null,
+    report: null,
+    now: null,
+    maxCatalogAgeHours: null,
+    failOnGaps: false,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--fail-on-gaps") {
+      values.failOnGaps = true;
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === undefined) {
+      throw new Error(`Missing value for ${flag}`);
+    }
+    if (flag === "--catalog") {
+      values.catalog = value;
+    } else if (flag === "--out") {
+      values.out = value;
+    } else if (flag === "--previous") {
+      values.previous = value;
+    } else if (flag === "--report") {
+      values.report = value;
+    } else if (flag === "--now") {
+      values.now = value;
+    } else if (flag === "--max-catalog-age-hours") {
+      values.maxCatalogAgeHours = value;
+    } else {
+      throw new Error(`Unknown argument: ${flag}`);
+    }
+    index += 1;
+  }
+
+  return values;
+}
+
+function compactTimestamp(iso) {
+  return iso.replace(/[-:.]/g, "");
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+
+  let maxCatalogAgeMs;
+  if (args.maxCatalogAgeHours !== null) {
+    maxCatalogAgeMs = Number(args.maxCatalogAgeHours);
+    if (!Number.isFinite(maxCatalogAgeMs) || maxCatalogAgeMs < 0) {
+      throw new Error("--max-catalog-age-hours must be a non-negative number");
+    }
+    maxCatalogAgeMs *= 60 * 60 * 1000;
+  }
+
+  const fixture = JSON.parse(await readFile(resolve(args.catalog), "utf8"));
+  const snapshot = buildSnapshot(fixture.catalog, fixture.provenance, {
+    now: args.now ?? undefined,
+    maxCatalogAgeMs,
+    sourcePrefix: STAGING_SOURCE_PREFIX,
+  });
+
+  if (snapshot.freshness !== null && !snapshot.freshness.fresh) {
+    const state = snapshot.freshness.ageMs < 0 ? "future-dated" : "stale";
+    throw new Error(
+      `refusing ${state} staging snapshot: age ${snapshot.freshness.ageMs}ms ` +
+        `exceeds limit ${snapshot.freshness.maxCatalogAgeMs}ms`,
+    );
+  }
+
+  await mkdir(resolve(args.out), { recursive: true });
+  const shortHash = snapshot.contentHash.slice("sha256:".length, "sha256:".length + 8);
+  const snapshotName = `snapshot-${compactTimestamp(snapshot.collectedAt)}-${shortHash}.json`;
+  const snapshotPath = join(resolve(args.out), snapshotName);
+  await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+
+  let diff = null;
+  let reportPath = null;
+  if (args.previous !== null) {
+    const previous = JSON.parse(await readFile(resolve(args.previous), "utf8"));
+    diff = diffSnapshots(previous, snapshot);
+    const report = formatDiffReport(diff);
+    const previousShort = (previous.contentHash ?? "unknown").slice(0, 15).replace(/[^a-z0-9]/gi, "");
+    reportPath = args.report
+      ? resolve(args.report)
+      : join(resolve(args.out), `diff-report-${previousShort}-vs-${shortHash}.md`);
+    await writeFile(reportPath, report);
+  }
+
+  if (args.failOnGaps && snapshot.gaps.length > 0) {
+    throw new Error(
+      `snapshot reports ${snapshot.gaps.length} provenance gap(s); failing on --fail-on-gaps`,
+    );
+  }
+
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        earlyDevelopment: true,
+        mode: "staging-only",
+        networkUsed: false,
+        snapshotPath: snapshotName,
+        reportPath: reportPath ? basename(reportPath) : null,
+        contentHash: snapshot.contentHash,
+        declaredHashVerified: snapshot.declaredHashVerified,
+        gapCount: snapshot.gaps.length,
+        diffSummary: diff ? diff.summary : null,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.name}: ${error.message}\n`);
+  process.exitCode = 1;
+});

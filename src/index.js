@@ -17,3 +17,18 @@ export {
   checkCatalogFreshness,
   requireFreshCatalog,
 } from "./freshness.js";
+export {
+  DEFAULT_STAGING_SOURCE_PREFIX,
+  KNOWN_CAPABILITY_NAMES,
+  SnapshotError,
+  buildSnapshot,
+  computeContentHash,
+  findEntryGaps,
+  snapshotIsClean,
+} from "./snapshot.js";
+export {
+  SnapshotDiffError,
+  compareEntries,
+  diffSnapshots,
+  formatDiffReport,
+} from "./catalogDiff.js";
