@@ -1,0 +1,277 @@
+#!/usr/bin/env node
+
+// Executable QA acceptance for fail-closed eligibility explain (TOG-5220,
+// pairs TOG-4794 but runs independently against the current CLI).
+//
+// Usage: node bin/accept-wayselect-eligibility   (or: npm run accept:eligibility)
+// Zero dependencies: Node standard library only. Exercises bin/wayselect with
+// fixture-only inputs, asserts fail-closed output on unknown/blocked
+// capabilities, exits 0 when there are zero failures, 1 otherwise.
+// Budget: under 15 minutes (typically < 10s).
+//
+// Note on --dry-run: bin/wayselect exposes NO --dry-run flag (E8 below pins
+// this: the flag is rejected). Dry-run is the implicit only mode; the script
+// asserts mode=dry-run-only and selection.dryRun=true instead.
+
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+async function runCli(args, cwd = REPO_ROOT) {
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      ["bin/wayselect", ...args],
+      { cwd },
+    );
+    return { exit: 0, stdout, stderr };
+  } catch (error) {
+    return {
+      exit: typeof error.code === "number" ? error.code : 1,
+      stdout: error.stdout ?? "",
+      stderr: error.stderr ?? String(error?.message ?? error),
+    };
+  }
+}
+
+function parseOutput(run, id) {
+  try {
+    return JSON.parse(run.stdout);
+  } catch {
+    record("fail", id, "CLI stdout parses as JSON", run.stdout.slice(0, 160));
+    return null;
+  }
+}
+
+async function withRequestDir(fn) {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-eligibility-accept-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function runWithSelection(overrides) {
+  return withRequestDir(async (dir) => {
+    const base = JSON.parse(
+      await readFile(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
+    );
+    const request = structuredClone(base);
+    Object.assign(request.selection, overrides);
+    const requestPath = join(dir, "request.json");
+    await writeFile(requestPath, JSON.stringify(request));
+    return runCli(["--request", requestPath]);
+  });
+}
+
+function byRoute(candidates) {
+  return new Map(candidates.map((candidate) => [candidate.routeId, candidate]));
+}
+
+function everyReason(candidates, reason) {
+  return (
+    candidates.length > 0 &&
+    candidates.every((candidate) => candidate.reasons.includes(reason))
+  );
+}
+
+// ---- E0: baseline golden path (fail-open guard: exactly the known-eligible set selects) ----
+const base = await runCli([]);
+{
+  const result = parseOutput(base, "E0");
+  if (result) {
+    check(base.exit === 0 && base.stderr === "", "E0", "default demo exits 0 with empty stderr", `exit=${base.exit} stderr=${base.stderr.slice(0, 120)}`);
+    check(result.mode === "dry-run-only", "E0b", "mode is dry-run-only (implicit dry-run, no flag)", `mode=${result.mode}`);
+    check(result.selection?.dryRun === true, "E0c", "selection.dryRun is true");
+    check(result.selection?.status === "selected", "E0d", "baseline selects a route", `status=${result.selection?.status}`);
+    check(result.selection?.selected?.routeId === "northstar/alpha-chat", "E0e", "baseline selects northstar/alpha-chat (lowest synthetic rate, lexicographic tie-break)", `selected=${result.selection?.selected?.routeId}`);
+    check(result.transport?.adapter === "fake" && result.transport?.networkUsed === false, "E0f", "fake transport, networkUsed=false", JSON.stringify(result.transport));
+    const routes = byRoute(result.selection?.candidates ?? []);
+    check(routes.get("northstar/alpha-chat")?.eligible === true, "E0g", "northstar/alpha-chat eligible with no exclusion reasons", JSON.stringify(routes.get("northstar/alpha-chat")?.reasons));
+    check(routes.get("orbit/orbit-chat")?.eligible === true, "E0h", "orbit/orbit-chat eligible (second candidate, loses tie-break)", JSON.stringify(routes.get("orbit/orbit-chat")?.reasons));
+    check((routes.get("legacy/old-chat")?.reasons ?? []).includes("stale-evidence"), "E0i", "legacy/old-chat carries stale-evidence (evidence 2026-08-01 vs 72h window)", JSON.stringify(routes.get("legacy/old-chat")?.reasons));
+  }
+}
+
+// ---- E1: unknown required capability fails closed ----
+{
+  const run = await runWithSelection({ requiredCapabilities: ["unpublishedCapability"] });
+  const result = parseOutput(run, "E1");
+  if (result) {
+    check(run.exit === 0, "E1", "unknown capability still exits 0 (explained, not crashed)", `exit=${run.exit}`);
+    check(result.selection?.status === "no-eligible-route", "E1b", "unknown capability yields no-eligible-route", `status=${result.selection?.status}`);
+    check(result.selection?.selected === null, "E1c", "no route selected on unknown capability");
+    check(result.transport === null, "E1d", "no transport on no-eligible-route");
+    check(
+      everyReason(result.selection?.candidates ?? [], "missing-capability:unpublishedCapability"),
+      "E1e",
+      "every candidate explains missing-capability:unpublishedCapability (never guessed)",
+    );
+  }
+}
+
+// ---- E2: blocked provider allowlist fails closed ----
+{
+  const run = await runWithSelection({ providerAllowlist: ["nobody"] });
+  const result = parseOutput(run, "E2");
+  if (result) {
+    check(result.selection?.status === "no-eligible-route", "E2", "allowlist [nobody] yields no-eligible-route", `status=${result.selection?.status}`);
+    check(result.selection?.selected === null, "E2b", "no route selected on blocked providers");
+    check(result.transport === null, "E2c", "no transport on blocked providers");
+    check(
+      everyReason(result.selection?.candidates ?? [], "provider-not-allowed"),
+      "E2d",
+      "every candidate explains provider-not-allowed",
+    );
+  }
+}
+
+// ---- E3: unknown operation fails closed ----
+{
+  const run = await runWithSelection({ operation: "embeddings" });
+  const result = parseOutput(run, "E3");
+  if (result) {
+    check(result.selection?.status === "no-eligible-route", "E3", "unknown operation yields no-eligible-route", `status=${result.selection?.status}`);
+    check(
+      everyReason(result.selection?.candidates ?? [], "operation-not-catalogued") &&
+        everyReason(result.selection?.candidates ?? [], "operation-not-configured"),
+      "E3b",
+      "every candidate explains operation-not-catalogued + operation-not-configured",
+    );
+  }
+}
+
+// ---- E4: empty provider allowlist fails closed at the CLI boundary ----
+{
+  const run = await runWithSelection({ providerAllowlist: [] });
+  check(run.exit !== 0, "E4", "empty allowlist exits nonzero (never treated as allow-all)", `exit=${run.exit}`);
+  check(
+    /providerAllowlist must contain at least one explicit value/.test(run.stderr),
+    "E4b",
+    "empty allowlist names the explicit-value rule on stderr",
+    run.stderr.slice(0, 160),
+  );
+}
+
+// ---- E5: missing capability data on a known route fails closed ----
+{
+  const run = await runCli([]);
+  const result = parseOutput(run, "E5");
+  if (result) {
+    const routes = byRoute(result.selection?.candidates ?? []);
+    const unknownTools = routes.get("northstar/unknown-tools");
+    check(unknownTools?.eligible === false, "E5", "northstar/unknown-tools ineligible on missing toolUse data", JSON.stringify(unknownTools?.reasons));
+    check(
+      JSON.stringify(unknownTools?.reasons) === JSON.stringify(["missing-capability:toolUse"]),
+      "E5b",
+      "unknown-tools explains exactly missing-capability:toolUse",
+      JSON.stringify(unknownTools?.reasons),
+    );
+  }
+}
+
+// ---- E6: stale catalog snapshot fails closed (CLI wires the freshness gate) ----
+{
+  const run = await withRequestDir(async (dir) => {
+    const baseRequest = JSON.parse(
+      await readFile(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
+    );
+    baseRequest.evaluationTime = "2026-09-25T10:00:01.000Z"; // snapshot 2026-09-24T10Z + 24h
+    const requestPath = join(dir, "request.json");
+    await writeFile(requestPath, JSON.stringify(baseRequest));
+    return runCli(["--request", requestPath]);
+  });
+  const result = parseOutput(run, "E6");
+  if (result) {
+    check(result.selection?.status === "no-eligible-route", "E6", "stale snapshot yields no-eligible-route (never a selection)", `status=${result.selection?.status}`);
+    check(
+      everyReason(result.selection?.candidates ?? [], "stale-catalog"),
+      "E6b",
+      "every candidate explains stale-catalog",
+    );
+  }
+}
+
+// ---- E7: future-dated catalog snapshot fails closed ----
+{
+  const run = await withRequestDir(async (dir) => {
+    const baseRequest = JSON.parse(
+      await readFile(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
+    );
+    baseRequest.evaluationTime = "2026-09-24T09:59:59.000Z"; // before snapshotTimestamp
+    const requestPath = join(dir, "request.json");
+    await writeFile(requestPath, JSON.stringify(baseRequest));
+    return runCli(["--request", requestPath]);
+  });
+  const result = parseOutput(run, "E7");
+  if (result) {
+    check(result.selection?.status === "no-eligible-route", "E7", "future-dated snapshot yields no-eligible-route", `status=${result.selection?.status}`);
+    check(
+      everyReason(result.selection?.candidates ?? [], "future-catalog"),
+      "E7b",
+      "every candidate explains future-catalog",
+    );
+  }
+}
+
+// ---- E8: --dry-run is intentionally absent (dry-run is the only mode) ----
+{
+  const run = await runCli(["--dry-run"]);
+  check(run.exit !== 0, "E8", "bin/wayselect rejects --dry-run (no such flag)", `exit=${run.exit}`);
+  check(/Missing value for --dry-run/.test(run.stderr), "E8b", "rejection names the unknown flag on stderr", run.stderr.slice(0, 120));
+}
+
+// ---- E9: explicit false capability is unsupported (distinct from missing) ----
+{
+  const run = await runCli([]);
+  const result = parseOutput(run, "E9");
+  if (result) {
+    const routes = byRoute(result.selection?.candidates ?? []);
+    const imageLite = routes.get("northstar/image-lite");
+    check(
+      (imageLite?.reasons ?? []).includes("unsupported-capability:toolUse"),
+      "E9",
+      "image-lite (tool_call=false) explains unsupported-capability:toolUse, not missing",
+      JSON.stringify(imageLite?.reasons),
+    );
+    const retired = routes.get("orbit/retired-chat");
+    check(
+      (retired?.reasons ?? []).includes("support-state:unsupported"),
+      "E9b",
+      "orbit/retired-chat explains support-state:unsupported",
+      JSON.stringify(retired?.reasons),
+    );
+  }
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(`SUMMARY: ${pass} pass, ${fail} fail — ${elapsedS}s (budget 15m)\n`);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;
