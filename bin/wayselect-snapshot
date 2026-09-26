@@ -4,6 +4,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { buildSnapshot } from "../src/snapshot.js";
 import { diffSnapshots, formatDiffReport } from "../src/catalogDiff.js";
+import {
+  failOnGapsMessage,
+  formatCliFailure,
+  futureSnapshotMessage,
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  staleSnapshotMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
 
 const STAGING_SOURCE_PREFIX = "synthetic://";
 
@@ -26,7 +35,7 @@ function parseArguments(argv) {
     }
     const value = argv[index + 1];
     if (value === undefined) {
-      throw new Error(`Missing value for ${flag}`);
+      throw new Error(missingValueMessage(flag));
     }
     if (flag === "--catalog") {
       values.catalog = value;
@@ -41,7 +50,7 @@ function parseArguments(argv) {
     } else if (flag === "--max-catalog-age-hours") {
       values.maxCatalogAgeHours = value;
     } else {
-      throw new Error(`Unknown argument: ${flag}`);
+      throw new Error(unknownArgumentMessage(flag));
     }
     index += 1;
   }
@@ -60,7 +69,7 @@ async function main() {
   if (args.maxCatalogAgeHours !== null) {
     maxCatalogAgeMs = Number(args.maxCatalogAgeHours);
     if (!Number.isFinite(maxCatalogAgeMs) || maxCatalogAgeMs < 0) {
-      throw new Error("--max-catalog-age-hours must be a non-negative number");
+      throw new Error(invalidMaxCatalogAgeMessage());
     }
     maxCatalogAgeMs *= 60 * 60 * 1000;
   }
@@ -73,10 +82,9 @@ async function main() {
   });
 
   if (snapshot.freshness !== null && !snapshot.freshness.fresh) {
-    const state = snapshot.freshness.ageMs < 0 ? "future-dated" : "stale";
+    const { ageMs, maxCatalogAgeMs: limitMs } = snapshot.freshness;
     throw new Error(
-      `refusing ${state} staging snapshot: age ${snapshot.freshness.ageMs}ms ` +
-        `exceeds limit ${snapshot.freshness.maxCatalogAgeMs}ms`,
+      ageMs < 0 ? futureSnapshotMessage(ageMs, limitMs) : staleSnapshotMessage(ageMs, limitMs),
     );
   }
 
@@ -100,9 +108,7 @@ async function main() {
   }
 
   if (args.failOnGaps && snapshot.gaps.length > 0) {
-    throw new Error(
-      `snapshot reports ${snapshot.gaps.length} provenance gap(s); failing on --fail-on-gaps`,
-    );
+    throw new Error(failOnGapsMessage(snapshot.gaps.length));
   }
 
   process.stdout.write(
@@ -125,6 +131,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error.name}: ${error.message}\n`);
+  process.stderr.write(formatCliFailure(error));
   process.exitCode = 1;
 });
