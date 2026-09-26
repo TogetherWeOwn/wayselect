@@ -33,3 +33,12 @@ export {
   diffSnapshots,
   formatDiffReport,
 } from "./catalogDiff.js";
+export {
+  failOnGapsMessage,
+  formatCliFailure,
+  futureSnapshotMessage,
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  staleSnapshotMessage,
+  unknownArgumentMessage,
+} from "./cliErrors.js";
