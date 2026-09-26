@@ -1,0 +1,74 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  EligibilityRequestError,
+  evaluateEligibility,
+} from "../src/index.js";
+import { evaluationOptions, loadConfiguredCandidates } from "../support/helpers.js";
+
+const defaultRequest = Object.freeze({
+  operation: "chat",
+  requiredCapabilities: ["toolUse"],
+  providerAllowlist: ["northstar", "orbit"],
+});
+
+test("fails closed when no explicit provider allowlist is supplied", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+
+  assert.throws(
+    () =>
+      evaluateEligibility(
+        candidates,
+        { ...defaultRequest, providerAllowlist: [] },
+        evaluationOptions,
+      ),
+    EligibilityRequestError,
+  );
+});
+
+test("explains missing capability data, disallowed providers, and unsupported operations", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const evaluations = evaluateEligibility(candidates, defaultRequest, evaluationOptions);
+  const byRoute = new Map(evaluations.map((candidate) => [candidate.routeId, candidate]));
+
+  assert.equal(byRoute.get("northstar/alpha-chat").eligible, true);
+  assert.deepEqual(byRoute.get("northstar/unknown-tools").reasons, [
+    "missing-capability:toolUse",
+  ]);
+  assert.ok(byRoute.get("legacy/old-chat").reasons.includes("provider-not-allowed"));
+  assert.ok(byRoute.get("northstar/image-lite").reasons.includes("operation-not-catalogued"));
+  assert.ok(byRoute.get("northstar/image-lite").reasons.includes("operation-not-configured"));
+  assert.ok(byRoute.get("orbit/retired-chat").reasons.includes("support-state:unsupported"));
+});
+
+test("marks old support evidence stale", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const evaluations = evaluateEligibility(
+    candidates,
+    {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["legacy"],
+    },
+    evaluationOptions,
+  );
+  const legacy = evaluations.find((candidate) => candidate.routeId === "legacy/old-chat");
+
+  assert.equal(legacy.eligible, false);
+  assert.ok(legacy.reasons.includes("stale-evidence"));
+});
+
+test("unknown required capabilities fail closed as missing data", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const evaluations = evaluateEligibility(
+    candidates,
+    { ...defaultRequest, requiredCapabilities: ["unpublishedCapability"] },
+    evaluationOptions,
+  );
+
+  assert.ok(
+    evaluations.every((candidate) =>
+      candidate.reasons.includes("missing-capability:unpublishedCapability"),
+    ),
+  );
+});
