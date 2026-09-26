@@ -1,4 +1,10 @@
-export { CatalogValidationError, normalizeCatalog } from "./catalog.js";
+export {
+  CatalogIntegrityError,
+  CatalogValidationError,
+  computeCatalogSnapshotHash,
+  normalizeCatalog,
+  verifyCatalogSnapshotHash,
+} from "./catalog.js";
 export {
   SupportConfigurationError,
   SupportState,

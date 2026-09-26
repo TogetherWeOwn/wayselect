@@ -5,7 +5,7 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { normalizeCatalog } from "../src/index.js";
+import { computeCatalogSnapshotHash, normalizeCatalog } from "../src/index.js";
 import {
   SnapshotDiffError,
   compareEntries,
@@ -108,7 +108,15 @@ test("diff reports added, removed, and changed routes plus gap deltas", async ()
   };
   delete next.legacy.models["old-chat"];
 
-  const current = await fixtureSnapshot({ catalog: next });
+  // The mutated body must be re-pinned: provenance.snapshotHash covers the
+  // catalog body, so a changed body with the old hash must fail closed.
+  const current = await fixtureSnapshot({
+    catalog: next,
+    provenance: {
+      ...fixture.provenance,
+      snapshotHash: computeCatalogSnapshotHash(next),
+    },
+  });
   const diff = diffSnapshots(previous, current);
 
   assert.deepEqual(diff.added, ["orbit/orbit-next"]);
