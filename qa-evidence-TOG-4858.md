@@ -71,6 +71,28 @@ Command: `npm test` (`node --test test/*.test.js`)
 
 `QA 150e2f7ae25862795ee3419584fc524c1bb71823: PASS` (local — registration pending)
 
+## Control-plane registration (run `ded2bc51`, 2026-09-26T12:07-12:15Z) - DEGRADED (attempted per board-continue)
+
+Board-resume `continue` required a disposition this run; all control-plane writes attempted
+via run-scoped bridge (`PAPERCLIP_API_URL` loopback, 10-25s timeouts); evidence committed
+locally as `622d407` (code unchanged since `10321da`):
+
+- Read probe `GET heartbeat-context`: 1x409 `outcome: indeterminate` (bridge 10s timeout). Same as runs `65b78681`, `927f432e`, `f23e7598`.
+- Evidence upload (`paperclip-upload-artifact.sh qa-evidence-TOG-4858.md`, isolated state dir
+  `.paperclip-runtime/run-ded2bc51/upload-state` with `TMPDIR` override):
+  attempt 1 -> 409 `outcome: indeterminate`; attempt 2 (after 15s) -> 409 `outcome: indeterminate`.
+  Retries stopped per bounded-write rule (2 consecutive failures, same write).
+- Disposition PATCH (`in_progress` + verdict comment + `executionPolicy.monitor`
+  `nextCheckAt 2026-09-26T13:30:00Z`, `kind external_service`, `serviceName paperclip-bridge`,
+  `externalRef TOG-4858-qa-reregister-ded2bc51`, `timeoutAt 2026-09-27T13:30:00Z`, `maxAttempts 3`;
+  payload at `.paperclip-runtime/run-ded2bc51/patch-full.json`):
+  attempt 1 -> 409 `outcome: indeterminate`, `retryable: false`. NOT retried: server marked
+  it non-retryable and indeterminate may have committed — retry risks a duplicate verdict comment.
+- **Disposition NOT confirmed; evidence NOT registered; monitor NOT confirmed.** `PATCH` response
+  was an error body, not issue JSON, so `monitorNextCheckAt`/`assigneeAgentId`/`status` could not
+  be verified. This file (committed locally) plus the adapter/runtime status channel are the
+  fallback record.
+
 ## Control-plane registration (run `f23e7598`, 2026-09-26T11:36-11:48Z) - DEGRADED (attempted per board-continue)
 
 Board-resume `continue` required a disposition this run; all control-plane writes attempted
