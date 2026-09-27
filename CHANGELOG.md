@@ -188,6 +188,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   for socket reuse) instead of hanging on a short/stalling body
   (`web/jsonBody.js`, `web/server.js`, `src/intakeLimits.js`,
   `test/json-body-read-timeout.test.js`).
+- #144 (2026-09-27) TOG-5859: capability-aware select output contract —
+  typed-requirement JSON validation, selected/no-eligible human output,
+  fail-closed missing limits, and executable README example; document the
+  v1 `--json` shape and guard it against drift (`test/select-output-contract.test.js`,
+  `test/cli-docs-examples.test.js`, `README.md`, `docs/cli.md`, docs/test-only).
 - #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
 - #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
   invalid `--now` exits 1 with empty stdout, exact
