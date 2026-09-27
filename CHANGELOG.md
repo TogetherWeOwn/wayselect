@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7283: POST intake rate-limit coverage audit pin — every POST
+  intake route (`/listings/:provider/:model/purchase`,
+  `/sellers/submissions`,
+  `/sellers/submissions/:provider/:model/confirm`) asserts its own
+  per-IP budget (max passes, then 429 + matching Retry-After with the
+  `rate_limited` body), plus POST-bucket independence
+  (`test/post-rate-limit-coverage.test.js`, test-only, no source
+  change: the limiter already gates every route shape).
 - TOG-7319: pre-push vs CI parity audit — `bin/pre-push-check` grows from
   5 to 8 gates (engine, marker, smoke + search-index probe, e2e + demo),
   P2/P3/P4 go recursive and multi-file, and `test/pre-push-parity.test.js`
