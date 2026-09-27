@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #163 (2026-09-27) TOG-6047: search-prompt eval seed-rerun contract — documented
+  seed 5492 with reviewer rerun steps and expected determinism, plus a pin
+  test asserting the doc seed matches the script default, npm script, and
+  recorded SUMMARY (`docs/search-prompt-eval-seed-rerun.md`,
+  `test/search-prompt-eval-seed-rerun.test.js`, `README.md`, docs+test only).
 - #158 (2026-09-27) TOG-6731: index page lang/title contract pin — renderer,
   empty state, and live `GET /listings` all carry `<html lang="en">` plus
   exactly one non-empty escaped `<title>` (`Listings — Wayselect`)
