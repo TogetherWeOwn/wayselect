@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-// Search-prompt regression eval for the Wayselect storefront (TOG-5492).
+// Search-prompt regression eval for the Wayselect storefront (TOG-5492, extended TOG-5748).
 //
-// Compares two prompt versions over 20 fixed queries against the stub
-// listings in web/stub-listing.js and records top-1 relevance before/after:
+// Compares three prompt versions over 30 fixed queries against the stub
+// listings in web/stub-listing.js and records top-1 relevance:
 //   v1-baseline       — raw substring pass-through (shipped S2 rule)
 //   v2-cue-extraction — interpret-then-match (see prompts/v2-cue-extraction.md)
+//   v3-negation-scope — v2 plus negation scope (see prompts/v3-negation-scope.md)
 //
 // Usage: node bin/eval-wayselect-search-prompts [--seed 5492] [--write]
 //   --write  rewrite evals/search-prompt-regression/results.md with this run
@@ -21,13 +22,14 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { STUB_LISTINGS } from "../web/stub-listing.js";
-import { rankV1, rankV2, routeId, top1 } from "../support/search-prompts.js";
+import { rankV1, rankV2, rankV3, routeId, top1 } from "../support/search-prompts.js";
 
 const EVAL_DIR = new URL("../evals/search-prompt-regression/", import.meta.url);
 const QUERIES_FILE = new URL("queries.json", EVAL_DIR);
 const RESULTS_FILE = new URL("results.md", EVAL_DIR);
 const V1_FILE = new URL("prompts/v1-baseline.md", EVAL_DIR);
 const V2_FILE = new URL("prompts/v2-cue-extraction.md", EVAL_DIR);
+const V3_FILE = new URL("prompts/v3-negation-scope.md", EVAL_DIR);
 
 const args = process.argv.slice(2);
 const WRITE = args.includes("--write");
@@ -65,14 +67,15 @@ function sha256(text) {
 
 async function main() {
   const startedAt = Date.now();
-  const [queriesRaw, v1Raw, v2Raw] = await Promise.all([
+  const [queriesRaw, v1Raw, v2Raw, v3Raw] = await Promise.all([
     readFile(QUERIES_FILE, "utf8"),
     readFile(V1_FILE, "utf8"),
     readFile(V2_FILE, "utf8"),
+    readFile(V3_FILE, "utf8"),
   ]);
   const queries = JSON.parse(queriesRaw);
-  if (!Array.isArray(queries) || queries.length !== 20) {
-    throw new Error(`expected 20 fixed queries, found ${Array.isArray(queries) ? queries.length : "non-array"}`);
+  if (!Array.isArray(queries) || queries.length !== 30) {
+    throw new Error(`expected 30 fixed queries, found ${Array.isArray(queries) ? queries.length : "non-array"}`);
   }
 
   // Determinism self-check (seed recorded for reproducibility):
@@ -88,7 +91,7 @@ async function main() {
   // caller order in both versions.
   const shuffledListings = shuffled(STUB_LISTINGS, SEED);
   for (const { id, query } of queries) {
-    for (const [name, rank] of [["v1", rankV1], ["v2", rankV2]]) {
+    for (const [name, rank] of [["v1", rankV1], ["v2", rankV2], ["v3", rankV3]]) {
       const a = JSON.stringify(rank(STUB_LISTINGS, query).map(routeId));
       const b = JSON.stringify(rank(STUB_LISTINGS, query).map(routeId));
       if (a !== b) {
@@ -98,67 +101,75 @@ async function main() {
     if (query.trim() === "") {
       continue;
     }
-    const v2a = routeId(top1(rankV2(STUB_LISTINGS, query)));
-    const v2b = routeId(top1(rankV2(shuffledListings, query)));
-    if (v2a !== v2b) {
-      throw new Error(`determinism self-check failed (seed ${SEED}): v2 ${id} top-1 moved ${v2a} -> ${v2b} under shuffle`);
+    for (const [name, rank] of [["v2", rankV2], ["v3", rankV3]]) {
+      const ra = routeId(top1(rank(STUB_LISTINGS, query)));
+      const rb = routeId(top1(rank(shuffledListings, query)));
+      if (ra !== rb) {
+        throw new Error(`determinism self-check failed (seed ${SEED}): ${name} ${id} top-1 moved ${ra} -> ${rb} under shuffle`);
+      }
     }
   }
 
   const rows = queries.map(({ id, query, expectedTop1, note }) => {
     const before = routeId(top1(rankV1(STUB_LISTINGS, query)));
-    const after = routeId(top1(rankV2(STUB_LISTINGS, query)));
+    const mid = routeId(top1(rankV2(STUB_LISTINGS, query)));
+    const after = routeId(top1(rankV3(STUB_LISTINGS, query)));
     return {
-      id, query, expectedTop1, before, after,
+      id, query, expectedTop1, before, mid, after,
       beforeHit: before === expectedTop1,
+      midHit: mid === expectedTop1,
       afterHit: after === expectedTop1,
-      fixed: before !== expectedTop1 && after === expectedTop1,
+      fixedV2: before !== expectedTop1 && mid === expectedTop1,
+      fixedV3: mid !== expectedTop1 && after === expectedTop1,
       regressed: before === expectedTop1 && after !== expectedTop1,
       note,
     };
   });
 
   const beforeHits = rows.filter((r) => r.beforeHit).length;
+  const midHits = rows.filter((r) => r.midHit).length;
   const afterHits = rows.filter((r) => r.afterHit).length;
-  const fixed = rows.filter((r) => r.fixed).length;
+  const fixedV2 = rows.filter((r) => r.fixedV2).length;
+  const fixedV3 = rows.filter((r) => r.fixedV3).length;
   const regressed = rows.filter((r) => r.regressed).length;
   const elapsedS = ((Date.now() - startedAt) / 1000).toFixed(1);
 
   const cell = (value) => value ?? "∅ (no match)";
   const mark = (hit) => (hit ? "✓" : "✗");
   const lines = [
-    `# Search-prompt regression eval — results (TOG-5492)`,
+    `# Search-prompt regression eval — results (TOG-5492, extended TOG-5748)`,
     ``,
-    `20 fixed queries over the 3 stub listings in \`web/stub-listing.js\`.`,
+    `30 fixed queries over the 3 stub listings in \`web/stub-listing.js\`.`,
     `\`before\` = v1-baseline (raw substring pass-through, shipped S2 rule);`,
-    `\`after\` = v2-cue-extraction (interpret-then-match). Top-1 compared to the`,
+    `\`mid\` = v2-cue-extraction (interpret-then-match);`,
+    `\`after\` = v3-negation-scope (v2 plus negation scope). Top-1 compared to the`,
     `golden \`expectedTop1\` in \`queries.json\` (\`∅\` = honest no-match).`,
     ``,
-    `| ID | Query | Expected top-1 | Before top-1 | After top-1 | Before | After | Note |`,
-    `| --- | --- | --- | --- | --- | --- | --- | --- |`,
+    `| ID | Query | Expected top-1 | Before top-1 | Mid top-1 | After top-1 | Before | Mid | After | Note |`,
+    `| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |`,
     ...rows.map((r) =>
-      `| ${r.id} | \`${r.query.replaceAll("`", "")}\` | ${cell(r.expectedTop1)} | ${cell(r.before)} | ${cell(r.after)} | ${mark(r.beforeHit)} | ${mark(r.afterHit)} | ${r.note} |`,
+      `| ${r.id} | \`${r.query.replaceAll("`", "")}\` | ${cell(r.expectedTop1)} | ${cell(r.before)} | ${cell(r.mid)} | ${cell(r.after)} | ${mark(r.beforeHit)} | ${mark(r.midHit)} | ${mark(r.afterHit)} | ${r.note} |`,
     ),
     ``,
-    `**Summary: before ${beforeHits}/20, after ${afterHits}/20 — ${fixed} fixed, ${regressed} regressed.**`,
+    `**Summary: before ${beforeHits}/30, mid ${midHits}/30, after ${afterHits}/30 — v2 fixed ${fixedV2}, v3 fixed ${fixedV3}, ${regressed} regressed vs v1.**`,
     ``,
     `Reproducibility: \`node bin/eval-wayselect-search-prompts --seed ${SEED}\` (stdlib only,`,
-    `no network). Determinism self-check passed: both versions are repeatable, and`,
-    `v2 top-1s on non-blank queries are shuffle-invariant with seed ${SEED} (S7`,
+    `no network). Determinism self-check passed: all versions are repeatable, and`,
+    `v2/v3 top-1s on non-blank queries are shuffle-invariant with seed ${SEED} (S7`,
     `stub-order tie-breaks). v1 multi-matches preserve caller order by design (the`,
     `server always feeds canonical stub order, so production top-1s reproduce);`,
-    `blank queries (S3) preserve caller order in both versions.`,
+    `blank queries (S3) preserve caller order in all versions.`,
     `Content hashes — queries.json \`${sha256(queriesRaw)}\`, v1-baseline.md \`${sha256(v1Raw)}\`,`,
-    `v2-cue-extraction.md \`${sha256(v2Raw)}\`. Run time ${elapsedS}s (budget 90 run-min).`,
+    `v2-cue-extraction.md \`${sha256(v2Raw)}\`, v3-negation-scope.md \`${sha256(v3Raw)}\`. Run time ${elapsedS}s (budget 90 run-min).`,
     ``,
   ];
   const markdown = lines.join("\n");
 
   for (const r of rows) {
-    const flag = r.regressed ? "REGRESSED" : r.fixed ? "fixed" : r.afterHit ? "hit" : "miss";
-    process.stdout.write(`${r.id} ${JSON.stringify(r.query)} expected=${cell(r.expectedTop1)} before=${cell(r.before)} after=${cell(r.after)} [${flag}]\n`);
+    const flag = r.regressed ? "REGRESSED" : r.fixedV3 ? "v3-fixed" : r.fixedV2 ? "v2-fixed" : r.afterHit ? "hit" : "miss";
+    process.stdout.write(`${r.id} ${JSON.stringify(r.query)} expected=${cell(r.expectedTop1)} before=${cell(r.before)} mid=${cell(r.mid)} after=${cell(r.after)} [${flag}]\n`);
   }
-  process.stdout.write(`SUMMARY: before ${beforeHits}/20, after ${afterHits}/20, ${fixed} fixed, ${regressed} regressed — ${elapsedS}s\n`);
+  process.stdout.write(`SUMMARY: before ${beforeHits}/30, mid ${midHits}/30, after ${afterHits}/30, v2-fixed ${fixedV2}, v3-fixed ${fixedV3}, regressed ${regressed} — ${elapsedS}s\n`);
 
   if (WRITE) {
     await writeFile(RESULTS_FILE, markdown);

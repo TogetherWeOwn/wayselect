@@ -180,14 +180,15 @@ state — the probe stays green across 3 consecutive refreshes.
 npm run eval:search-prompts
 ```
 
-Compares two storefront search-prompt versions over 20 fixed queries
+Compares three storefront search-prompt versions over 30 fixed queries
 (`evals/search-prompt-regression/queries.json`) against the 3 stub listings
-and records top-1 relevance before/after in
+and records top-1 relevance before/mid/after in
 `evals/search-prompt-regression/results.md`: v1-baseline (raw substring
 pass-through, shipped S2 rule) vs v2-cue-extraction (deterministic
-interpret-then-match). Stdlib only, no network, no credentials; seed 5492
-recorded for the shuffle-invariance self-check. Today: before 12/20, after
-20/20 — 8 fixed, 0 regressed.
+interpret-then-match) vs v3-negation-scope (v2 plus negation scope).
+Stdlib only, no network, no credentials; seed 5492
+recorded for the shuffle-invariance self-check. Today: before 13/30, mid
+24/30, after 30/30 — v2 fixed 11, v3 fixed 6, 0 regressed.
 
 ## Catalog search-index refresh
 
