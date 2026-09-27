@@ -29,3 +29,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run smoke
+
+  # Gap O1 (TOG-6385): the 12 bin/accept-* harnesses previously ran only
+  # manually. They are offline by construction (ephemeral localhost ports,
+  # scratch copies, FakeTransport; no network, credentials, or prod
+  # activation) and finish in seconds, so they run on every push/PR.
+  accept:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run accept:all
