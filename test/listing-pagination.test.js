@@ -231,3 +231,91 @@ describe("paged index server routes (TOG-6028)", () => {
     ok(html.includes("Image Lite"), "second filtered item");
   });
 });
+
+describe("sorted index server routes (TOG-6362)", () => {
+  const servers = [];
+  async function start(env) {
+    const server = createApp(env);
+    servers.push(server);
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return `http://127.0.0.1:${server.address().port}`;
+  }
+  after(() => Promise.all(servers.map((s) => new Promise((r) => s.close(r)))));
+
+  // Stub order is alpha-chat, image-lite, unknown-tools; price-asc is
+  // unknown-tools (0.75), image-lite (2), alpha-chat (3).
+  function positions(html) {
+    return {
+      alpha: html.indexOf("Alpha Chat"),
+      image: html.indexOf("Image Lite"),
+      unknown: html.indexOf("Unknown Tools"),
+    };
+  }
+
+  it("keeps stub order by default (no behavior change)", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    for (const query of ["", "?sort=default"]) {
+      const res = await fetch(`${base}/listings${query}`);
+      strictEqual(res.status, 200, `expected 200 for ${query || "(no params)"}`);
+      const { alpha, image, unknown } = positions(await res.text());
+      ok(alpha !== -1 && image !== -1 && unknown !== -1, "all stubs listed");
+      ok(alpha < image && image < unknown, `stub order kept for ${query || "(no params)"}`);
+    }
+  });
+
+  it("orders the index by price-asc over HTTP", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await fetch(`${base}/listings?sort=price-asc`);
+    strictEqual(res.status, 200);
+    const { alpha, image, unknown } = positions(await res.text());
+    ok(unknown < image && image < alpha, "cheapest stub first");
+  });
+
+  it("orders the index by name-asc and route-asc over HTTP", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    for (const sort of ["name-asc", "route-asc"]) {
+      const res = await fetch(`${base}/listings?sort=${sort}`);
+      strictEqual(res.status, 200, `expected 200 for sort=${sort}`);
+      const { alpha, image, unknown } = positions(await res.text());
+      ok(alpha < image && image < unknown, `alphabetical order for sort=${sort}`);
+    }
+  });
+
+  it("sorts before paging: the window holds the cheapest stubs", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await fetch(`${base}/listings?sort=price-asc&limit=1&offset=0`);
+    strictEqual(res.status, 200);
+    const html = await res.text();
+    strictEqual(liCount(html), 1);
+    ok(html.includes("Unknown Tools"), "first sorted window item is cheapest");
+    ok(html.includes("3 listings found. Showing 1-1."), "sorted total + window announced");
+  });
+
+  it("sorts the filtered set, not the raw catalog", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    // modality=text matches all 3: price-desc puts alpha-chat first.
+    const res = await fetch(`${base}/listings?modality=text&sort=price-desc&limit=1&offset=0`);
+    strictEqual(res.status, 200);
+    const html = await res.text();
+    strictEqual(liCount(html), 1);
+    ok(html.includes("Alpha Chat"), "most expensive first");
+  });
+
+  it("preserves the sort in Next/Previous page links", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await fetch(`${base}/listings?sort=price-asc&limit=1&offset=0`);
+    strictEqual(res.status, 200);
+    const html = await res.text();
+    ok(html.includes("sort=price-asc"), "page links carry the sort");
+    ok(!html.includes("sort=default"), "default sort stays unpinned in links");
+  });
+
+  it("returns 400 naming the valid sorts for unknown sort values", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await fetch(`${base}/listings?sort=cheapest`);
+    strictEqual(res.status, 400);
+    const html = await res.text();
+    ok(html.includes("<h1>Invalid filter</h1>"), "invalid-filter page");
+    ok(html.includes("price-asc"), "valid sorts named");
+  });
+});

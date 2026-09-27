@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #161 (2026-09-27) TOG-6362: explicit `sort` param on `/listings` (gap G1) —
+  `default` keeps stub order; `price-asc` / `price-desc` order by the synthetic
+  list-price estimate with unknown prices last and code-unit route-ID tie-break;
+  `name-asc` / `route-asc` for alphabetical orders. Unknown values fail closed
+  (400 naming the valid sorts); sort rides the filter form as a native
+  `<select>` and survives Prev/Next page links (`web/filter.js`,
+  `web/listing-detail.js`, `web/server.js`, `test/listing-filter.test.js`,
+  `test/listing-filter-labels.test.js`, `test/listing-pagination.test.js`).
 - #164 (2026-09-27) TOG-6051: index result-count live region — the
   result-count paragraph carries explicit `aria-live="polite"` alongside
   `role="status"` in all three index states so filter changes announce the

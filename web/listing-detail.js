@@ -26,8 +26,10 @@ import {
   evaluateListingsEligibility,
 } from "./eligibility.js";
 import {
+  LISTINGS_DEFAULT_SORT,
   LISTINGS_MAX_QUERY_LENGTH,
   VALID_CAPABILITIES,
+  VALID_LISTING_SORTS,
   VALID_MODALITIES,
   emptyFilters,
 } from "./filter.js";
@@ -105,8 +107,8 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 .skip-link { position: absolute; left: 0.75rem; top: -4rem; z-index: 10; background: #fff; color: #000; padding: 0.5rem 1rem; border-radius: 0.375rem; transition: top 0.15s ease-in-out; }
 .skip-link:focus-visible { top: 0.75rem; }
 main:focus { outline: none; }
-a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
-@media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
+@media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } select:focus-visible { outline: 3px solid Highlight; } }
 .skeleton { border-radius: 0.375rem; background: linear-gradient(90deg, rgba(128, 128, 128, 0.28) 25%, rgba(128, 128, 128, 0.12) 50%, rgba(128, 128, 128, 0.28) 75%); background-size: 200% 100%; animation: skeleton-pulse 1.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .skip-link { transition: none; } }
 @keyframes skeleton-pulse { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -393,6 +395,28 @@ function checkboxRow(name, values, selected) {
     .join("\n");
 }
 
+// Human-readable labels for the explicit result ordering (TOG-6362, gap
+// G1). Keys are the `VALID_LISTING_SORTS` values; the order here is the
+// dropdown order.
+const SORT_LABELS = Object.freeze({
+  default: "Stub order",
+  "price-asc": "Price: low to high",
+  "price-desc": "Price: high to low",
+  "name-asc": "Name: A to Z",
+  "route-asc": "Route ID: A to Z",
+});
+
+function sortOptions(selected) {
+  const active =
+    typeof selected === "string" && VALID_LISTING_SORTS.includes(selected)
+      ? selected
+      : LISTINGS_DEFAULT_SORT;
+  return VALID_LISTING_SORTS.map(
+    (value) =>
+      `<option value="${escapeHtml(value)}"${value === active ? " selected" : ""}>${escapeHtml(SORT_LABELS[value] ?? value)}</option>`,
+  ).join("\n");
+}
+
 function filterForm(filters) {
   const active = filters ?? emptyFilters();
   const q = typeof active.q === "string" ? active.q : "";
@@ -406,6 +430,9 @@ ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
 <fieldset><legend>Modalities</legend>
 ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 </fieldset>
+<label for="filter-sort">Sort by <select id="filter-sort" name="sort">
+${sortOptions(active.sort)}
+</select></label>
 <button type="submit">Apply filters</button>
 <a href="/listings">Clear filters</a>
 </form>`;
@@ -435,7 +462,8 @@ ${detail}
 // Paged navigation for the listing index (TOG-6028). `pageInfo` is the
 // `{ total, limit, offset }` window the server sliced; without it the full
 // array renders with the legacy "N listings found." copy. Prev/Next links
-// preserve the active filters so paging never drops a filter.
+// preserve the active filters (and the explicit sort, TOG-6362) so paging
+// never drops a filter or silently reverts to stub order.
 function pageHref(filters, limit, offset) {
   const params = new URLSearchParams();
   if (typeof filters?.q === "string" && filters.q !== "") {
@@ -446,6 +474,11 @@ function pageHref(filters, limit, offset) {
   }
   for (const name of filters?.modalities ?? []) {
     params.append("modality", name);
+  }
+  // Default sort stays unpinned so legacy links keep their exact shape;
+  // only an explicit non-default sort rides along.
+  if (typeof filters?.sort === "string" && filters.sort !== LISTINGS_DEFAULT_SORT) {
+    params.set("sort", filters.sort);
   }
   params.set("limit", String(limit));
   if (offset > 0) {

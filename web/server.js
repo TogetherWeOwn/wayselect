@@ -76,7 +76,12 @@ import {
   renderPreviewDisabled,
   renderRouteNotFound,
 } from "./listing-detail.js";
-import { applyListingsFilters, paginateListings, parseListingsQuery } from "./filter.js";
+import {
+  applyListingsFilters,
+  paginateListings,
+  parseListingsQuery,
+  sortListings,
+} from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
 import { readJsonBody } from "./jsonBody.js";
 import {
@@ -407,8 +412,12 @@ export function createApp(env = process.env, options = {}) {
         return;
       }
       const filtered = applyListingsFilters(STUB_LISTINGS, parsed.filters);
+      // TOG-6362: explicit `sort` orders the filtered set before the window
+      // is sliced; `default` returns input order, so the legacy stub order
+      // is unchanged unless the caller asks otherwise.
+      const ordered = sortListings(filtered, parsed.filters.sort);
       // TOG-6028: bound the HTML render with limit/offset (fail-closed above).
-      const { page, total, limit, offset } = paginateListings(filtered, parsed.paging);
+      const { page, total, limit, offset } = paginateListings(ordered, parsed.paging);
       sendPage(
         200,
         renderListingIndex(page, undefined, parsed.filters, { total, limit, offset }, pageOpts),
