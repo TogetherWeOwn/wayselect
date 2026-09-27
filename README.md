@@ -125,6 +125,33 @@ node bin/refresh-catalog-fixtures --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 npm run refresh:check && npm test
 ```
 
+## Provenance-drift detector probe (TOG-5542)
+
+Independent leaf beside the [TOG-5116](/TOG/issues/TOG-5116) harness: where
+`bin/accept-fixture-refresh` re-runs the refresh on scratch copies, this
+probe is read-only and checks the committed state — it never writes
+fixtures, never refreshes, never runs the suite. Three fail-loud checks,
+exit non-zero on any drift (an alert):
+
+```sh
+npm run check:drift
+node bin/check-provenance-drift --now 2026-09-26T16:00:00.000Z --out drift-report.json
+```
+
+- **D1 self-hash:** the live catalog body recomputes to its own recorded
+  `snapshotHash` (catches hand-edits and bad merges; the library boundary
+  also rejects unknown fields fail-closed).
+- **D2 evidence pin:** the same hash equals the `provenanceHash` in
+  `fixture-refresh-evidence.json` from the last green harness run, and that
+  run's verdict is `PASS` (catches body changes made outside a re-pinned
+  refresh).
+- **D3 freshness:** the recorded snapshot is within the freshness window
+  (catches a refresh scheduler that went quiet).
+
+Suggested pairing after each refresh: `npm run accept:fixture-refresh`
+re-pins the evidence, then `npm run check:drift` confirms the committed
+state — the probe stays green across 3 consecutive refreshes.
+
 ## Search-prompt regression eval (TOG-5492)
 
 ```sh
