@@ -2,6 +2,10 @@
 // with the shell-first loading state (TOG-5499).
 //
 // Zero dependencies: Node built-in http only. Routes:
+//   GET /healthz                            — liveness probe (TOG-5726):
+//                                            `{status:"ok",version}` JSON,
+//                                            ungated by WAYSELECT_PREVIEW
+//                                            and exempt from rate limiting
 //   GET /listings                          — stub listing index (flag-gated)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
@@ -23,6 +27,7 @@
 //     navigation). `*/*` (fetch/curl defaults) gets JSON.
 
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { isPreviewEnabled } from "./preview.js";
 import { createRateLimiter } from "./rate-limit.js";
 import {
@@ -73,9 +78,48 @@ function routeBucket(method, pathname) {
   return `${method} other`;
 }
 
+// Server version reported by GET /healthz (TOG-5726). Read once at module
+// load from the package manifest; a missing/unparseable manifest degrades
+// to "unknown" rather than breaking the server.
+function loadServerVersion() {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    return typeof manifest.version === "string" && manifest.version !== ""
+      ? manifest.version
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+export const SERVER_VERSION = loadServerVersion();
+
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
   return createServer((req, res) => {
+    // TOG-5726: /healthz is the orchestrator liveness probe. It answers
+    // before rate limiting (a saturated limiter must not look like a dead
+    // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
+    // routes, not process health). Pathname match: query strings still hit
+    // the probe, but a trailing slash is a different path and falls through
+    // to the 404 contract below.
+    let probePathname = null;
+    try {
+      probePathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      probePathname = null;
+    }
+    if (req.method === "GET" && probePathname === "/healthz") {
+      sendJson(res, 200, { status: "ok", version: SERVER_VERSION });
+      return;
+    }
+    if (probePathname === "/healthz") {
+      sendJson(res, 405, { error: "method_not_allowed" });
+      return;
+    }
+
     // Per-IP/per-route cap (TOG-5563). Bucket by route shape so one hot
     // listing cannot starve — or be starved by — unrelated routes.
     // Unparseable targets count against the fallback bucket so garbage
@@ -92,6 +136,7 @@ export function createApp(env = process.env, options = {}) {
     if (!verdict.allowed) {
       res.writeHead(429, {
         "content-type": "application/json; charset=utf-8",
+        ...SECURITY_HEADERS,
         "retry-after": String(verdict.retryAfterSec),
       });
       res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));
@@ -237,11 +282,55 @@ const isMainModule =
   process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 
 export function resolvePort(raw = process.env.PORT ?? "3000") {
-  const port = Number.parseInt(String(raw).trim(), 10);
+  // Strict decimal: parseInt would silently accept "3.5" as 3 or "3000x"
+  // as 3000, starting the server on a port the operator did not ask for.
+  const text = String(raw).trim();
+  const port = /^\d+$/.test(text) ? Number(text) : NaN;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new RangeError(`Invalid PORT ${JSON.stringify(String(raw))}: expected an integer 1-65535`);
   }
   return port;
+}
+
+// Graceful shutdown (TOG-5726): on SIGTERM/SIGINT stop accepting new
+// connections, then exit once in-flight requests drain (or after a bounded
+// grace period so a stuck keep-alive cannot hold the deploy forever).
+// Exported for tests; the main block below wires it to process signals.
+export const SHUTDOWN_GRACE_MS = 5000;
+
+export function installShutdownHandlers(server, options = {}) {
+  const graceMs = options.graceMs ?? SHUTDOWN_GRACE_MS;
+  const exit = options.exit ?? ((code) => process.exit(code));
+  const timers = options.timers ?? { setTimeout, clearTimeout };
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    // eslint-disable-next-line no-console
+    console.log(`received ${signal}, closing preview server`);
+    const force = timers.setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.error("graceful shutdown timed out, forcing exit");
+      exit(1);
+    }, graceMs);
+    // A pending force-exit timer must not hold the event loop open on its
+    // own once the server has drained and closed cleanly.
+    force?.unref?.();
+    server.close(() => {
+      timers.clearTimeout(force);
+      exit(0);
+    });
+  };
+  const onSigterm = () => shutdown("SIGTERM");
+  const onSigint = () => shutdown("SIGINT");
+  process.on("SIGTERM", onSigterm);
+  process.on("SIGINT", onSigint);
+  return () => {
+    process.removeListener("SIGTERM", onSigterm);
+    process.removeListener("SIGINT", onSigint);
+  };
 }
 
 if (isMainModule) {
@@ -255,6 +344,7 @@ if (isMainModule) {
   }
   const host = process.env.HOST ?? "127.0.0.1";
   const server = createApp();
+  installShutdownHandlers(server);
   server.listen(port, host, () => {
     // eslint-disable-next-line no-console
     console.log(
