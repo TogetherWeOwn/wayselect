@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #116 (2026-09-27) TOG-6384: purchase refusal body contract — exact
+  403 `{error: "preview_only", message}` body pinned (keys, message
+  verbatim, flag-on/off, trailing slash, 404-first boundary)
+  (`test/purchase-refusal-body-contract.test.js`, test-only, no prod
+  change).
 - #107 (2026-09-27) TOG-6370: `q` length cap (200, fail-closed 400 naming
   the bound) + form `maxlength` hint (`web/filter.js`,
   `web/listing-detail.js`, `test/listing-filter.test.js`,
