@@ -24,6 +24,7 @@ export {
   ingestModelsDev,
 } from "./ingest.js";
 export { selectRoute } from "./selection.js";
+export { validateCliJson } from "./validate-cli-json.js";
 export { compareRouteIds } from "./routeIds.js";
 export { handleChatCompletionsRequest } from "./gateway.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
