@@ -19,6 +19,16 @@ export {
 export { selectRoute } from "./selection.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
 export { SellerSubmissionError, validateSellerSubmission } from "./sellerSubmission.js";
+export {
+  MAX_BUYER_ID_LENGTH,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_ETAG_LENGTH,
+  MAX_JSON_BODY_BYTES,
+  MAX_MODEL_ID_LENGTH,
+  MAX_PROVIDER_ID_LENGTH,
+  ROUTE_ID_PATTERN,
+  SYNTHETIC_SOURCE_PREFIX,
+} from "./intakeLimits.js";
 export { FakeTransport } from "./transport.js";
 export {
   CatalogFreshnessError,
