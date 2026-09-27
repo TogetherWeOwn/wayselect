@@ -196,3 +196,43 @@ test("malformed evidence observedAt fails closed as invalid-evidence", async () 
     assert.ok(evaluations[0].reasons.includes("invalid-evidence"));
   }
 });
+
+// TOG-5299: catalog-less calls used to skip the staleness gate silently
+// (catalogProbe null => stale/future-catalog branch never runs). Omission is
+// now loud: an explicit catalog or an explicit skipCatalogCheck:true opt-out
+// is required; stripping the flag from the shared helper options throws.
+test("catalog-less eligibility without the explicit opt-out throws", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const { skipCatalogCheck: _ignored, ...withoutOptOut } = evaluationOptions;
+
+  assert.throws(
+    () => evaluateEligibility(candidates, defaultRequest, withoutOptOut),
+    /options\.catalog is required for catalog freshness enforcement/,
+  );
+  assert.throws(
+    () =>
+      evaluateEligibility(candidates, defaultRequest, {
+        ...withoutOptOut,
+        maxCatalogAgeMs: 24 * 60 * 60 * 1000,
+      }),
+    /options\.catalog is required when options\.maxCatalogAgeMs is set/,
+  );
+  assert.throws(
+    () =>
+      evaluateEligibility(candidates, defaultRequest, {
+        ...withoutOptOut,
+        skipCatalogCheck: "yes",
+      }),
+    /options\.skipCatalogCheck must be a boolean/,
+  );
+
+  // The explicit opt-out preserves the pre-gate behavior: capability and
+  // evidence checks run, and alpha-chat stays eligible.
+  const evaluations = evaluateEligibility(
+    candidates,
+    defaultRequest,
+    evaluationOptions,
+  );
+  const byRoute = new Map(evaluations.map((candidate) => [candidate.routeId, candidate]));
+  assert.equal(byRoute.get("northstar/alpha-chat").eligible, true);
+});
