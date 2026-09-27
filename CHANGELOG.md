@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #124 (2026-09-27) TOG-6710: double-encoded purchase path segment
+  contract — collapsing `%252F` targets pinned as the listing route's 405
+  (POST) / listing miss (GET), never a purchase refusal; exact
+  three-segment target still 403; `%252E%252E` and triple encoding decode
+  exactly once (`test/purchase-double-encoded-segments.test.js`, test-only).
 - #126 (2026-09-27) TOG-6714: clear delayed detail-fragment timer on
   client abort — `req.once('close')` → `clearTimeout`, fired-timer path
   removes its own listener and skips the send on a dead socket; abort
