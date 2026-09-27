@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #130 (2026-09-27) TOG-6721: over-offset empty-page contract — far-over-offset
+  windows return an empty page with the total intact (pure-function level) and
+  200, never 400, with the full/filtered match count over HTTP
+  (`test/listing-over-offset.test.js`, test-only).
 - #128 (2026-09-27) TOG-6730: corrupt search-index `--previous` behavior
   pin — CLI fails closed (exit 1, empty stdout, no output written) on
   non-JSON/truncated/wrong-tool/empty-entries/missing files, exact
