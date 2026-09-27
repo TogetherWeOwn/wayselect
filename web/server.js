@@ -6,7 +6,9 @@
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
 //                                            the `{ html }` content fragment)
-//   POST /listings/:provider/:model/purchase — stub CTA target, always 403 (no backend writes)
+//   POST /listings/:provider/:model/purchase — stub CTA target: 404 for
+//                                            unknown listings, 403 for known
+//                                            listings (no backend writes)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
 
 import { createServer } from "node:http";
@@ -113,6 +115,22 @@ export function createApp(env = process.env, options = {}) {
     if (purchaseMatch) {
       if (req.method !== "POST") {
         sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      // TOG-5710: a nonexistent resource must 404 first; 403 is only
+      // correct for a real listing (writes disabled by design).
+      const [, rawProviderId, rawModelId] = purchaseMatch;
+      let providerId;
+      let modelId;
+      try {
+        providerId = decodeURIComponent(rawProviderId);
+        modelId = decodeURIComponent(rawModelId);
+      } catch {
+        sendJson(res, 404, { error: "listing_not_found" });
+        return;
+      }
+      if (!getStubListing(providerId, modelId)) {
+        sendJson(res, 404, { error: "listing_not_found" });
         return;
       }
       // Stub CTA target: never writes, always refuses.

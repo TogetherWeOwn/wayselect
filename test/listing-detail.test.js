@@ -115,6 +115,24 @@ describe("preview server routes", () => {
     const get = await fetch(`${base}/listings/northstar/alpha-chat/purchase`);
     strictEqual(get.status, 405);
   });
+
+  it("returns 404 for purchase on an unknown listing before 403 (TOG-5710)", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const missing = await fetch(`${base}/listings/a/b/purchase`, {
+      method: "POST",
+    });
+    strictEqual(missing.status, 404);
+    deepStrictEqual(await missing.json(), { error: "listing_not_found" });
+    // Known stub listing still refuses with 403 (writes disabled by design).
+    const known = await fetch(`${base}/listings/northstar/alpha-chat/purchase`, {
+      method: "POST",
+    });
+    strictEqual(known.status, 403);
+    deepStrictEqual(await known.json(), {
+      error: "preview_only",
+      message: "Purchases are disabled in preview. No backend writes.",
+    });
+  });
 });
 
 describe("malformed request target", () => {
