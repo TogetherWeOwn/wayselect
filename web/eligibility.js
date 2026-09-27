@@ -26,9 +26,13 @@ export const PREVIEW_ELIGIBILITY_REQUEST = Object.freeze({
 
 // Frozen synthetic evaluation options. Mirrors fixtures/request.synthetic.json
 // (`evaluationTime`, `maxEvidenceAgeHours`) via support/helpers.js.
+// TOG-5299: the stub preview has no catalog provenance to probe, so it
+// carries the explicit catalog opt-out rather than silently skipping
+// freshness enforcement.
 export const PREVIEW_ELIGIBILITY_OPTIONS = Object.freeze({
   now: new Date("2026-09-24T12:00:00.000Z"),
   maxEvidenceAgeMs: 72 * 60 * 60 * 1000,
+  skipCatalogCheck: true,
 });
 
 // Frozen synthetic support context per stub route. Mirrors
