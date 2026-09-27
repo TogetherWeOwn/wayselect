@@ -48,6 +48,7 @@ describe("405 Allow header + method consistency (TOG-6364)", () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
     const routes = [
       "/healthz",
+      "/favicon.ico",
       "/listings",
       "/listings/",
       "/listings/northstar/alpha-chat",
