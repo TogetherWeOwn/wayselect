@@ -44,7 +44,7 @@ function parsePagingParam(raw, fallback) {
   if (raw === null) {
     return { ok: true, value: fallback };
   }
-  const text = raw.trim();
+  const text = raw;
   if (!/^\d+$/.test(text)) {
     return { ok: false, raw };
   }

@@ -70,7 +70,7 @@ describe("parseListingsQuery paging (TOG-6028)", () => {
     strictEqual(parsed.paging.limit, 100);
   });
 
-  it("fails closed on non-integer, zero, negative, or empty paging values", () => {
+  it("fails closed on non-integer, zero, negative, empty, or whitespace-padded paging values", () => {
     for (const query of [
       "?limit=abc",
       "?limit=1.5",
@@ -82,6 +82,11 @@ describe("parseListingsQuery paging (TOG-6028)", () => {
       "?offset=1.5",
       "?offset=abc",
       "?offset=",
+      // TOG-6213: padded values fail closed per the parsePagingParam
+      // docstring — no whitespace padding that hides the digits.
+      "?limit=%205%20",
+      "?offset=%203",
+      "?limit=%095",
     ]) {
       const parsed = parseListingsQuery(params(query));
       strictEqual(parsed.ok, false, `expected 400 for ${query}`);
@@ -206,7 +211,7 @@ describe("paged index server routes (TOG-6028)", () => {
 
   it("returns 400 for over-cap and malformed paging values", async () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
-    for (const query of ["?limit=101", "?limit=abc", "?limit=0", "?offset=-1", "?offset=1.5"]) {
+    for (const query of ["?limit=101", "?limit=abc", "?limit=0", "?offset=-1", "?offset=1.5", "?limit=%205%20", "?offset=%203"]) {
       const res = await fetch(`${base}/listings${query}`);
       strictEqual(res.status, 400, `expected 400 for ${query}`);
       ok((await res.text()).includes("<h1>Invalid filter</h1>"), "invalid-filter page");
