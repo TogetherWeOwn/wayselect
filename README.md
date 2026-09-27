@@ -318,6 +318,9 @@ Acceptance specs and contracts live in `docs/`. Start here:
 
 ## Contributing
 
+Full contributor guide (setup, ground rules, branch/PR, gates, review and
+merge): [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
+
 - Tests stay offline: the suite runs `node --test` with pinned packages only; the `transport` test fails if `fetch` is called, server tests bind an ephemeral port and talk to it over `localhost`/`127.0.0.1`, and the probe tests run the CLI against saved local input (`--fetch`, the only networked path, is never exercised in tests). Do not add tests that reach the live network.
 - Fixture policy: fixtures under `fixtures/` are synthetic and checked in. Add or edit them as data files; refresh stamped provenance through `bin/refresh-catalog-fixtures`, never by hand-editing. Keep unknown fields rejected at the `src/catalog.js` boundary and never guess missing capability data.
 - Node 20+ ESM; keep `bin/wayselect` thin and `src/` boundaries intact. Run `npm run accept:fixture-refresh` + `npm run check:drift` after each refresh. No new runtime dependencies without a CTO note.
