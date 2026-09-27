@@ -1,0 +1,140 @@
+{
+  "earlyDevelopment": true,
+  "mode": "dry-run-only",
+  "provenance": {
+    "source": "synthetic://wayselect/fixture-v1",
+    "snapshotTimestamp": "2026-09-26T14:00:00.000Z",
+    "snapshotHash": "sha256:4c3fc1cff7c83871b4f0600b0688cb87fe27cb82f6f42672460dd2dadb2a2e5d",
+    "fetchedAt": "FETCHED_AT_NORMALIZED_FOR_TEST"
+  },
+  "selection": {
+    "status": "selected",
+    "dryRun": true,
+    "policy": "lowest-synthetic-estimated-rate-then-lexicographic-route-id",
+    "rateDisclaimer": "Synthetic/list-price estimates only; not actual cost or savings.",
+    "request": {
+      "operation": "chat",
+      "requiredCapabilities": [
+        "toolUse"
+      ],
+      "providerAllowlist": [
+        "northstar",
+        "orbit"
+      ],
+      "requirements": {}
+    },
+    "selected": {
+      "routeId": "northstar/alpha-chat",
+      "providerId": "northstar",
+      "modelId": "alpha-chat",
+      "supportState": "configured",
+      "eligible": true,
+      "reasons": [],
+      "rates": {
+        "inputPerMillion": 1,
+        "outputPerMillion": 2,
+        "label": "synthetic/list-price estimate only"
+      }
+    },
+    "candidates": [
+      {
+        "routeId": "legacy/old-chat",
+        "providerId": "legacy",
+        "modelId": "old-chat",
+        "supportState": "configured",
+        "eligible": false,
+        "reasons": [
+          "provider-not-allowed",
+          "stale-evidence"
+        ],
+        "rates": {
+          "inputPerMillion": 0.5,
+          "outputPerMillion": 1.5,
+          "label": "synthetic/list-price estimate only"
+        }
+      },
+      {
+        "routeId": "northstar/alpha-chat",
+        "providerId": "northstar",
+        "modelId": "alpha-chat",
+        "supportState": "configured",
+        "eligible": true,
+        "reasons": [],
+        "rates": {
+          "inputPerMillion": 1,
+          "outputPerMillion": 2,
+          "label": "synthetic/list-price estimate only"
+        }
+      },
+      {
+        "routeId": "northstar/image-lite",
+        "providerId": "northstar",
+        "modelId": "image-lite",
+        "supportState": "configured",
+        "eligible": false,
+        "reasons": [
+          "operation-not-catalogued",
+          "operation-not-configured",
+          "unsupported-capability:toolUse"
+        ],
+        "rates": {
+          "inputPerMillion": 1,
+          "outputPerMillion": 1,
+          "label": "synthetic/list-price estimate only"
+        }
+      },
+      {
+        "routeId": "northstar/unknown-tools",
+        "providerId": "northstar",
+        "modelId": "unknown-tools",
+        "supportState": "configured",
+        "eligible": false,
+        "reasons": [
+          "missing-capability:toolUse"
+        ],
+        "rates": {
+          "inputPerMillion": 0.25,
+          "outputPerMillion": 0.5,
+          "label": "synthetic/list-price estimate only"
+        }
+      },
+      {
+        "routeId": "orbit/orbit-chat",
+        "providerId": "orbit",
+        "modelId": "orbit-chat",
+        "supportState": "conformance-tested",
+        "eligible": true,
+        "reasons": [],
+        "rates": {
+          "inputPerMillion": 1,
+          "outputPerMillion": 2,
+          "label": "synthetic/list-price estimate only"
+        }
+      },
+      {
+        "routeId": "orbit/retired-chat",
+        "providerId": "orbit",
+        "modelId": "retired-chat",
+        "supportState": "unsupported",
+        "eligible": false,
+        "reasons": [
+          "support-state:unsupported",
+          "operation-not-configured"
+        ],
+        "rates": {
+          "inputPerMillion": 0.1,
+          "outputPerMillion": 0.1,
+          "label": "synthetic/list-price estimate only"
+        }
+      }
+    ]
+  },
+  "transport": {
+    "adapter": "fake",
+    "networkUsed": false,
+    "routeId": "northstar/alpha-chat",
+    "output": {
+      "text": "Synthetic response from northstar/alpha-chat"
+    }
+  }
+}

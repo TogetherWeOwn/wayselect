@@ -36,6 +36,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   100-row index render under 500ms (300ms control delay) and 64KiB,
   plus `GET /listings?limit=100` live-route smoke
   (`test/listing-render-budget.test.js`, test-only).
+- #85 (2026-09-27) TOG-5265: QA fixture harness on current main —
+  edge fixtures x8, edge/golden/guard tests, no-network guard wired
+  into `npm test`, `scripts/acceptance.sh` gate + workflow
+  (`fixtures/edges/`, `test/edge-fixtures.test.js`,
+  `test/golden-output.test.js`, `test/golden/default.json`,
+  `support/no-network-guard.js`, `test/no-network-guard.test.js`,
+  `scripts/acceptance.sh`, `.github/workflows/acceptance.yml`,
+  `package.json`).
 - #121 (2026-09-27) TOG-6709: HEAD method contract — HEAD pinned as a
   plain wrong method (405 + `Allow` on GET/purchase routes, 405 without
   `Allow` on seller routes, 404 on unknown paths; empty body, method gate
