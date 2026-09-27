@@ -18,6 +18,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #97 (2026-09-27) TOG-6387: npm audit delta record — clean bill vs
+  TOG-6037 baseline (0 vulns, lockfile byte-identical, pins unchanged)
+  (`audit-delta-evidence.json`, evidence-only).
 - #98 (2026-09-27) TOG-6364: `Allow` header on all 405s (RFC 9110 s15.5.6)
   via a shared `sendMethodNotAllowed` helper; /listings index 405s on
   non-GET instead of 404 (`web/server.js`, `test/method-not-allowed.test.js`).
