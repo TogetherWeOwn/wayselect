@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #126 (2026-09-27) TOG-6714: clear delayed detail-fragment timer on
+  client abort — `req.once('close')` → `clearTimeout`, fired-timer path
+  removes its own listener and skips the send on a dead socket; abort
+  leaves zero pending timers (fail-to-pass pin) (`web/server.js`,
+  `test/detail-fragment-abort.test.js`).
 - #130 (2026-09-27) TOG-6721: over-offset empty-page contract — far-over-offset
   windows return an empty page with the total intact (pure-function level) and
   200, never 400, with the full/filtered match count over HTTP
