@@ -292,6 +292,29 @@ This slice does not include live provider calls, endpoint discovery, credentials
 
 The gateway surface (`src/gateway.js`, Phase 1) is synthetic-only: completions are FakeTransport-backed (`networkUsed:false` is enforced on every result), carry `dryRun:true` + `synthetic:true`, and can never spend or touch the network. Streaming/SSE, the Anthropic surface, and live transport are later phases.
 
+## Docs index
+
+Acceptance specs and contracts live in `docs/`. Start here:
+
+- [Acceptance spec — capability-aware dry-run select](docs/acceptance-spec-capability-select.md) — next-feature acceptance for capability-aware selection (v1).
+- [CLI `--json` machine contract](docs/cli-json-contract.md) — versioned machine interface for `select --json` / `explain --json`.
+- [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
+- [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
+- [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
+- [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
+- [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
+- [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
+- [Buyer listing spec](docs/wayselect-buyer-listing.md) — listing fields + purchase acceptance (v2).
+- [Eligibility-explain acceptance](docs/wayselect-eligibility-acceptance.md) — fail-closed eligibility paths on the CLI.
+- [First-run onboarding spec](docs/wayselect-onboarding-spec.md) — empty states, picker copy, eligibility-explain entry point.
+- [Seller payout-status acceptance](docs/wayselect-payout-acceptance.md) — accepted offer → pending → released.
+- [Preview security checklist (S42-style)](docs/wayselect-preview-s42-checklist.md) — S42-style security review of the preview storefront.
+- [Preview security checklist](docs/wayselect-preview-security-checklist.md) — security review of the preview storefront.
+- [Catalog search/filter acceptance](docs/wayselect-search-filter-acceptance.md) — executable contract for the search/filter slice.
+- [Seller acceptance](docs/wayselect-seller-acceptance.md) — list → offer → accept slice.
+- [Seller payout-eligibility checklist](docs/wayselect-seller-payout-eligibility.md) — payout-eligibility rules (part 4).
+- [Web acceptance](docs/wayselect-web-acceptance.md) — listing-detail + search/filter web slices.
+
 ## Contributing
 
 - Tests stay offline: the suite runs `node --test` with pinned packages only; the `transport` test fails if `fetch` is called, server tests bind an ephemeral port and talk to it over `localhost`/`127.0.0.1`, and the probe tests run the CLI against saved local input (`--fetch`, the only networked path, is never exercised in tests). Do not add tests that reach the live network.
