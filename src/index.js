@@ -14,6 +14,7 @@ export {
 export {
   EligibilityRequestError,
   evaluateEligibility,
+  normalizeRequirements,
   normalizeSelectionRequest,
 } from "./eligibility.js";
 export {

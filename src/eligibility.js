@@ -126,7 +126,7 @@ function optionalRequirementFlag(value, label) {
   return value;
 }
 
-function normalizeRequirements(value) {
+export function normalizeRequirements(value) {
   if (value === undefined) {
     return Object.freeze({});
   }

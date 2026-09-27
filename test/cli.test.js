@@ -657,3 +657,375 @@ test("catalog --help exits 0 with import usage", async () => {
   assert.match(stdout, /--fetch/);
 });
 
+// ---------------------------------------------------------------------------
+// TOG-5857 (S1): typed-requirement flags on select/explain — match,
+// non-match exclusion, and unknown-data fail-closed, via flags or a request
+// file. Fixture-only, no network. The library filter itself landed under
+// TOG-4794 (test/capability-requirements.test.js); these tests pin the CLI
+// wiring that makes `select` actually capability-aware (spec R1, R2).
+// ---------------------------------------------------------------------------
+
+test("select with modality flags selects the matching route", async () => {
+  const { code, stdout, stderr } = await runCli([
+    "select",
+    "--operation",
+    "vision-chat",
+    "--allow",
+    "northstar",
+    "--input-modalities",
+    "image",
+    "--output-modalities",
+    "text",
+    "--evaluation-time",
+    EVAL_ISO,
+  ]);
+
+  assert.equal(code, 0);
+  assert.equal(stderr, "");
+  assert.match(stdout, /Selected route: northstar\/image-lite/);
+});
+
+test("select with an unmet modality excludes every candidate and exits 3", async () => {
+  const { code, stdout, stderr } = await runCli(
+    [
+      "select",
+      "--operation",
+      "chat",
+      "--require",
+      "toolUse",
+      "--allow",
+      "northstar,orbit",
+      "--input-modalities",
+      "audio",
+      "--evaluation-time",
+      EVAL_ISO,
+    ],
+    { expectFailure: true },
+  );
+
+  assert.equal(code, 3);
+  assert.equal(stderr, "");
+  assert.match(stdout, /No eligible route/);
+  assert.match(stdout, /missing-modality:input:audio/);
+});
+
+test("select with an unsatisfiable context window fails closed on unknown limits", async () => {
+  // The pinned fixture carries no context_window fields, so every candidate
+  // must be excluded with missing-capability:contextWindow — never selected.
+  const { code, stdout } = await runCli(
+    [
+      "select",
+      "--operation",
+      "chat",
+      "--require",
+      "toolUse",
+      "--allow",
+      "northstar,orbit",
+      "--min-context-window",
+      "10000000",
+      "--evaluation-time",
+      EVAL_ISO,
+      "--json",
+    ],
+    { expectFailure: true },
+  );
+
+  assert.equal(code, 3);
+  const result = JSON.parse(stdout);
+  assert.equal(result.status, "no-eligible-route");
+  assert.equal(result.request.requirements.minContextWindow, 10000000);
+  assert.ok(result.rankedCandidates.length > 0);
+  for (const candidate of result.rankedCandidates) {
+    assert.equal(candidate.eligible, false);
+    assert.ok(
+      candidate.reasons.includes("missing-capability:contextWindow"),
+      `${candidate.routeId} must fail closed on unknown limits`,
+    );
+  }
+});
+
+test("select with max-output-tokens fails closed on unknown limits", async () => {
+  const { code, stdout } = await runCli(
+    [
+      "select",
+      "--operation",
+      "chat",
+      "--allow",
+      "northstar,orbit",
+      "--max-output-tokens",
+      "2000",
+      "--evaluation-time",
+      EVAL_ISO,
+      "--json",
+    ],
+    { expectFailure: true },
+  );
+
+  assert.equal(code, 3);
+  const result = JSON.parse(stdout);
+  assert.equal(result.status, "no-eligible-route");
+  assert.ok(
+    result.rankedCandidates.every((candidate) =>
+      candidate.reasons.includes("missing-capability:maxOutputTokens"),
+    ),
+  );
+});
+
+test("select --require-tools keeps the tool-capable route, excludes unknown data", async () => {
+  const { code, stdout, stderr } = await runCli([
+    "select",
+    "--operation",
+    "chat",
+    "--allow",
+    "northstar,orbit",
+    "--require-tools",
+    "--evaluation-time",
+    EVAL_ISO,
+  ]);
+
+  assert.equal(code, 0);
+  assert.equal(stderr, "");
+  assert.match(stdout, /Selected route: northstar\/alpha-chat/);
+  assert.match(stdout, /unknown-tools — excluded \(missing-capability:toolUse\)/);
+});
+
+test("select --require-reasoning selects the reasoning route explicitly", async () => {
+  const { code, stdout } = await runCli([
+    "select",
+    "--operation",
+    "chat",
+    "--allow",
+    "northstar,orbit",
+    "--require-reasoning",
+    "--evaluation-time",
+    EVAL_ISO,
+  ]);
+
+  assert.equal(code, 0);
+  assert.match(stdout, /Selected route: orbit\/orbit-chat/);
+  assert.match(stdout, /unsupported-capability:reasoning/);
+});
+
+test("select with a malformed threshold exits 1 without selecting", async () => {
+  const { code, stdout, stderr } = await runCli(
+    [
+      "select",
+      "--operation",
+      "chat",
+      "--allow",
+      "northstar",
+      "--min-context-window",
+      "banana",
+      "--evaluation-time",
+      EVAL_ISO,
+    ],
+    { expectFailure: true },
+  );
+
+  assert.equal(code, 1);
+  assert.equal(stdout, "");
+  assert.match(stderr, /--min-context-window must be a non-negative integer/);
+});
+
+test("select reads typed requirements from a request file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-s1-"));
+  try {
+    const requestPath = await writeTempJson(dir, "request.json", {
+      operation: "vision-chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+      requirements: { inputModalities: ["image"], outputModalities: ["text"] },
+    });
+    const { code, stdout } = await runCli([
+      "select",
+      "--request",
+      requestPath,
+      "--catalog",
+      "fixtures/catalog.synthetic.json",
+      "--configuration",
+      "fixtures/configuration.synthetic.json",
+      "--evaluation-time",
+      EVAL_ISO,
+    ]);
+
+    assert.equal(code, 0);
+    assert.match(stdout, /Selected route: northstar\/image-lite/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("select flags override file requirements per dimension", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-s1-"));
+  try {
+    const requestPath = await writeTempJson(dir, "request.json", {
+      operation: "vision-chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+      requirements: { inputModalities: ["image"], outputModalities: ["text"] },
+    });
+    const { code, stdout } = await runCli(
+      [
+        "select",
+        "--request",
+        requestPath,
+        "--catalog",
+        "fixtures/catalog.synthetic.json",
+        "--configuration",
+        "fixtures/configuration.synthetic.json",
+        "--input-modalities",
+        "audio",
+        "--evaluation-time",
+        EVAL_ISO,
+      ],
+      { expectFailure: true },
+    );
+
+    assert.equal(code, 3);
+    assert.match(stdout, /No eligible route/);
+    assert.match(stdout, /missing-modality:input:audio/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("select rejects unknown requirements in a request file with exit 1", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-s1-"));
+  try {
+    const requestPath = await writeTempJson(dir, "request.json", {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+      requirements: { bogusDimension: true },
+    });
+    const { code, stdout, stderr } = await runCli(
+      [
+        "select",
+        "--request",
+        requestPath,
+        "--catalog",
+        "fixtures/catalog.synthetic.json",
+        "--configuration",
+        "fixtures/configuration.synthetic.json",
+        "--evaluation-time",
+        EVAL_ISO,
+      ],
+      { expectFailure: true },
+    );
+
+    assert.equal(code, 1);
+    assert.equal(stdout, "");
+    assert.match(stderr, /request\.requirements contains unknown requirement: bogusDimension/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// TOG-5946 Blocking 1: an unknown file key must still exit 1 when a typed
+// flag is present (the merge path must not silently drop it).
+test("select rejects unknown requirements in a request file with exit 1 even when flags are present", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-s1-"));
+  try {
+    const requestPath = await writeTempJson(dir, "request.json", {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+      requirements: { bogusDimension: true },
+    });
+    const { code, stdout, stderr } = await runCli(
+      [
+        "select",
+        "--request",
+        requestPath,
+        "--catalog",
+        "fixtures/catalog.synthetic.json",
+        "--configuration",
+        "fixtures/configuration.synthetic.json",
+        "--require-tools",
+        "--evaluation-time",
+        EVAL_ISO,
+      ],
+      { expectFailure: true },
+    );
+
+    assert.equal(code, 1);
+    assert.equal(stdout, "");
+    assert.match(stderr, /request\.requirements contains unknown requirement: bogusDimension/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// TOG-5946 Blocking 1: a non-object file requirements value must still
+// exit 1 when a typed flag is present.
+test("select rejects non-object requirements in a request file with exit 1 even when flags are present", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-s1-"));
+  try {
+    const requestPath = await writeTempJson(dir, "request.json", {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+      requirements: "just-a-string",
+    });
+    const { code, stdout, stderr } = await runCli(
+      [
+        "select",
+        "--request",
+        requestPath,
+        "--catalog",
+        "fixtures/catalog.synthetic.json",
+        "--configuration",
+        "fixtures/configuration.synthetic.json",
+        "--require-tools",
+        "--evaluation-time",
+        EVAL_ISO,
+      ],
+      { expectFailure: true },
+    );
+
+    assert.equal(code, 1);
+    assert.equal(stdout, "");
+    assert.match(stderr, /request\.requirements must be an object when present/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("select --help lists every typed-requirement flag", async () => {
+  const { code, stdout } = await runCli(["select", "--help"]);
+
+  assert.equal(code, 0);
+  for (const flag of [
+    "--input-modalities",
+    "--output-modalities",
+    "--min-context-window",
+    "--max-output-tokens",
+    "--require-tools",
+    "--require-structured-output",
+    "--require-reasoning",
+  ]) {
+    assert.ok(stdout.includes(flag), `help must list ${flag}`);
+  }
+});
+
+test("explain names the typed requirements on its Request line", async () => {
+  const { code, stdout } = await runCli([
+    "explain",
+    "--operation",
+    "chat",
+    "--allow",
+    "northstar,orbit",
+    "--require-tools",
+    "--input-modalities",
+    "text",
+    "--evaluation-time",
+    EVAL_ISO,
+  ]);
+
+  assert.equal(code, 0);
+  assert.match(
+    stdout,
+    /Request: operation=chat, require=\[\], allow=\[northstar, orbit\], typed=\[inputModalities=\[text\], toolCalling\]/,
+  );
+});
+
