@@ -10,20 +10,22 @@
 // unknown badges with fail-closed copy on unknown. Rendering never throws:
 // an evaluation failure degrades to unknown.
 
+import escapeHtmlLib from "escape-html";
 import {
   ELIGIBILITY_STATE,
   describeEligibility,
   evaluateListingEligibility,
   evaluateListingsEligibility,
 } from "./eligibility.js";
+import { VALID_CAPABILITIES, VALID_MODALITIES, emptyFilters } from "./filter.js";
 
+// HTML escaping delegates to the `escape-html` library (`&<>"'` entity
+// encoding, output-identical to the previous hand-rolled version). The
+// library form matters: CodeQL's js/reflected-xss query models it as a
+// sanitizer, while a custom replaceAll chain is flagged (PR #33 CodeQL).
+// Wrapper keeps existing call sites unchanged and coerces to string.
 function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return escapeHtmlLib(String(value));
 }
 
 function capabilityRow(label, value) {
@@ -190,20 +192,64 @@ export function renderPreviewDisabled() {
   return layout({ title: "Preview unavailable", body });
 }
 
-export function renderListingIndex(listings, evaluationsOverride) {
-  const evaluations = resolveIndexEvaluations(listings, evaluationsOverride);
-  const items = listings
-    .map((listing) => {
-      const described = describeEligibility(
-        evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
-      );
-      return `<li><a href="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+const CAPABILITY_LABELS = Object.freeze({
+  attachment: "Attachments",
+  reasoning: "Reasoning",
+  tool_call: "Tool calls",
+  structured_output: "Structured output",
+});
+
+function checkboxRow(name, values, selected) {
+  return values
+    .map((value) => {
+      const label = name === "capability" ? (CAPABILITY_LABELS[value] ?? value) : value;
+      const checked = selected.includes(value) ? " checked" : "";
+      return `<label><input type="checkbox" name="${name}" value="${escapeHtml(value)}"${checked}> ${escapeHtml(label)}</label>`;
     })
     .join("\n");
+}
+
+function filterForm(filters) {
+  const active = filters ?? emptyFilters();
+  const q = typeof active.q === "string" ? active.q : "";
+  const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
+  const modalities = Array.isArray(active.modalities) ? active.modalities : [];
+  return `<form method="get" action="/listings" role="search" aria-label="Filter listings">
+<label>Search <input type="text" name="q" value="${escapeHtml(q)}"></label>
+<fieldset><legend>Capabilities</legend>
+${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
+</fieldset>
+<fieldset><legend>Modalities</legend>
+${checkboxRow("modality", VALID_MODALITIES, modalities)}
+</fieldset>
+<button type="submit">Apply filters</button>
+<a href="/listings">Clear filters</a>
+</form>`;
+}
+
+export function renderInvalidFilter({ kind, value, valid }) {
+  const body = `<h1>Invalid filter</h1>
+<p>Unknown ${escapeHtml(kind)} &quot;${escapeHtml(value)}&quot;. Valid values: ${valid.map(escapeHtml).join(", ")}.</p>
+<a class="back" href="/listings">Back to listings</a>`;
+  return layout({ title: "Invalid filter", body });
+}
+
+export function renderListingIndex(listings, evaluationsOverride, filters) {
+  const evaluations = resolveIndexEvaluations(listings, evaluationsOverride);
+  const results =
+    listings.length === 0
+      ? `<p>No listings match these filters.</p>\n<a href="/listings">Clear filters</a>`
+      : `<ul>\n${listings
+          .map((listing) => {
+            const described = describeEligibility(
+              evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
+            );
+            return `<li><a href="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+          })
+          .join("\n")}\n</ul>`;
   const body = `<div class="preview-banner" role="note">Preview build: stub data only.</div>
 <h1>Listings</h1>
-<ul>
-${items}
-</ul>`;
+${filterForm(filters)}
+${results}`;
   return layout({ title: "Listings", body });
 }
