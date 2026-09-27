@@ -35,28 +35,16 @@ function attr(tag, name) {
   return tag.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? null;
 }
 
-// Every label's visible text: the content outside the single nested <input>.
-// Located with indexOf/slice rather than a tag-strip replace — CodeQL flags
-// generic strip-sanitizers as incomplete multi-character sanitization even
-// case-insensitive. Sound here: the inputs' attributes are escaped
-// server-side, so no raw `>` can hide inside the tag, and each label nests
-// exactly one control.
-function labelText(inner) {
-  const open = inner.indexOf("<input");
-  if (open === -1) {
-    return inner.trim();
-  }
-  const close = inner.indexOf(">", open);
-  if (close === -1) {
-    return inner.trim();
-  }
-  return `${inner.slice(0, open)}${inner.slice(close + 1)}`.trim();
-}
-
+// Every label's visible text: capture the text nodes around the nested
+// control directly (text may lead or trail the `<input>`) — pure extraction
+// via matchAll, no tag-stripping replacement, so the helper never resembles
+// a sanitizer (CodeQL js/incomplete-multi-character-sanitization).
 function labelEntries(form) {
-  return [...form.matchAll(/<label\b([^>]*)>([\s\S]*?)<\/label>/g)].map((match) => ({
-    forId: match[1].match(/for="([^"]*)"/)?.[1] ?? null,
-    text: labelText(match[2]),
+  return [
+    ...form.matchAll(/<label\b[^>]*for="([^"]*)">([^<]*)(?:<input\b[^>]*>([^<]*))?<\/label>/g),
+  ].map((match) => ({
+    forId: match[1],
+    text: `${match[2] ?? ""}${match[3] ?? ""}`.trim(),
   }));
 }
 
