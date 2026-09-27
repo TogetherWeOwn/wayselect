@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #125 (2026-09-27) TOG-6718: duplicate routeId feed policy pin — duplicate
+  JSON keys last-win at parse with zero quarantine; slash-collision duplicates
+  (`p`+`a/b` vs `p/a`+`b`) are kept by ingest/normalize but fail closed at
+  `applySupportConfiguration` (`SupportConfigurationError`), so a duplicated
+  feed can never reach selection (`test/ingest-duplicate-route-id.test.js`,
+  test-only).
 - #127 (2026-09-27) TOG-6720: filter text-match case behavior — mixed-case
   `q` against mixed-case stub names pinned as case-insensitive (exact
   match sets, case-variant equivalence, verbatim-at-parse/fold-at-match)
