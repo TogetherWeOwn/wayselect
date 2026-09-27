@@ -388,24 +388,79 @@ export function renderInvalidFilter({ kind, value, valid }) {
   return layout({ title: "Invalid filter", body });
 }
 
-export function renderListingIndex(listings, evaluationsOverride, filters) {
+// Paged navigation for the listing index (TOG-6028). `pageInfo` is the
+// `{ total, limit, offset }` window the server sliced; without it the full
+// array renders with the legacy "N listings found." copy. Prev/Next links
+// preserve the active filters so paging never drops a filter.
+function pageHref(filters, limit, offset) {
+  const params = new URLSearchParams();
+  if (typeof filters?.q === "string" && filters.q !== "") {
+    params.set("q", filters.q);
+  }
+  for (const name of filters?.capabilities ?? []) {
+    params.append("capability", name);
+  }
+  for (const name of filters?.modalities ?? []) {
+    params.append("modality", name);
+  }
+  params.set("limit", String(limit));
+  if (offset > 0) {
+    params.set("offset", String(offset));
+  }
+  const qs = params.toString();
+  return `/listings${qs ? `?${qs}` : ""}`;
+}
+
+function pageNav(filters, total, limit, offset, shown) {
+  const links = [];
+  if (offset > 0) {
+    links.push(
+      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}">Previous</a>`,
+    );
+  }
+  if (offset + shown < total) {
+    links.push(
+      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}">Next</a>`,
+    );
+  }
+  return links.length === 0 ? "" : `<nav aria-label="Listings pages"><p>${links.join(" ")}</p></nav>`;
+}
+
+export function renderListingIndex(listings, evaluationsOverride, filters, pageInfo) {
   const evaluations = resolveIndexEvaluations(listings, evaluationsOverride);
-  const countCopy =
-    listings.length === 1 ? "1 listing" : `${listings.length} listings`;
-  const results =
-    listings.length === 0
-      ? `<section aria-label="Results">\n<p role="status">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`
-      : `<section aria-label="Results">\n<p role="status">${escapeHtml(countCopy)} found.</p>\n<ul>\n${listings
-          .map((listing) => {
-            const described = describeEligibility(
-              evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
-            );
-            // S2 (TOG-5475, preserved through the main rebase): path
-            // segments are URL-encoded inside the HTML escape so ids with
-            // reserved characters keep working hrefs without XSS.
-            return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
-          })
-          .join("\n")}\n</ul>\n</section>`;
+  const active = filters ?? emptyFilters();
+  const total =
+    Number.isSafeInteger(pageInfo?.total) && pageInfo.total >= 0 ? pageInfo.total : listings.length;
+  const limit =
+    Number.isSafeInteger(pageInfo?.limit) && pageInfo.limit > 0 ? pageInfo.limit : listings.length;
+  const offset =
+    Number.isSafeInteger(pageInfo?.offset) && pageInfo.offset >= 0 ? pageInfo.offset : 0;
+  const windowed = total !== listings.length || offset > 0;
+  const countCopy = total === 1 ? "1 listing" : `${total} listings`;
+  let results;
+  if (listings.length === 0) {
+    // Offset past the end is a valid empty page, not a filter miss: say so
+    // and link back to the first page instead of blaming the filters.
+    results =
+      total > 0
+        ? `<section aria-label="Results">\n<p role="status">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
+        : `<section aria-label="Results">\n<p role="status">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
+  } else {
+    const status =
+      `${countCopy} found.` + (windowed ? ` Showing ${offset + 1}-${offset + listings.length}.` : "");
+    results =
+      `<section aria-label="Results">\n<p role="status">${escapeHtml(status)}</p>\n<ul>\n${listings
+        .map((listing) => {
+          const described = describeEligibility(
+            evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
+          );
+          // S2 (TOG-5475, preserved through the main rebase): path
+          // segments are URL-encoded inside the HTML escape so ids with
+          // reserved characters keep working hrefs without XSS.
+          return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+        })
+        .join("\n")}\n</ul>\n${pageNav(active, total, limit, offset, listings.length)}</section>`;
+  }
   const body = `<div class="preview-banner" role="note">Preview build: stub data only.</div>
 <h1>Listings</h1>
 ${filterForm(filters)}
