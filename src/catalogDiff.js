@@ -146,8 +146,22 @@ function requireDiffReport(diff) {
   return diff;
 }
 
+function formatGapLine(gap) {
+  const detail =
+    typeof gap.detail === "string" && gap.detail !== "" ? ` — ${gap.detail}` : "";
+  return `- ${gap.routeId ?? "(snapshot)"}: ${gap.gap}${detail}`;
+}
+
 export function formatDiffReport(diffInput) {
   const diff = requireDiffReport(diffInput);
+  // Gap counts are derived from the frozen gap sets (no diff-shape change):
+  // previous open = current open - new + resolved, compared by gap key.
+  const gapCountAfter = diff.currentGaps.length;
+  const gapCountBefore = gapCountAfter - diff.newGaps.length + diff.resolvedGaps.length;
+  const gapDeltaWords =
+    diff.newGaps.length === 0 && diff.resolvedGaps.length === 0
+      ? "no change"
+      : `+${diff.newGaps.length} new, -${diff.resolvedGaps.length} resolved`;
   const lines = [
     "# Wayselect staging catalog snapshot diff",
     "",
@@ -158,6 +172,8 @@ export function formatDiffReport(diffInput) {
       `changed ${diff.summary.changedCount}, unchanged ${diff.summary.unchangedCount})`,
     `- provenance changed: ${diff.summary.provenanceChanged ? "yes" : "no"}`,
     `- content hash changed: ${diff.summary.contentHashChanged ? "yes" : "no"}`,
+    `- gaps: ${gapCountBefore} -> ${gapCountAfter} ` +
+      `(new ${diff.newGaps.length}, resolved ${diff.resolvedGaps.length})`,
     "",
   ];
 
@@ -179,26 +195,31 @@ export function formatDiffReport(diffInput) {
     lines.push("");
   }
   if (diff.newGaps.length > 0) {
-    lines.push("## New provenance gaps");
-    for (const gap of diff.newGaps) {
-      lines.push(`- ${gap.routeId ?? "(snapshot)"}: ${gap.gap}`);
-    }
-    lines.push("");
+    lines.push("## New provenance gaps", ...diff.newGaps.map(formatGapLine), "");
   }
   if (diff.resolvedGaps.length > 0) {
-    lines.push("## Resolved provenance gaps");
-    for (const gap of diff.resolvedGaps) {
-      lines.push(`- ${gap.routeId ?? "(snapshot)"}: ${gap.gap}`);
-    }
-    lines.push("");
+    lines.push(
+      "## Resolved provenance gaps",
+      ...diff.resolvedGaps.map(formatGapLine),
+      "",
+    );
   }
   if (diff.added.length === 0 && diff.removed.length === 0 && diff.changed.length === 0) {
-    lines.push("No route changes between snapshots.", "");
+    lines.push(
+      `No route changes between snapshots (${diff.summary.unchangedCount} unchanged; ` +
+        `content hash ${diff.summary.contentHashChanged ? "changed" : "unchanged"}).`,
+      "",
+    );
   }
   if (diff.currentGaps.length === 0) {
     lines.push("Provenance gaps: none. The current snapshot is clean.", "");
   } else {
-    lines.push(`Open provenance gaps on current snapshot: ${diff.currentGaps.length}.`, "");
+    lines.push(
+      "## Provenance gaps",
+      `Open gaps on current snapshot: ${gapCountAfter} (${gapDeltaWords} since previous).`,
+      ...diff.currentGaps.map(formatGapLine),
+      "",
+    );
   }
 
   return `${lines.join("\n").trimEnd()}\n`;
