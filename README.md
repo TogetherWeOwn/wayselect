@@ -140,7 +140,12 @@ Only stamped values change in the files; formatting elsewhere is preserved.
 Rewinding the snapshot clock or introducing unknown fields fails closed and
 leaves every file untouched.
 
-Suggested daily schedule (writes only when the timestamp advances):
+Scheduled freshness probe (`.github/workflows/fixture-refresh-check.yml`,
+TOG-5745): a daily 07:23 UTC job runs the read-only `npm run refresh:check`
+and, on failure, opens a `fixture-staleness` issue (deduplicated against
+already-open ones) with the remediation commands. The job writes nothing,
+commits nothing, and needs no credentials beyond the default `GITHUB_TOKEN`
+for issue filing. Manual fallback, same commands the issue body carries:
 
 ```sh
 node bin/refresh-catalog-fixtures --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
