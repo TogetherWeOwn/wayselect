@@ -35,7 +35,8 @@
     "eval:search-prompts": "node bin/eval-wayselect-search-prompts --seed 5492",
     "accept:fixture-refresh": "node bin/accept-fixture-refresh",
     "refresh:search-index": "node bin/wayselect-search-index-refresh",
-    "check:search-index": "node bin/wayselect-search-index-refresh --check --max-catalog-age-hours 24"
+    "check:search-index": "node bin/wayselect-search-index-refresh --check --max-catalog-age-hours 24",
+    "probe:models-dev": "node bin/check-models-dev-freshness"
   },
   "dependencies": {
     "ajv": "^8.17.1",

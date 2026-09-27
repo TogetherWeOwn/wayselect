@@ -68,3 +68,10 @@ export {
   staleSnapshotMessage,
   unknownArgumentMessage,
 } from "./cliErrors.js";
+export {
+  compareProbeProvenance,
+  diffProbedRoutes,
+  extractLiveRoutes,
+  fixtureRouteRecord,
+  formatProbeReport,
+} from "./modelsDevProbe.js";
