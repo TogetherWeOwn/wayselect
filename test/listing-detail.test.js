@@ -232,8 +232,10 @@ describe("serving hardening (TOG-5475)", () => {
   it("validates PORT instead of throwing NaN downstream", () => {
     strictEqual(resolvePort("3000"), 3000);
     strictEqual(resolvePort(" 3000 "), 3000);
-    strictEqual(resolvePort("3.5"), 3); // parseInt truncation, conventional for PORT
-    for (const bad of ["abc", "", "0", "70000", "-1"]) {
+    // TOG-5726: strict decimal only. parseInt truncation ("3.5" -> 3,
+    // "3000x" -> 3000) would start the server on a port the operator did
+    // not ask for, so fractional and trailing-garbage values throw.
+    for (const bad of ["abc", "", "0", "70000", "-1", "3.5", "3000x"]) {
       let threw = false;
       try {
         resolvePort(bad);
