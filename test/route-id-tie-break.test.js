@@ -88,6 +88,94 @@ test("selectRoute breaks equal-rate ties by code-unit route ID, any input order"
   assert.equal(mixed.selected.routeId, "p/B-chat");
 });
 
+// TOG-6034 (Gap T6): 3+-way synthetic-price tie order.
+//
+// The TOG-5644 tests above pin locale-independent comparison with a 2-way
+// case-mixed pair and a locale-divergent trio. These tests pin the multi-way
+// selection contract directly: when 3 or 4 routes tie on synthetic price,
+// the winner is the lexicographically smallest route ID (UTF-16 code-unit
+// order via compareRouteIds) regardless of input order, and every tied
+// candidate stays eligible. If the winner ever deviates, file a bug card
+// against the selection logic instead of silently updating the expectation.
+
+function inputOrders(ids) {
+  const reversed = [...ids].reverse();
+  const rotations = ids.map((_, i) => [...ids.slice(i), ...ids.slice(0, i)]);
+  const swapped = [...ids];
+  [swapped[0], swapped[swapped.length - 1]] = [
+    swapped[swapped.length - 1],
+    swapped[0],
+  ];
+  return [ids, reversed, ...rotations, swapped];
+}
+
+test("3-way synthetic-price tie selects lexicographically smallest route ID", () => {
+  const ids = ["p/zulu-chat", "p/alpha-chat", "p/middle-chat"];
+  const expected = [...ids].sort(compareRouteIds);
+  assert.deepEqual(expected, ["p/alpha-chat", "p/middle-chat", "p/zulu-chat"]);
+
+  for (const order of inputOrders(ids)) {
+    const result = selectRoute(
+      order.map(tieCandidate),
+      REQUEST,
+      evaluationOptions,
+    );
+    assert.equal(result.status, "selected");
+    assert.equal(
+      result.selected.routeId,
+      expected[0],
+      `3-way tie winner must be stable for input order ${order.join(",")}`,
+    );
+    assert.ok(result.candidates.every((candidate) => candidate.eligible));
+  }
+
+  const listed = evaluateEligibility(
+    ids.map(tieCandidate),
+    REQUEST,
+    evaluationOptions,
+  );
+  assert.deepEqual(
+    listed.map((candidate) => candidate.routeId),
+    expected,
+  );
+});
+
+test("4-way synthetic-price tie selects lexicographically smallest route ID", () => {
+  const ids = ["p/zulu-chat", "p/mike-chat", "p/alpha-chat", "p/bravo-chat"];
+  const expected = [...ids].sort(compareRouteIds);
+  assert.deepEqual(expected, [
+    "p/alpha-chat",
+    "p/bravo-chat",
+    "p/mike-chat",
+    "p/zulu-chat",
+  ]);
+
+  for (const order of inputOrders(ids)) {
+    const result = selectRoute(
+      order.map(tieCandidate),
+      REQUEST,
+      evaluationOptions,
+    );
+    assert.equal(result.status, "selected");
+    assert.equal(
+      result.selected.routeId,
+      expected[0],
+      `4-way tie winner must be stable for input order ${order.join(",")}`,
+    );
+    assert.ok(result.candidates.every((candidate) => candidate.eligible));
+  }
+
+  const listed = evaluateEligibility(
+    ids.map(tieCandidate),
+    REQUEST,
+    evaluationOptions,
+  );
+  assert.deepEqual(
+    listed.map((candidate) => candidate.routeId),
+    expected,
+  );
+});
+
 test("route selection never consults the process locale", () => {
   const original = String.prototype.localeCompare;
   String.prototype.localeCompare = function localeCompare() {
