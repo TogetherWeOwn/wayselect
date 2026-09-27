@@ -58,6 +58,81 @@ test("marks old support evidence stale", async () => {
   assert.ok(legacy.reasons.includes("stale-evidence"));
 });
 
+test("malformed evidence timestamps fail closed as invalid evidence", async () => {
+  // TOG-4951 HIGH-1: Date.parse returns NaN for malformed input, and NaN
+  // comparisons are always false, so without the invalid-evidence guard these
+  // tampered timestamps passed with zero reasons (fail-open). Every variant
+  // below must yield exactly ["invalid-evidence"] and eligible === false.
+  const tamperedValues = [
+    "not-a-date",
+    "",
+    "   ",
+    "2026-13-45",
+    "Infinity",
+    "NaN",
+    undefined,
+    null,
+    1727265600000,
+    true,
+    {},
+    [],
+  ];
+  const { candidates } = await loadConfiguredCandidates();
+
+  for (const observedAt of tamperedValues) {
+    const tampered = structuredClone(candidates);
+    const target = tampered.find(
+      (candidate) => candidate.routeId === "northstar/alpha-chat",
+    );
+    target.evidence = { observedAt };
+
+    const evaluations = evaluateEligibility(
+      tampered,
+      {
+        operation: "chat",
+        requiredCapabilities: [],
+        providerAllowlist: ["northstar"],
+      },
+      evaluationOptions,
+    );
+    const alpha = evaluations.find(
+      (candidate) => candidate.routeId === "northstar/alpha-chat",
+    );
+
+    assert.equal(alpha.eligible, false, `observedAt=${String(observedAt)}`);
+    assert.deepEqual(
+      [...alpha.reasons],
+      ["invalid-evidence"],
+      `observedAt=${String(observedAt)}`,
+    );
+  }
+});
+
+test("absent support evidence fails closed as missing evidence", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const tampered = structuredClone(candidates);
+  const target = tampered.find(
+    (candidate) => candidate.routeId === "northstar/alpha-chat",
+  );
+  delete target.evidence;
+
+  const evaluations = evaluateEligibility(
+    tampered,
+    {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+    },
+    evaluationOptions,
+  );
+  const alpha = evaluations.find(
+    (candidate) => candidate.routeId === "northstar/alpha-chat",
+  );
+
+  assert.equal(alpha.eligible, false);
+  assert.deepEqual([...alpha.reasons], ["missing-evidence"]);
+});
+
 test("unknown required capabilities fail closed as missing data", async () => {
   const { candidates } = await loadConfiguredCandidates();
   const evaluations = evaluateEligibility(
@@ -71,4 +146,53 @@ test("unknown required capabilities fail closed as missing data", async () => {
       candidate.reasons.includes("missing-capability:unpublishedCapability"),
     ),
   );
+});
+
+test("malformed candidates fail closed with EligibilityRequestError", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const valid = candidates.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+
+  assert.throws(
+    () => evaluateEligibility(null, defaultRequest, evaluationOptions),
+    EligibilityRequestError,
+  );
+  assert.throws(
+    () => evaluateEligibility([{ ...valid, capabilities: null }], defaultRequest, evaluationOptions),
+    /capabilities must be an object/,
+  );
+  assert.throws(
+    () => evaluateEligibility([{ ...valid, catalogOperations: undefined }], defaultRequest, evaluationOptions),
+    /catalogOperations must be an array/,
+  );
+  assert.throws(
+    () =>
+      evaluateEligibility(
+        candidates,
+        { ...defaultRequest, requiredCapabilities: null },
+        evaluationOptions,
+      ),
+    EligibilityRequestError,
+  );
+});
+
+test("malformed evidence observedAt fails closed as invalid-evidence", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const base = candidates.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+  const malformed = [
+    { observedAt: "garbage-not-a-date" },
+    { observedAt: 12345 },
+    { observedAt: "" },
+    "not-an-object",
+  ];
+
+  for (const evidence of malformed) {
+    const tampered = [{ ...base, evidence }];
+    const evaluations = evaluateEligibility(
+      tampered,
+      defaultRequest,
+      evaluationOptions,
+    );
+    assert.equal(evaluations[0].eligible, false);
+    assert.ok(evaluations[0].reasons.includes("invalid-evidence"));
+  }
 });

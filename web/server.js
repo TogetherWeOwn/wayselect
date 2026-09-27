@@ -31,8 +31,13 @@ function sendJson(res, status, payload) {
 
 export function createApp(env = process.env) {
   return createServer((req, res) => {
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const { pathname } = url;
+    let pathname;
+    try {
+      pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      sendJson(res, 404, { error: "not_found" });
+      return;
+    }
 
     if (req.method === "GET" && (pathname === "/listings" || pathname === "/listings/")) {
       if (!isPreviewEnabled(env)) {
@@ -64,10 +69,16 @@ export function createApp(env = process.env) {
         return;
       }
       const [, providerId, modelId] = listingMatch;
-      const listing = getStubListing(
-        decodeURIComponent(providerId),
-        decodeURIComponent(modelId),
-      );
+      let decodedProviderId;
+      let decodedModelId;
+      try {
+        decodedProviderId = decodeURIComponent(providerId);
+        decodedModelId = decodeURIComponent(modelId);
+      } catch {
+        sendHtml(res, 404, renderNotFound(providerId, modelId));
+        return;
+      }
+      const listing = getStubListing(decodedProviderId, decodedModelId);
       if (!listing) {
         sendHtml(res, 404, renderNotFound(providerId, modelId));
         return;

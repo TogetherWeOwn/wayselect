@@ -51,6 +51,28 @@ export const STUB_LISTINGS = Object.freeze([
       fetchedAt: "2026-09-24T10:00:00.000Z",
     }),
   }),
+  // Intentionally missing capability fields (attachment, reasoning, tool_call,
+  // structured_output): mirrors the `unknown-tools` fixture model so the
+  // catalog surface renders the fail-closed unknown state (TOG-5221).
+  Object.freeze({
+    schemaVersion: "v1",
+    providerId: "northstar",
+    providerName: "Northstar Synthetic Provider",
+    modelId: "unknown-tools",
+    entry: Object.freeze({
+      id: "unknown-tools",
+      name: "Unknown Tools",
+      modalities: Object.freeze({
+        input: Object.freeze(["text"]),
+        output: Object.freeze(["text"]),
+      }),
+      cost: Object.freeze({ input: 0.25, output: 0.5 }),
+    }),
+    provenance: Object.freeze({
+      source: "synthetic://wayselect/fixture-v1",
+      fetchedAt: "2026-09-24T10:00:00.000Z",
+    }),
+  }),
 ]);
 
 export function getStubListing(providerId, modelId) {

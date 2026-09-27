@@ -1,0 +1,316 @@
+#!/usr/bin/env node
+
+// Executable QA acceptance for the Wayselect CLI --dry-run eligibility explain
+// path (TOG-5292, pairs TOG-4797 but runs independently against the current tree).
+//
+// Usage: node bin/accept-wayselect-dryrun-explain   (or: npm run accept:dryrun-explain)
+// Zero dependencies: Node standard library only. Exercises bin/wayselect with
+// fixture-only inputs, asserts fail-closed output on unknown capability and a
+// human-readable reason per denial. Exits 0 when there are zero failures,
+// 1 otherwise. Budget: under 15 minutes (typically < 10s).
+//
+// Surface note: TOG-4797 (`select`/`explain` subcommands, human output,
+// --json, exit codes 0/1/2/3) is still an open PR, not on `main`. The D-block
+// below pins the current-tree JSON explain path (per-candidate eligibility +
+// reasons) and always runs. The X-block auto-activates when an `explain`
+// subcommand is detected and SKIP-lines otherwise, so this script re-checks
+// cleanly once TOG-4797 lands.
+
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const BUDGET_MS = 15 * 60 * 1000;
+const EVAL_TIME = "2026-09-24T12:00:00.000Z"; // pinned: matches fixtures/request.synthetic.json
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+async function runCli(args, cwd = REPO_ROOT) {
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      ["bin/wayselect", ...args],
+      { cwd },
+    );
+    return { exit: 0, stdout, stderr };
+  } catch (error) {
+    return {
+      exit: typeof error.code === "number" ? error.code : 1,
+      stdout: error.stdout ?? "",
+      stderr: error.stderr ?? String(error?.message ?? error),
+    };
+  }
+}
+
+function parseOutput(run, id) {
+  try {
+    return JSON.parse(run.stdout);
+  } catch {
+    record("fail", id, "CLI stdout parses as JSON", run.stdout.slice(0, 160));
+    return null;
+  }
+}
+
+async function withRequestDir(fn) {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-dryrun-explain-accept-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function runWithSelection(overrides) {
+  return withRequestDir(async (dir) => {
+    const base = JSON.parse(
+      await readFile(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
+    );
+    const request = structuredClone(base);
+    Object.assign(request.selection, overrides);
+    const requestPath = join(dir, "request.json");
+    await writeFile(requestPath, JSON.stringify(request));
+    return runCli(["--request", requestPath]);
+  });
+}
+
+function byRoute(candidates) {
+  return new Map(candidates.map((candidate) => [candidate.routeId, candidate]));
+}
+
+function everyReason(candidates, reason) {
+  return (
+    candidates.length > 0 &&
+    candidates.every((candidate) => candidate.reasons.includes(reason))
+  );
+}
+
+// Stable human-readable reason vocabulary: kebab-case codes with an optional
+// `:parameter` suffix. Anything outside this shape (empty strings, JS
+// leakage like "undefined", stack frames) is not human-readable.
+const REASON_PATTERN = /^[a-z]+(-[a-z]+)*(?::[A-Za-z0-9_/. -]+)?$/;
+const LEAK_PATTERN = /undefined|null\[|Error:|^\s*at\s/m;
+
+function reasonsReadable(candidates) {
+  const bad = [];
+  for (const candidate of candidates) {
+    for (const reason of candidate.reasons) {
+      if (!REASON_PATTERN.test(reason) || LEAK_PATTERN.test(reason)) {
+        bad.push(`${candidate.routeId}=${JSON.stringify(reason)}`);
+      }
+    }
+  }
+  return bad;
+}
+
+// ---- D0: baseline golden path (fail-open guard on the current JSON surface) ----
+const base = await runCli([]);
+{
+  const result = parseOutput(base, "D0");
+  if (result) {
+    check(base.exit === 0 && base.stderr === "", "D0", "default demo exits 0 with empty stderr", `exit=${base.exit} stderr=${base.stderr.slice(0, 120)}`);
+    check(result.mode === "dry-run-only", "D0b", "mode is dry-run-only (implicit dry-run, no flag)", `mode=${result.mode}`);
+    check(result.selection?.dryRun === true, "D0c", "selection.dryRun is true");
+    check(result.selection?.status === "selected", "D0d", "baseline selects a route", `status=${result.selection?.status}`);
+    check(result.selection?.selected?.routeId === "northstar/alpha-chat", "D0e", "baseline selects northstar/alpha-chat (lowest synthetic rate, lexicographic tie-break)", `selected=${result.selection?.selected?.routeId}`);
+    check(result.transport?.adapter === "fake" && result.transport?.networkUsed === false, "D0f", "fake transport, networkUsed=false", JSON.stringify(result.transport));
+  }
+}
+
+// ---- D1: unknown required capability fails closed on the explain path ----
+let unknownCapCandidates = [];
+{
+  const run = await runWithSelection({ requiredCapabilities: ["unpublishedCapability"] });
+  const result = parseOutput(run, "D1");
+  if (result) {
+    check(run.exit === 0, "D1", "unknown capability still exits 0 (explained, not crashed)", `exit=${run.exit}`);
+    check(result.selection?.status === "no-eligible-route", "D1b", "unknown capability yields no-eligible-route", `status=${result.selection?.status}`);
+    check(result.selection?.selected === null, "D1c", "no route selected on unknown capability");
+    check(result.transport === null, "D1d", "no transport on no-eligible-route");
+    check(
+      everyReason(result.selection?.candidates ?? [], "missing-capability:unpublishedCapability"),
+      "D1e",
+      "every candidate explains missing-capability:unpublishedCapability (never guessed)",
+    );
+    unknownCapCandidates = result.selection?.candidates ?? [];
+  }
+}
+
+// ---- D2: human-readable reason per denial ----
+{
+  const denied = unknownCapCandidates.filter((c) => !c.eligible);
+  check(
+    denied.length > 0 && denied.every((c) => c.reasons.length > 0),
+    "D2",
+    "every denied candidate on unknown capability carries at least one reason",
+    `denied=${denied.length}`,
+  );
+  const bad = reasonsReadable(unknownCapCandidates);
+  check(bad.length === 0, "D2b", "every denial reason is a stable human-readable code (no leakage)", bad.slice(0, 3).join("; "));
+}
+{
+  // Baseline cross-check: eligible candidates carry zero reasons (no noise),
+  // denied baseline candidates each carry >= 1 readable reason.
+  const run = await runCli([]);
+  const result = parseOutput(run, "D2c");
+  if (result) {
+    const candidates = result.selection?.candidates ?? [];
+    const eligibleNoisy = candidates.filter((c) => c.eligible && c.reasons.length > 0);
+    check(eligibleNoisy.length === 0, "D2c", "eligible candidates carry zero reasons (no noise)", JSON.stringify(eligibleNoisy.map((c) => c.routeId)));
+    const deniedSilent = candidates.filter((c) => !c.eligible && c.reasons.length === 0);
+    check(deniedSilent.length === 0, "D2d", "every denied baseline candidate carries a reason", JSON.stringify(deniedSilent.map((c) => c.routeId)));
+    const bad = reasonsReadable(candidates);
+    check(bad.length === 0, "D2e", "baseline reasons all match the readable vocabulary", bad.slice(0, 3).join("; "));
+  }
+}
+
+// ---- D3: blocked provider allowlist fails closed with a reason per denial ----
+{
+  const run = await runWithSelection({ providerAllowlist: ["nobody"] });
+  const result = parseOutput(run, "D3");
+  if (result) {
+    check(result.selection?.status === "no-eligible-route", "D3", "allowlist [nobody] yields no-eligible-route", `status=${result.selection?.status}`);
+    check(result.selection?.selected === null, "D3b", "no route selected on blocked providers");
+    check(result.transport === null, "D3c", "no transport on blocked providers");
+    check(
+      everyReason(result.selection?.candidates ?? [], "provider-not-allowed"),
+      "D3d",
+      "every candidate explains provider-not-allowed",
+    );
+    const bad = reasonsReadable(result.selection?.candidates ?? []);
+    check(bad.length === 0, "D3e", "blocked-provider reasons all readable", bad.slice(0, 3).join("; "));
+  }
+}
+
+// ---- D4: unknown operation fails closed with a reason per denial ----
+{
+  const run = await runWithSelection({ operation: "embeddings" });
+  const result = parseOutput(run, "D4");
+  if (result) {
+    check(result.selection?.status === "no-eligible-route", "D4", "unknown operation yields no-eligible-route", `status=${result.selection?.status}`);
+    check(
+      everyReason(result.selection?.candidates ?? [], "operation-not-catalogued") &&
+        everyReason(result.selection?.candidates ?? [], "operation-not-configured"),
+      "D4b",
+      "every candidate explains operation-not-catalogued + operation-not-configured",
+    );
+  }
+}
+
+// ---- X-block: `explain`/`select` subcommand surface (TOG-4797); SKIP until it lands ----
+const probe = await runCli(["explain", "--help"]);
+const hasExplainSurface =
+  probe.exit === 0 && /wayselect explain/.test(probe.stdout);
+
+function flagInput(extra = []) {
+  return [
+    "--operation", "chat",
+    "--require", "toolUse",
+    "--allow", "northstar,orbit",
+    "--evaluation-time", EVAL_TIME,
+    ...extra,
+  ];
+}
+
+function flagInputUnknownCap(extra = []) {
+  return [
+    "--operation", "chat",
+    "--require", "unpublishedCapability",
+    "--allow", "northstar,orbit",
+    "--evaluation-time", EVAL_TIME,
+    ...extra,
+  ];
+}
+
+if (!hasExplainSurface) {
+  for (const [id, label] of [
+    ["X1", "explain unknown capability fails closed (exit 3, excluded + bullets + verdict)"],
+    ["X2", "explain --json unknown capability keeps the machine shape with per-denial reasons"],
+    ["X3", "explain baseline selects northstar/alpha-chat with eligible lines"],
+    ["X4", "select unknown capability exits 3 with No eligible route"],
+  ]) {
+    record("skip", id, label, "explain surface absent (TOG-4797 unmerged) — auto-activates on merge");
+  }
+} else {
+  // ---- X1: explain unknown capability, human output ----
+  {
+    const run = await runCli(["explain", ...flagInputUnknownCap()]);
+    check(run.exit === 3, "X1", "explain unknown capability exits 3 (no eligible route, output still printed)", `exit=${run.exit}`);
+    check(run.stderr === "", "X1b", "explain prints denials on stdout with empty stderr", run.stderr.slice(0, 120));
+    check(/dry-run \/ synthetic estimate/.test(run.stdout), "X1c", "explain carries the dry-run label");
+    const excludedLines = run.stdout.split("\n").filter((l) => /: excluded/.test(l));
+    const candidateCount = (run.stdout.match(/^\S[^:]*: (eligible|excluded)/gm) ?? []).length;
+    check(excludedLines.length > 0 && excludedLines.length === candidateCount, "X1d", "every candidate line reads excluded on unknown capability", `excluded=${excludedLines.length} total=${candidateCount}`);
+    const bullets = run.stdout.split("\n").filter((l) => /^\s+-\s+missing-capability:unpublishedCapability\s*$/.test(l));
+    check(bullets.length === excludedLines.length && bullets.length > 0, "X1e", "each denial lists `- missing-capability:unpublishedCapability` as a human-readable bullet", `bullets=${bullets.length}`);
+    check(/verdict: no-eligible-route/.test(run.stdout), "X1f", "explain ends with verdict: no-eligible-route");
+  }
+
+  // ---- X2: explain --json unknown capability, machine shape ----
+  {
+    const run = await runCli(["explain", ...flagInputUnknownCap(), "--json"]);
+    const result = parseOutput(run, "X2");
+    if (result) {
+      check(run.exit === 3, "X2", "explain --json unknown capability exits 3", `exit=${run.exit}`);
+      check(result.command === "explain", "X2b", "machine shape names command=explain", `command=${result.command}`);
+      check(result.dryRun === true, "X2c", "machine shape marks dryRun=true");
+      check(result.status === "no-eligible-route" && result.selectedRouteId === null, "X2d", "machine shape: no-eligible-route with null selectedRouteId", `status=${result.status}`);
+      const ranked = result.rankedCandidates ?? [];
+      check(
+        ranked.length > 0 &&
+          ranked.every((c) => Array.isArray(c.reasons) && c.reasons.length > 0 &&
+            c.reasons.includes("missing-capability:unpublishedCapability")),
+        "X2e",
+        "every ranked candidate carries the denial reason in machine output",
+      );
+    }
+  }
+
+  // ---- X3: explain baseline still selects ----
+  {
+    const run = await runCli(["explain", ...flagInput()]);
+    const json = await runCli(["explain", ...flagInput(), "--json"]);
+    check(run.exit === 0, "X3", "explain baseline exits 0", `exit=${run.exit}`);
+    check(/verdict: selected northstar\/alpha-chat/.test(run.stdout), "X3b", "explain verdict selects northstar/alpha-chat");
+    check(/northstar\/alpha-chat: eligible/.test(run.stdout), "X3c", "explain shows the winner as an eligible line");
+    const result = parseOutput(json, "X3d");
+    if (result) {
+      check(result.command === "explain" && result.selectedRouteId === "northstar/alpha-chat", "X3d", "explain --json baseline selects northstar/alpha-chat", `selected=${result.selectedRouteId}`);
+    }
+  }
+
+  // ---- X4: select unknown capability ----
+  {
+    const run = await runCli(["select", ...flagInputUnknownCap()]);
+    check(run.exit === 3, "X4", "select unknown capability exits 3", `exit=${run.exit}`);
+    check(/No eligible route/.test(run.stdout), "X4b", "select prints No eligible route (not a crash)", run.stdout.slice(0, 120));
+    check(/missing-capability:unpublishedCapability/.test(run.stdout), "X4c", "select human output names the denial reason");
+  }
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const skip = results.filter((r) => r.status === "skip").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(`SUMMARY: ${pass} pass, ${fail} fail, ${skip} skip — ${elapsedS}s (budget 15m)\n`);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;

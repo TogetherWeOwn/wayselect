@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const PROVIDER_KEYS = new Set(["id", "name", "models"]);
 const MODEL_KEYS = new Set([
   "id",
@@ -18,6 +20,15 @@ export class CatalogValidationError extends Error {
     this.name = "CatalogValidationError";
   }
 }
+
+export class CatalogIntegrityError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "CatalogIntegrityError";
+  }
+}
+
+export { stableStringify } from "./canonical.js";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -93,9 +104,15 @@ function normalizeCost(value, label) {
   });
 }
 
+const SNAPSHOT_HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
 function normalizeProvenance(value) {
   const provenance = requireObject(value, "provenance");
-  assertKnownKeys(provenance, new Set(["source", "snapshotTimestamp", "snapshotHash"]), "provenance");
+  assertKnownKeys(
+    provenance,
+    new Set(["source", "snapshotTimestamp", "snapshotHash", "fetchedAt"]),
+    "provenance",
+  );
 
   const source = requireString(provenance.source, "provenance.source");
   const snapshotTimestamp = requireString(
@@ -108,16 +125,27 @@ function normalizeProvenance(value) {
   }
 
   const snapshotHash = requireString(provenance.snapshotHash, "provenance.snapshotHash");
-  if (!/^sha256:[a-f0-9]{64}$/.test(snapshotHash)) {
+  if (!SNAPSHOT_HASH_PATTERN.test(snapshotHash)) {
     throw new CatalogValidationError(
       "provenance.snapshotHash must use the form sha256:<64 lowercase hex characters>",
     );
+  }
+
+  let fetchedAt = null;
+  if (provenance.fetchedAt !== undefined) {
+    const fetchedAtRaw = requireString(provenance.fetchedAt, "provenance.fetchedAt");
+    const fetchedAtMs = Date.parse(fetchedAtRaw);
+    if (!Number.isFinite(fetchedAtMs)) {
+      throw new CatalogValidationError("provenance.fetchedAt must be an ISO timestamp when present");
+    }
+    fetchedAt = new Date(fetchedAtMs).toISOString();
   }
 
   return Object.freeze({
     source,
     snapshotTimestamp: new Date(timestamp).toISOString(),
     snapshotHash,
+    fetchedAt,
   });
 }
 
@@ -162,9 +190,48 @@ function normalizeModel(providerId, modelKey, value) {
   });
 }
 
+function canonicalize(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalize(item)).join(",")}]`;
+  }
+  const keys = Object.keys(value).sort();
+  const fields = keys.map(
+    (key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`,
+  );
+  return `{${fields.join(",")}}`;
+}
+
+export function computeCatalogSnapshotHash(catalogInput) {
+  const providers = requireObject(catalogInput, "catalog");
+  const hex = createHash("sha256").update(canonicalize(providers), "utf8").digest("hex");
+  return `sha256:${hex}`;
+}
+
+export function verifyCatalogSnapshotHash(catalogInput, provenanceInput) {
+  const provenance = requireObject(provenanceInput, "provenance");
+  const claimed = requireString(provenance.snapshotHash, "provenance.snapshotHash");
+  if (!SNAPSHOT_HASH_PATTERN.test(claimed)) {
+    throw new CatalogValidationError(
+      "provenance.snapshotHash must use the form sha256:<64 lowercase hex characters>",
+    );
+  }
+  const actual = computeCatalogSnapshotHash(catalogInput);
+  if (actual !== claimed) {
+    throw new CatalogIntegrityError(
+      `catalog body does not match provenance.snapshotHash ` +
+        `(claimed ${claimed}, computed ${actual}); refusing tampered or stale feed`,
+    );
+  }
+  return actual;
+}
+
 export function normalizeCatalog(input, provenanceInput) {
   const providers = requireObject(input, "catalog");
   const provenance = normalizeProvenance(provenanceInput);
+  verifyCatalogSnapshotHash(input, provenanceInput);
   const entries = [];
 
   for (const providerKey of Object.keys(providers).sort()) {
@@ -185,7 +252,10 @@ export function normalizeCatalog(input, provenanceInput) {
   }
 
   return Object.freeze({
-    provenance,
+    provenance: Object.freeze({
+      ...provenance,
+      fetchedAt: provenance.fetchedAt ?? new Date().toISOString(),
+    }),
     entries: Object.freeze(entries),
   });
 }

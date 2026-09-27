@@ -62,6 +62,69 @@ node bin/wayselect \
   --request fixtures/request.synthetic.json
 ```
 
+## Staging catalog snapshots and diffs
+
+Staging-only automation with no network access and no production writes.
+Snapshots reuse the `normalizeCatalog` boundary, record a recomputed
+SHA-256 content hash, and report provenance gaps (unverified declared
+hash, stale/future snapshot, missing capabilities, missing rates,
+no catalogued operations). Non-`synthetic://` sources are refused.
+
+```sh
+node bin/wayselect-snapshot \
+  --now 2026-09-24T12:00:00.000Z \
+  --max-catalog-age-hours 24 \
+  --out snapshots
+node bin/wayselect-snapshot \
+  --now 2026-09-24T12:05:00.000Z \
+  --max-catalog-age-hours 24 \
+  --out snapshots \
+  --previous snapshots/snapshot-20260924T120000000Z-c6cdb62e.json
+```
+
+The second run writes a second snapshot plus a Markdown diff report
+(added/removed/changed routes, gap deltas). A stale or future-dated
+catalog fails closed instead of writing a snapshot. See
+`snapshots/diff-report-consecutive-green.md` and
+`snapshots/sample-diff-with-changes.md` for sample evidence.
+
+## Fixture refresh
+
+The catalog fixture carries provenance (`source`, `snapshotTimestamp`,
+`snapshotHash`) so QA fixtures never go stale behind the models.dev ingestion.
+Refresh through the script, never by hand-editing:
+
+```sh
+node bin/refresh-catalog-fixtures --timestamp 2026-09-26T14:00:00.000Z
+node bin/refresh-catalog-fixtures --check --now 2026-09-26T15:00:00.000Z
+npm run refresh:check
+```
+
+Refresh advances the whole set by one uniform clock delta: the catalog's
+provenance stamp, every support-evidence `observedAt`, and the request's
+`evaluationTime` all move together, preserving relative offsets. The
+intentionally stale `legacy/old-chat` evidence stays stale so the
+stale-evidence path keeps exercising; the suite's evaluation clock is derived
+from the live snapshot (`support/helpers.js`), so it stays green across
+refreshes without edits.
+
+`snapshotHash` is a deterministic SHA-256 over the canonical (recursively
+key-sorted) catalog body. Re-running with the same `--timestamp` is a
+byte-identical no-op (`changed:false`), so a scheduler can skip empty commits.
+QA acceptance: re-run refresh and the fixtures match the recorded hash —
+`--check` verifies the hash and the freshness window (`--max-age-hours`,
+default 24) and exits non-zero on mismatch, staleness, or malformed input.
+Only stamped values change in the files; formatting elsewhere is preserved.
+Rewinding the snapshot clock or introducing unknown fields fails closed and
+leaves every file untouched.
+
+Suggested daily schedule (writes only when the timestamp advances):
+
+```sh
+node bin/refresh-catalog-fixtures --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+npm run refresh:check && npm test
+```
+
 ## Library boundaries
 
 - `src/catalog.js` validates a narrow provider-keyed, models.dev-shaped fixture subset and preserves provenance. Unknown fields are rejected at the boundary.
@@ -69,7 +132,9 @@ node bin/wayselect \
 - `src/eligibility.js` applies operation, capability, provider, and evidence-age rules. An empty provider allowlist is invalid.
 - `src/selection.js` produces a dry-run decision and full candidate explanations.
 - `src/transport.js` exposes only `FakeTransport`; executable location fields are rejected.
+- `src/canonical.js` provides the canonical-JSON form the provenance hash is computed over.
 - `bin/wayselect` is the reproducible fixture demo.
+- `bin/refresh-catalog-fixtures` stamps fixture provenance and verifies it (`--check`).
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.
 

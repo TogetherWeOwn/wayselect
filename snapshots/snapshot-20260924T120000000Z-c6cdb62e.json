@@ -1,0 +1,176 @@
+{
+  "tool": "wayselect-snapshot",
+  "mode": "staging-only",
+  "sourcePrefix": "synthetic://",
+  "collectedAt": "2026-09-24T12:00:00.000Z",
+  "provenance": {
+    "source": "synthetic://wayselect/fixture-v1",
+    "snapshotTimestamp": "2026-09-24T10:00:00.000Z",
+    "snapshotHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "contentHash": "sha256:c6cdb62e31ffe7f9f6c4fd53da4e584ea50e53fef641e95f1a8b3aab9804096c",
+  "declaredHashVerified": false,
+  "freshness": {
+    "fresh": true,
+    "ageMs": 7200000,
+    "snapshotTimestamp": "2026-09-24T10:00:00.000Z",
+    "maxCatalogAgeMs": 86400000
+  },
+  "gaps": [
+    {
+      "routeId": null,
+      "gap": "declared-hash-unverified",
+      "detail": "declared provenance.snapshotHash does not match the recomputed content hash; treat the declared hash as a placeholder until it is regenerated from this snapshot"
+    },
+    {
+      "routeId": "northstar/unknown-tools",
+      "gap": "missing-capability:attachment"
+    },
+    {
+      "routeId": "northstar/unknown-tools",
+      "gap": "missing-capability:reasoning"
+    },
+    {
+      "routeId": "northstar/unknown-tools",
+      "gap": "missing-capability:toolUse"
+    },
+    {
+      "routeId": "northstar/unknown-tools",
+      "gap": "missing-capability:structuredOutput"
+    }
+  ],
+  "entries": [
+    {
+      "routeId": "legacy/old-chat",
+      "providerId": "legacy",
+      "modelId": "old-chat",
+      "name": "Old Chat",
+      "catalogOperations": [
+        "chat"
+      ],
+      "capabilities": {
+        "attachment": false,
+        "reasoning": false,
+        "toolUse": true,
+        "structuredOutput": false,
+        "imageInput": false,
+        "textInput": true,
+        "textOutput": true
+      },
+      "rates": {
+        "inputPerMillion": 0.5,
+        "outputPerMillion": 1.5
+      }
+    },
+    {
+      "routeId": "northstar/alpha-chat",
+      "providerId": "northstar",
+      "modelId": "alpha-chat",
+      "name": "Alpha Chat",
+      "catalogOperations": [
+        "chat"
+      ],
+      "capabilities": {
+        "attachment": false,
+        "reasoning": false,
+        "toolUse": true,
+        "structuredOutput": true,
+        "imageInput": false,
+        "textInput": true,
+        "textOutput": true
+      },
+      "rates": {
+        "inputPerMillion": 1,
+        "outputPerMillion": 2
+      }
+    },
+    {
+      "routeId": "northstar/image-lite",
+      "providerId": "northstar",
+      "modelId": "image-lite",
+      "name": "Image Lite",
+      "catalogOperations": [
+        "vision-chat"
+      ],
+      "capabilities": {
+        "attachment": true,
+        "reasoning": false,
+        "toolUse": false,
+        "structuredOutput": false,
+        "imageInput": true,
+        "textInput": false,
+        "textOutput": true
+      },
+      "rates": {
+        "inputPerMillion": 1,
+        "outputPerMillion": 1
+      }
+    },
+    {
+      "routeId": "northstar/unknown-tools",
+      "providerId": "northstar",
+      "modelId": "unknown-tools",
+      "name": "Unknown Tools",
+      "catalogOperations": [
+        "chat"
+      ],
+      "capabilities": {
+        "attachment": null,
+        "reasoning": null,
+        "toolUse": null,
+        "structuredOutput": null,
+        "imageInput": false,
+        "textInput": true,
+        "textOutput": true
+      },
+      "rates": {
+        "inputPerMillion": 0.25,
+        "outputPerMillion": 0.5
+      }
+    },
+    {
+      "routeId": "orbit/orbit-chat",
+      "providerId": "orbit",
+      "modelId": "orbit-chat",
+      "name": "Orbit Chat",
+      "catalogOperations": [
+        "chat"
+      ],
+      "capabilities": {
+        "attachment": false,
+        "reasoning": true,
+        "toolUse": true,
+        "structuredOutput": true,
+        "imageInput": false,
+        "textInput": true,
+        "textOutput": true
+      },
+      "rates": {
+        "inputPerMillion": 1,
+        "outputPerMillion": 2
+      }
+    },
+    {
+      "routeId": "orbit/retired-chat",
+      "providerId": "orbit",
+      "modelId": "retired-chat",
+      "name": "Retired Chat",
+      "catalogOperations": [
+        "chat"
+      ],
+      "capabilities": {
+        "attachment": false,
+        "reasoning": false,
+        "toolUse": true,
+        "structuredOutput": false,
+        "imageInput": false,
+        "textInput": true,
+        "textOutput": true
+      },
+      "rates": {
+        "inputPerMillion": 0.1,
+        "outputPerMillion": 0.1
+      }
+    }
+  ]
+}
