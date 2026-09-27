@@ -346,6 +346,37 @@ describe("seller-submission intake", () => {
     strictEqual(validateSellerSubmission(deprecated).entry.status, "deprecated");
   });
 
+  it("rejects slash/control route segments and trims padded IDs (TOG-5960)", async () => {
+    const fixtures = await readSellerFixtures();
+    const source = "synthetic://wayselect/seller-fixture-v1";
+
+    const slashProvider = validSubmission(fixtures);
+    slashProvider.providerId = "a/b";
+    assertRejects(slashProvider, { code: "invalid-value", key: "providerId", source });
+
+    const slashModel = validSubmission(fixtures);
+    slashModel.modelId = "x/y";
+    slashModel.entry.id = "x/y";
+    assertRejects(slashModel, { code: "invalid-value", key: "modelId", source });
+
+    const slashEntry = validSubmission(fixtures);
+    slashEntry.entry.id = "x/y";
+    assertRejects(slashEntry, { code: "invalid-value", key: "entry.id", source });
+
+    const newline = validSubmission(fixtures);
+    newline.providerId = "north\nstar";
+    assertRejects(newline, { code: "invalid-value", key: "providerId", source });
+
+    const paddedProvider = validSubmission(fixtures);
+    paddedProvider.providerId = "  northstar  ";
+    strictEqual(validateSellerSubmission(paddedProvider).routeId, "northstar/seller-chat");
+
+    const paddedBoth = validSubmission(fixtures);
+    paddedBoth.modelId = "  seller-chat  ";
+    paddedBoth.entry.id = "  seller-chat  ";
+    strictEqual(validateSellerSubmission(paddedBoth).routeId, "northstar/seller-chat");
+  });
+
   it("rejects malformed provenance fail-closed", async () => {
     const fixtures = await readSellerFixtures();
 
