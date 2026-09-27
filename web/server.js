@@ -20,6 +20,17 @@
 //     `<script>` that same-origin fetches the JSON fragment, so the
 //     policy allows `'unsafe-inline'` for style/script while keeping
 //     everything else same-origin: no external resources exist.
+//
+// 404 content-type contract (TOG-5714):
+//   - Browser routes (index, detail incl. listing misses, flag-off pages):
+//     HTML by default; JSON only when the client explicitly negotiates
+//     `Accept: application/json` (the shell's fragment fetch).
+//   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
+//     always JSON.
+//   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
+//     default; HTML only when the client explicitly negotiates
+//     `Accept: text/html` without `application/json` (a browser address-bar
+//     navigation). `*/*` (fetch/curl defaults) gets JSON.
 
 import { createServer } from "node:http";
 import { isPreviewEnabled } from "./preview.js";
@@ -33,6 +44,7 @@ import {
   renderListingIndex,
   renderNotFound,
   renderPreviewDisabled,
+  renderRouteNotFound,
 } from "./listing-detail.js";
 import { applyListingsFilters, parseListingsQuery } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
@@ -240,6 +252,15 @@ export function createApp(env = process.env, options = {}) {
       return;
     }
 
+    // TOG-5714 fallback (see the 404 content-type contract above):
+    // unknown paths are JSON by default; HTML only for explicit browser
+    // navigation (`Accept: text/html` without `application/json`). `*/*`
+    // (fetch/curl defaults) and missing Accept get JSON.
+    const accept = String(req.headers?.accept ?? "");
+    if (!accept.includes("application/json") && accept.includes("text/html")) {
+      sendHtml(res, 404, renderRouteNotFound(pathname));
+      return;
+    }
     sendJson(res, 404, { error: "not_found" });
   });
 }
