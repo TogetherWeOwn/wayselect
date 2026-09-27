@@ -16,6 +16,13 @@ export {
   evaluateEligibility,
   normalizeSelectionRequest,
 } from "./eligibility.js";
+export {
+  DEFAULT_MODELS_DEV_SOURCE,
+  IngestError,
+  hashRawText,
+  hashSnapshot,
+  ingestModelsDev,
+} from "./ingest.js";
 export { selectRoute } from "./selection.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
 export { SellerSubmissionError, validateSellerSubmission } from "./sellerSubmission.js";

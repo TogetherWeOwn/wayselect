@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  DEFAULT_MODELS_DEV_SOURCE,
   FakeTransport,
+  IngestError,
   applySupportConfiguration,
+  hashRawText,
+  ingestModelsDev,
   normalizeCatalog,
   selectRoute,
 } from "../src/index.js";
@@ -60,6 +64,203 @@ function parseArguments(argv) {
 
 async function readJson(path) {
   return JSON.parse(await readFile(resolve(path), "utf8"));
+}
+
+// TOG-4791: opt-in catalog ingestion. `catalog` is the only multi-word entry
+// point; every other argv shape keeps the surrounding select/explain and
+// legacy paths byte-identical so the cli-errors pins keep holding.
+function parseCatalogImportArgs(tokens) {
+  if (tokens.length === 0 || tokens[0] === "--help") {
+    return { help: true };
+  }
+  if (tokens[0] !== "import") {
+    throw new Error(unknownArgumentMessage(tokens[0]));
+  }
+  const options = {
+    file: null,
+    fetch: false,
+    fetchUrl: DEFAULT_MODELS_DEV_SOURCE,
+    source: undefined,
+    snapshotTimestamp: undefined,
+    snapshotHash: undefined,
+    out: null,
+    json: false,
+    help: false,
+  };
+  const valueFlags = new Set([
+    "--fetch-url",
+    "--source",
+    "--snapshot-timestamp",
+    "--snapshot-hash",
+    "--out",
+  ]);
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === "--fetch") {
+      options.fetch = true;
+      continue;
+    }
+    if (token === "--json") {
+      options.json = true;
+      continue;
+    }
+    if (token === "--help") {
+      options.help = true;
+      continue;
+    }
+    if (valueFlags.has(token)) {
+      const value = tokens[index + 1];
+      if (value === undefined || value.startsWith("--")) {
+        throw new Error(missingValueMessage(token));
+      }
+      if (token === "--fetch-url") {
+        options.fetchUrl = value;
+      } else if (token === "--source") {
+        options.source = value;
+      } else if (token === "--snapshot-timestamp") {
+        options.snapshotTimestamp = value;
+      } else if (token === "--snapshot-hash") {
+        options.snapshotHash = value;
+      } else {
+        options.out = value;
+      }
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--")) {
+      throw new Error(unknownArgumentMessage(token));
+    }
+    if (options.file !== null) {
+      throw new Error("catalog import takes a single input file");
+    }
+    options.file = token;
+  }
+  if (options.file !== null && options.fetch) {
+    throw new Error("catalog import takes either a file or --fetch, not both");
+  }
+  if (!options.help && options.file === null && !options.fetch) {
+    throw new Error("catalog import needs an input file or --fetch");
+  }
+  return { subcommand: "import", ...options };
+}
+
+async function fetchModelsDevText(url) {
+  // The ONLY networked path in this CLI: explicit opt-in via --fetch, never
+  // exercised in tests.
+  let response;
+  try {
+    response = await globalThis.fetch(url);
+  } catch (error) {
+    throw new IngestError(`Cannot fetch ${url}: ${error.message}`);
+  }
+  if (!response.ok) {
+    throw new IngestError(`Cannot fetch ${url}: HTTP ${response.status}`);
+  }
+  return response.text();
+}
+
+async function runCatalogImport(options) {
+  const rawText = options.fetch
+    ? await fetchModelsDevText(options.fetchUrl)
+    : await readFile(resolve(options.file), "utf8").catch((error) => {
+        throw new IngestError(`Cannot read ${options.file}: ${error.message}`);
+      });
+  let input;
+  try {
+    input = JSON.parse(rawText);
+  } catch (error) {
+    throw new IngestError(
+      `Cannot parse ${options.fetch ? options.fetchUrl : options.file} as JSON: ${error.message}`,
+    );
+  }
+
+  const source =
+    options.source ?? (options.fetch ? options.fetchUrl : `file://${resolve(options.file)}`);
+  const ingested = ingestModelsDev(input, {
+    source,
+    snapshotTimestamp: options.snapshotTimestamp,
+    snapshotHash: options.snapshotHash,
+  });
+
+  const catalog = normalizeCatalog(ingested.catalog, ingested.provenance);
+  if (catalog.entries.length === 0) {
+    const reasons = ingested.quarantined.map((entry) => `${entry.routeId}: ${entry.reason}`);
+    throw new IngestError(
+      `No entries survived ingestion${reasons.length > 0 ? `: ${reasons.join("; ")}` : ""}`,
+    );
+  }
+
+  const document = { provenance: ingested.provenance, catalog: ingested.catalog };
+  let outPath = null;
+  if (options.out !== null) {
+    outPath = resolve(options.out);
+    await writeFile(outPath, `${JSON.stringify(document, null, 2)}\n`).catch((error) => {
+      throw new IngestError(`Cannot write ${options.out}: ${error.message}`);
+    });
+  }
+
+  const summary = {
+    command: "catalog import",
+    dryRun: true,
+    networkUsed: options.fetch,
+    source: ingested.provenance.source,
+    snapshotTimestamp: ingested.provenance.snapshotTimestamp,
+    snapshotHash: ingested.provenance.snapshotHash,
+    rawHash: hashRawText(rawText),
+    providerCount: Object.keys(ingested.catalog).length,
+    entryCount: catalog.entries.length,
+    quarantined: ingested.quarantined.map((entry) => ({ ...entry })),
+    outPath,
+  };
+  if (options.json) {
+    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    return;
+  }
+  const lines = [
+    "catalog import — dry-run only (support state: catalogued only)",
+    `Source: ${summary.source} @ ${summary.snapshotTimestamp}`,
+    `Snapshot hash: ${summary.snapshotHash}`,
+    `Raw input hash: ${summary.rawHash}`,
+    `Ingested ${summary.entryCount} entr${summary.entryCount === 1 ? "y" : "ies"} ` +
+      `from ${summary.providerCount} provider${summary.providerCount === 1 ? "" : "s"} ` +
+      `(support state: catalogued only).`,
+  ];
+  if (summary.quarantined.length > 0) {
+    lines.push(`Quarantined ${summary.quarantined.length}:`);
+    for (const entry of summary.quarantined) {
+      lines.push(`  - ${entry.routeId}: ${entry.reason}`);
+    }
+  }
+  if (outPath !== null) {
+    lines.push(`Wrote catalog document: ${outPath}`);
+  } else {
+    lines.push("No --out path given; catalog document not written.");
+  }
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function printCatalogImportHelp() {
+  process.stdout.write(
+    `wayselect catalog import — ingest models.dev-shaped JSON into a catalog document (dry-run only)
+
+Usage:
+  wayselect catalog import <file> [options]   Read a local models.dev-shaped JSON file
+  wayselect catalog import --fetch [options]  Fetch ${DEFAULT_MODELS_DEV_SOURCE} (only networked path)
+
+Options:
+  --fetch-url <url>              Override the fetch URL (only with --fetch)
+  --source <label>               Override the provenance source label
+  --snapshot-timestamp <iso>     Override the provenance snapshot timestamp
+  --snapshot-hash <sha256:...>   Override the provenance snapshot hash (must match the ingested body)
+  --out <path>                   Write the ingested catalog document to <path>
+  --json                         Machine-readable JSON summary
+  --help                         Show this help
+
+Every ingested entry lands as support state catalogued only — ingestion never
+configures, enables, or produces executable URLs. Unknown or malformed fields
+are quarantined with reasons; missing capabilities are never guessed.
+`,
+  );
 }
 
 async function runLegacyDemo(argv) {
@@ -567,6 +768,7 @@ function printGlobalHelp() {
 Usage:
   wayselect select [options]    Select a route and show ranked candidates
   wayselect explain [options]   Explain per-candidate eligibility in detail
+  wayselect catalog import ...  Ingest models.dev-shaped JSON into a catalog document
   wayselect --help              Show this help
   wayselect --version           Show the version
 
@@ -608,6 +810,7 @@ Examples:
   wayselect select --operation chat --require toolUse --allow northstar,orbit
   wayselect explain --json
   wayselect select --request fixtures/request.synthetic.json --json
+  wayselect catalog import models.json --out catalog.json
 
 See docs/cli.md for copy-pasteable examples.
 `,
@@ -647,6 +850,21 @@ async function main() {
       }
       process.stderr.write(`error: ${error.message}\n`);
       process.exitCode = EXIT_INVALID_INPUT;
+    }
+    return;
+  }
+
+  if (first === "catalog") {
+    try {
+      const options = parseCatalogImportArgs(argv.slice(1));
+      if (options.help) {
+        printCatalogImportHelp();
+        return;
+      }
+      await runCatalogImport(options);
+    } catch (error) {
+      process.stderr.write(formatCliFailure(error));
+      process.exitCode = 1;
     }
     return;
   }
