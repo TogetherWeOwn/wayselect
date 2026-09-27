@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #117 (2026-09-27) TOG-6380: max-limit listing-index render budget —
+  100-row index render under 500ms (300ms control delay) and 64KiB,
+  plus `GET /listings?limit=100` live-route smoke
+  (`test/listing-render-budget.test.js`, test-only).
 - #121 (2026-09-27) TOG-6709: HEAD method contract — HEAD pinned as a
   plain wrong method (405 + `Allow` on GET/purchase routes, 405 without
   `Allow` on seller routes, 404 on unknown paths; empty body, method gate
