@@ -14,6 +14,7 @@ export {
 export {
   EligibilityRequestError,
   evaluateEligibility,
+  normalizeRequirements,
   normalizeSelectionRequest,
 } from "./eligibility.js";
 export {
@@ -34,6 +35,7 @@ export {
   MAX_DESCRIPTION_LENGTH,
   MAX_ETAG_LENGTH,
   MAX_JSON_BODY_BYTES,
+  MAX_JSON_BODY_READ_MS,
   MAX_MODEL_ID_LENGTH,
   MAX_PROVIDER_ID_LENGTH,
   ROUTE_ID_PATTERN,
@@ -83,11 +85,21 @@ export {
   failOnGapsMessage,
   formatCliFailure,
   futureSnapshotMessage,
+  invalidKeepLastMessage,
   invalidMaxCatalogAgeMessage,
+  invalidPruneMaxAgeDaysMessage,
+  invalidPruneNowMessage,
   missingValueMessage,
   staleSnapshotMessage,
   unknownArgumentMessage,
 } from "./cliErrors.js";
+export {
+  DEFAULT_KEEP_LAST,
+  DEFAULT_MAX_AGE_DAYS,
+  SNAPSHOT_FILE_PATTERN,
+  SnapshotPruneError,
+  planSnapshotPrune,
+} from "./snapshotPrune.js";
 export {
   compareProbeProvenance,
   diffProbedRoutes,

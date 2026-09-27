@@ -1,8 +1,8 @@
 # Wayselect
 
-> **Early development — fixture-only, dry-run only.** No live routing, no live model calls, no credentials, no endpoint discovery. Makes no compatibility, cost, or savings claims. Catalog presence (`catalogued`) is not support, permission, configuration, conformance, or availability.
+> **Early development — fixture-only, dry-run only.** No live routing, no live model calls, no live provider credentials, no endpoint discovery. Makes no compatibility, cost, or savings claims. Catalog presence (`catalogued`) is not support, permission, configuration, conformance, or availability. (The Phase-1 gateway handler verifies an operator-held bearer key supplied at call time; see Library boundaries.)
 
-Wayselect is a small Node 20+ ES module library with a thin local CLI. It turns a newly authored synthetic, models.dev-shaped catalog fixture into an explicit support configuration, applies fail-closed eligibility rules, and returns an inspectable selection explanation. The only transport in this slice is an in-memory fake adapter.
+Wayselect is a small Node 20+ ES module library with a local CLI. It turns a newly authored synthetic, models.dev-shaped catalog fixture into an explicit support configuration, applies fail-closed eligibility rules, and returns an inspectable selection explanation. The selection transport in this slice is an in-memory fake adapter only (`FakeTransport`); the only outbound network paths anywhere are the explicit opt-in `--fetch` flags for catalog ingestion and the models.dev freshness probe.
 
 ## What Wayselect is / is not
 
@@ -13,7 +13,7 @@ Is:
 
 Is not:
 
-- A transport gateway: it never routes a request to a live model, never discovers endpoints, and never sends traffic over the network (`FakeTransport` reports `networkUsed: false`).
+- A transport gateway: it never routes a selection request to a live model, never discovers endpoints, and the selection path never sends traffic over the network (`FakeTransport` reports `networkUsed: false`). The only outbound network paths are the explicit opt-in `--fetch` flags for catalog ingestion and the models.dev freshness probe (never exercised as live fetches in tests).
 - A compatibility, cost, or savings oracle: selected rates are synthetic/list-price estimates only, and catalog presence never implies permission, configuration, conformance, or availability.
 
 ## What this slice proves
@@ -23,8 +23,8 @@ Is not:
 - Executable candidates must have an explicit support state, configured operations, fresh evidence, and an explicit provider allowlist.
 - Missing capability data, unsupported operations, stale evidence, and disallowed providers fail closed with stable reason codes.
 - Selection is deterministic: lowest synthetic/list-price estimate first, then lexicographic route ID for ties.
-- Catalog records and fake-transport routes cannot carry executable URL fields.
-- The fixture demo runs with Node standard library only and performs no network access.
+- Catalog records and fake-transport routes cannot carry executable location fields (`url`, `endpoint`, `baseUrl`, `apiUrl` are rejected at the boundary).
+- The fixture demo performs no network access (the demo path never calls `fetch`; `FakeTransport` only). It still needs `npm ci` first — only `bin/wayselect-snapshot`, `bin/wayselect-search-index-refresh`, `bin/wayselect-snapshot-prune`, and `bin/eval-wayselect-search-prompts` run on the standard library alone.
 
 ## Support states
 
@@ -41,7 +41,7 @@ A support state is not a provider credential or permission grant. Evidence can a
 ## Requirements
 
 - Node.js 20 or newer
-- `npm ci` before `npm test` — the suite uses pinned packages (`ajv`, `ajv-formats` for catalog-entry schema validation; `escape-html` for the preview page). The fixture demo itself (`node bin/wayselect select`) needs no install and runs on the standard library alone.
+- `npm ci` before `npm test` — the suite uses pinned packages (`ajv`, `ajv-formats` for CLI `--json` machine-shape and catalog-entry schema validation; `escape-html` for the preview page). The fixture demo itself (`node bin/wayselect select`) needs that install too — only `bin/wayselect-snapshot`, `bin/wayselect-search-index-refresh`, `bin/wayselect-snapshot-prune`, and `bin/eval-wayselect-search-prompts` run on the standard library alone.
 - No environment variables or credentials for the fixture demo
 
 ## Reproducible local demo
@@ -208,8 +208,8 @@ node bin/wayselect-search-index-refresh --check --max-catalog-age-hours 24
 node bin/wayselect-search-index-refresh --max-catalog-age-hours 24 --out search-index
 ```
 
-The probe (`--check`, five checks R1–R5) rebuilds twice and reloads: done
-criteria for TOG-5460 is the probe passing twice consecutively with the same
+The probe (`--check`, five checks R1–R5) builds, rebuilds, and reloads: done
+criteria for TOG-5460 is the CLI probe passing twice consecutively with the same
 content hash. Same-input refreshes over `--previous` report
 `changedVsPrevious:false`. The evaluation clock follows the same
 snapshot-derived pattern as the suite (`support/helpers.js`
@@ -223,8 +223,9 @@ fixture refreshes without edits.
 models.dev-shaped JSON (providers → models with modalities, limits,
 tool/structured-output flags, and list prices) onto the normalized catalog
 schema and writes a `{ provenance, catalog }` document. Default reads a local
-file; `--fetch` is the only networked path, explicit and never exercised in
-tests. Every ingested entry lands as support state `catalogued` only —
+file; `--fetch` is the only networked path for that CLI, explicit and reached
+in tests only for flag-conflict usage errors (no live fetch). Every ingested
+entry lands as support state `catalogued` only —
 ingestion never configures, enables, or produces executable URLs.
 Unknown/malformed fields are quarantined with reasons; capabilities are never
 guessed. Tests use small newly-authored fixtures, never a redistributed
@@ -243,7 +244,8 @@ URL with `--fetch`), `--snapshot-timestamp` defaults to now, and
 mapping — the same gate `normalizeCatalog` verifies, so a default import
 always round-trips. An explicit `--snapshot-hash` that does not match the
 ingested body fails closed instead of writing an unverifiable document.
-`--json` emits the machine-readable summary (`command`, `networkUsed`,
+`--json` emits the machine-readable summary (`command`, `dryRun`, `networkUsed`,
+`source`, `snapshotTimestamp`, `snapshotHash`, `rawHash`, `providerCount`,
 `entryCount`, `quarantined` with per-entry reasons, `outPath`).
 
 ## Library boundaries
@@ -254,17 +256,19 @@ ingested body fails closed instead of writing an unverifiable document.
 - `src/eligibility.js` applies operation, capability, provider, and evidence-age rules. An empty provider allowlist is invalid.
 - `src/selection.js` produces a dry-run decision and full candidate explanations.
 - `src/transport.js` exposes only `FakeTransport`; executable location fields are rejected.
-- `src/canonical.js` provides the canonical-JSON form the provenance hash is computed over.
-- `src/gateway.js` exposes the Phase-1 OpenAI chat-completions skeleton as a pure in-process handler (`handleChatCompletionsRequest`): `POST /v1/chat/completions` non-streaming only, `model` auto-route + pinned semantics, the spec error table, FakeTransport-backed with `dryRun:true` and synthetic text labeled synthetic. **Synthetic-only:** every completion in this slice is fake-backed (`networkUsed:false` enforced); no live calls, no credentials, no spend.
-- `bin/wayselect` is the thin CLI: `select`/`explain` subcommands plus the opt-in `catalog import` ingestion path (`--fetch` is the only networked path; `--help`, `--version`, exit codes 0/1/2/3; see `docs/cli.md`) with the bare-invocation fixture demo kept for backward compatibility.
+- `src/canonical.js` provides the shared stable-stringify helper (re-exported through `src/catalog.js`/`src/index.js` and used by the refresh and ingest hash paths). The catalog snapshot hash (`computeCatalogSnapshotHash`) and the search-index content hash (`computeContentHash`) use local key-sorted canonical forms with the same semantics.
+- `src/gateway.js` exposes the Phase-1 OpenAI chat-completions skeleton as a pure in-process handler (`handleChatCompletionsRequest`) with no HTTP binding of its own: the OpenAI-shaped `POST /v1/chat/completions` contract (non-streaming only), `model` auto-route + pinned semantics, the spec error table, FakeTransport-backed with `dryRun:true` and synthetic text labeled synthetic. **Synthetic-only:** every completion in this slice is fake-backed (`networkUsed:false` enforced on every result); no live calls, no live provider credentials, no spend. Requests carry an operator-held bearer key that the handler verifies at call time (missing/wrong → 401).
+- `bin/wayselect` is the CLI: `select`/`explain` subcommands plus the opt-in `catalog import` ingestion path (`--fetch` is that CLI's only networked path; `--help`, `--version`, exit codes 0/1/2/3; see `docs/cli.md`) with the bare-invocation fixture demo kept for backward compatibility.
 - `bin/refresh-catalog-fixtures` stamps fixture provenance and verifies it (`--check`).
 - `bin/accept-wayselect-gateway-phase1` is the Phase-1 gateway conformance script (auto-route, pinned-eligible, pinned-ineligible 400, no-eligible-route 400, 401 cases; README synthetic-only check). Offline: in-process handler plus a fetch stub that throws.
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.
 
 A selection request may also carry an optional `requirements` object with typed
-constraints, evaluated after the legacy boolean checks in fixed field order so
-the dry-run explanation is deterministic:
+constraints, evaluated in fixed order — legacy checks first (support state,
+provider, operations, `requiredCapabilities`), then typed `requirements` in
+fixed field order, then evidence for eligible states — so the dry-run
+explanation is deterministic:
 
 - `inputModalities: ["text", "image"]` / `outputModalities: ["text"]` — every
   listed modality must appear in the candidate's normalized `modalities`.
@@ -288,7 +292,7 @@ unknown, malformed means rejected); normalized entries expose frozen
 
 ## Explicit non-goals
 
-This slice does not include live provider calls, endpoint discovery, credentials, HTTP servers, paid inference, real usage or billing data, third-party catalog redistribution, production deployment, universal compatibility, or a savings claim. Future transport or live-conformance work requires separate provenance, security, access, and review decisions.
+This slice does not include live provider calls, endpoint discovery, live provider credentials, paid inference, real usage or billing data, third-party catalog redistribution, production deployment, universal compatibility, or a savings claim. The only HTTP surface is the local preview server (`node web/server.js`, gated by `WAYSELECT_PREVIEW`); the only credential check is the operator-held gateway bearer key the Phase-1 handler verifies at call time. Future transport or live-conformance work requires separate provenance, security, access, and review decisions.
 
 The gateway surface (`src/gateway.js`, Phase 1) is synthetic-only: completions are FakeTransport-backed (`networkUsed:false` is enforced on every result), carry `dryRun:true` + `synthetic:true`, and can never spend or touch the network. Streaming/SSE, the Anthropic surface, and live transport are later phases.
 
@@ -300,6 +304,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [CLI `--json` machine contract](docs/cli-json-contract.md) — versioned machine interface for `select --json` / `explain --json`.
 - [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
+- [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
 - [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
 - [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
@@ -312,11 +317,16 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Catalog search/filter acceptance](docs/wayselect-search-filter-acceptance.md) — executable contract for the search/filter slice.
 - [Seller acceptance](docs/wayselect-seller-acceptance.md) — list → offer → accept slice.
 - [Seller payout-eligibility checklist](docs/wayselect-seller-payout-eligibility.md) — payout-eligibility rules (part 4).
+- [Snapshot retention policy](docs/snapshot-retention.md) — keep-last-10 + 30-day prune rule and `bin/wayselect-snapshot-prune` usage.
 - [Web acceptance](docs/wayselect-web-acceptance.md) — listing-detail + search/filter web slices.
+- [Slow-network knob](docs/wayselect-slow-network-knob.md) — `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` operator contract (fragment only, never the shell).
 
 ## Contributing
 
-- Tests stay offline: the suite runs `node --test` with pinned packages only; the `transport` test fails if `fetch` is called, server tests bind an ephemeral port and talk to it over `localhost`/`127.0.0.1`, and the probe tests run the CLI against saved local input (`--fetch`, the only networked path, is never exercised in tests). Do not add tests that reach the live network.
+Full contributor guide (setup, ground rules, branch/PR, gates, review and
+merge): [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
+
+- Tests stay offline: the suite runs `node --test` with pinned packages only; the `transport` test fails if `fetch` is called, server tests bind an ephemeral port and talk to it over `localhost`/`127.0.0.1`, and the probe tests run the CLI against saved local input (`--input`). No test performs a live network fetch: `--fetch` appears in tests only to assert flag-conflict usage errors, and localhost-only health/accept scripts target the ephemeral test server. Do not add tests that reach the live network.
 - Fixture policy: fixtures under `fixtures/` are synthetic and checked in. Add or edit them as data files; refresh stamped provenance through `bin/refresh-catalog-fixtures`, never by hand-editing. Keep unknown fields rejected at the `src/catalog.js` boundary and never guess missing capability data.
 - Node 20+ ESM; keep `bin/wayselect` thin and `src/` boundaries intact. Run `npm run accept:fixture-refresh` + `npm run check:drift` after each refresh. No new runtime dependencies without a CTO note.
 - Keep README claims accurate to merged behavior only — no compatibility, cost, or savings language.

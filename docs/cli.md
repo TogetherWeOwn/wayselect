@@ -7,7 +7,8 @@
 The CLI is a thin wrapper: `bin/wayselect` parses arguments, loads the fixture
 files, calls `selectRoute`, and formats the result. All examples run from the
 repo root against the checked-in fixtures. Pin `--evaluation-time` to keep
-output deterministic.
+output deterministic. Ranking ties break by UTF-16 code-unit route-ID order
+(`src/routeIds.js`) — identical on every machine regardless of locale.
 
 ## `select`: pick a route, show ranked candidates
 
@@ -147,6 +148,118 @@ node bin/wayselect select --operation chat --require toolUse \
 node bin/wayselect explain --request fixtures/request.synthetic.json \
   --allow northstar
 ```
+
+## Typed capability requirements (capability-aware select, S1)
+
+`select` and `explain` filter catalog entries against typed requirements
+(spec R1), from flags or from a request file's `requirements` object. Missing
+or unknown capability data fails closed: the entry is excluded with an
+explicit reason, never silently included (spec R2).
+
+- `--input-modalities <m,...>` / `--output-modalities <m,...>` — repeatable,
+  comma-separated; every listed modality must appear in the candidate's
+  normalized `modalities` (otherwise `missing-modality:input:<value>`).
+- `--min-context-window <n>` / `--max-output-tokens <n>` — the candidate's
+  `limits` must meet the threshold. Unknown limits report
+  `missing-capability:contextWindow` / `missing-capability:maxOutputTokens`;
+  a short limit reports `insufficient-context-window` /
+  `insufficient-max-output-tokens`.
+- `--require-tools`, `--require-structured-output`, `--require-reasoning` —
+  checked against the normalized `toolUse`, `structuredOutput`, and
+  `reasoning` flags (`missing-capability:` / `unsupported-capability:`).
+  Absent means no constraint.
+- Malformed flag values fail closed at the CLI boundary (exit 1); unknown
+  `requirements` keys in a request file are rejected the same way.
+
+```sh
+# Fully-qualifying modalities pick the image route (exit 0):
+node bin/wayselect select --operation vision-chat --allow northstar \
+  --input-modalities image --output-modalities text \
+  --evaluation-time 2026-09-26T16:00:00.000Z
+```
+
+```text
+dry-run select — dry-run / synthetic estimate — no live model calls, credentials, or network use
+Selected route: northstar/image-lite
+Policy: lowest-synthetic-estimated-rate-then-lexicographic-route-id
+Rates are synthetic/list-price estimates only; not actual cost or savings.
+
+Ranked candidates (1 eligible, 5 excluded):
+  1. northstar/image-lite — eligible, est. 2 / million tokens
+  2. legacy/old-chat — excluded (provider-not-allowed, operation-not-catalogued, operation-not-configured, missing-modality:input:image, stale-evidence)
+  3. northstar/alpha-chat — excluded (operation-not-catalogued, operation-not-configured, missing-modality:input:image)
+  4. northstar/unknown-tools — excluded (operation-not-catalogued, operation-not-configured, missing-modality:input:image)
+  5. orbit/orbit-chat — excluded (provider-not-allowed, operation-not-catalogued, operation-not-configured, missing-modality:input:image)
+  6. orbit/retired-chat — excluded (support-state:unsupported, provider-not-allowed, operation-not-catalogued, operation-not-configured, missing-modality:input:image)
+
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+```
+
+Unknown limits fail closed: the pinned fixture carries no `context_window`
+fields, so a `--min-context-window` threshold excludes every candidate with
+`missing-capability:contextWindow` (exit 3):
+
+```sh
+node bin/wayselect select --operation chat --require vision \
+  --allow northstar,orbit --min-context-window 10000000 \
+  --evaluation-time 2026-09-26T16:00:00.000Z; echo "exit=$?"
+```
+
+```text
+dry-run select — dry-run / synthetic estimate — no live model calls, credentials, or network use
+No eligible route.
+Policy: lowest-synthetic-estimated-rate-then-lexicographic-route-id
+Rates are synthetic/list-price estimates only; not actual cost or savings.
+
+Ranked candidates (0 eligible, 6 excluded):
+  1. legacy/old-chat — excluded (provider-not-allowed, missing-capability:vision, missing-capability:contextWindow, stale-evidence)
+  2. northstar/alpha-chat — excluded (missing-capability:vision, missing-capability:contextWindow)
+  3. northstar/image-lite — excluded (operation-not-catalogued, operation-not-configured, missing-capability:vision, missing-capability:contextWindow)
+  4. northstar/unknown-tools — excluded (missing-capability:vision, missing-capability:contextWindow)
+  5. orbit/orbit-chat — excluded (missing-capability:vision, missing-capability:contextWindow)
+  6. orbit/retired-chat — excluded (support-state:unsupported, operation-not-configured, missing-capability:vision, missing-capability:contextWindow)
+
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+exit=3
+```
+
+`explain` names the typed requirements on its Request line:
+
+```sh
+node bin/wayselect explain --operation chat --allow northstar,orbit \
+  --require-tools --input-modalities text \
+  --evaluation-time 2026-09-26T16:00:00.000Z
+```
+
+```text
+dry-run explain — dry-run / synthetic estimate — no live model calls, credentials, or network use
+Request: operation=chat, require=[], allow=[northstar, orbit], typed=[inputModalities=[text], toolCalling]
+Evaluation time: 2026-09-26T16:00:00.000Z, max evidence age: 72h
+
+northstar/alpha-chat: eligible (provider northstar, support configured, est. 3 / million tokens)
+orbit/orbit-chat: eligible (provider orbit, support conformance-tested, est. 3 / million tokens)
+legacy/old-chat: excluded (provider legacy, support configured, est. 2 / million tokens)
+  - provider-not-allowed
+  - stale-evidence
+northstar/image-lite: excluded (provider northstar, support configured, est. 2 / million tokens)
+  - operation-not-catalogued
+  - operation-not-configured
+  - missing-modality:input:text
+  - unsupported-capability:toolUse
+northstar/unknown-tools: excluded (provider northstar, support configured, est. 0.75 / million tokens)
+  - missing-capability:toolUse
+orbit/retired-chat: excluded (provider orbit, support unsupported, est. 0.2 / million tokens)
+  - support-state:unsupported
+  - operation-not-configured
+
+verdict: selected northstar/alpha-chat
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+```
+
+A request file may carry the same constraints as a `requirements` object
+(`inputModalities`, `outputModalities`, `minContextWindow`,
+`maxOutputTokens`, `toolCalling`, `structuredOutput`, `reasoning`); flags
+override the file per dimension, mirroring `--require`/`--allow`.
 
 ## `catalog import`: ingest models.dev-shaped JSON
 

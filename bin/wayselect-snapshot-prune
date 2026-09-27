@@ -1,0 +1,203 @@
+#!/usr/bin/env node
+// Snapshot retention pruner for Wayselect (TOG-5740).
+//
+// `snapshots/` accumulates timestamped `snapshot-*.json` files with no
+// previous retention rule. This CLI applies the retention policy in
+// docs/snapshot-retention.md: keep the N newest snapshots (default 10) plus
+// anything younger than the max age (default 30 days), prune the rest.
+//
+// Dry-run by default: it lists what would be deleted and deletes nothing.
+// Pass --apply to delete. Only `snapshot-*.json` files are ever candidates;
+// diff reports and anything else in the directory is always skipped, and the
+// keep-last floor means a prune can never empty the directory.
+//
+// Stdlib only, no network, no credentials. Tests run it against scratch
+// copies, never against the committed snapshots/ directory.
+//
+// Usage:
+//   node bin/wayselect-snapshot-prune
+//   node bin/wayselect-snapshot-prune --dir snapshots --keep-last 10 --max-age-days 30
+//   node bin/wayselect-snapshot-prune --dir snapshots --apply
+//   node bin/wayselect-snapshot-prune --now 2026-09-27T00:00:00.000Z
+//   npm run prune:snapshots
+//
+// Exit codes: 0 when the plan ran (dry-run lists, --apply deletes), 1 on
+// runtime failures (unreadable directory, failed deletion), 2 on usage
+// errors. Success prints the JSON plan to stdout with empty stderr.
+
+import { readdir, stat, unlink } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import {
+  DEFAULT_KEEP_LAST,
+  DEFAULT_MAX_AGE_DAYS,
+  SNAPSHOT_FILE_PATTERN,
+  planSnapshotPrune,
+} from "../src/snapshotPrune.js";
+import {
+  formatCliFailure,
+  invalidKeepLastMessage,
+  invalidPruneMaxAgeDaysMessage,
+  invalidPruneNowMessage,
+  missingValueMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
+
+function parseArguments(argv) {
+  const values = {
+    dir: "snapshots",
+    keepLast: String(DEFAULT_KEEP_LAST),
+    maxAgeDays: String(DEFAULT_MAX_AGE_DAYS),
+    now: null,
+    apply: false,
+    help: false,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--help" || flag === "-h") {
+      values.help = true;
+      continue;
+    }
+    if (flag === "--apply") {
+      values.apply = true;
+      continue;
+    }
+    if (
+      flag === "--dir" ||
+      flag === "--keep-last" ||
+      flag === "--max-age-days" ||
+      flag === "--now"
+    ) {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error(missingValueMessage(flag));
+      }
+      if (flag === "--dir") {
+        values.dir = value;
+      } else if (flag === "--keep-last") {
+        values.keepLast = value;
+      } else if (flag === "--max-age-days") {
+        values.maxAgeDays = value;
+      } else {
+        values.now = value;
+      }
+      index += 1;
+      continue;
+    }
+    throw new Error(unknownArgumentMessage(flag));
+  }
+
+  return values;
+}
+
+function usage() {
+  return (
+    "Usage: node bin/wayselect-snapshot-prune [--dir <path>] [--keep-last <n>]\n" +
+    "    [--max-age-days <n>] [--now <ISO>] [--apply]\n"
+  );
+}
+
+
+async function listDirectory(dir) {
+  let names;
+  try {
+    names = await readdir(dir);
+  } catch (error) {
+    throw new Error(`cannot read snapshot directory at ${dir}: ${error.message}`);
+  }
+  const entries = [];
+  for (const name of names.sort()) {
+    if (!SNAPSHOT_FILE_PATTERN.test(name)) {
+      entries.push({ name, mtimeMs: NaN });
+      continue;
+    }
+    let mtimeMs;
+    try {
+      mtimeMs = (await stat(join(dir, name))).mtimeMs;
+    } catch (error) {
+      throw new Error(`cannot stat ${name} in ${dir}: ${error.message}`);
+    }
+    entries.push({ name, mtimeMs });
+  }
+  return entries;
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(usage());
+    return;
+  }
+
+  const keepLast = Number(args.keepLast);
+  if (!Number.isInteger(keepLast) || keepLast < 1) {
+    throw new Error(invalidKeepLastMessage());
+  }
+  const maxAgeDays = Number(args.maxAgeDays);
+  if (!Number.isFinite(maxAgeDays) || maxAgeDays < 0) {
+    throw new Error(invalidPruneMaxAgeDaysMessage());
+  }
+  const now = args.now ?? new Date().toISOString();
+  if (!Number.isFinite(Date.parse(now))) {
+    throw new Error(invalidPruneNowMessage());
+  }
+
+  const dir = resolve(args.dir);
+  const listed = await listDirectory(dir);
+  const plan = planSnapshotPrune(
+    listed.filter((entry) => Number.isFinite(entry.mtimeMs)),
+    { keepLast, maxAgeDays, now },
+  );
+  const skipped = listed
+    .filter((entry) => !Number.isFinite(entry.mtimeMs))
+    .map((entry) => entry.name);
+  const kept = [...plan.kept];
+  const deleted = [];
+
+  if (args.apply) {
+    for (const name of plan.pruned) {
+      try {
+        await unlink(join(dir, name));
+      } catch (error) {
+        throw new Error(`cannot delete ${name} in ${dir}: ${error.message}`);
+      }
+      deleted.push(name);
+    }
+  }
+
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        dryRun: !args.apply,
+        dir,
+        keepLast,
+        maxAgeDays,
+        now,
+        kept,
+        pruned: args.apply ? [] : [...plan.pruned],
+        deleted,
+        skipped: [...plan.skipped, ...skipped],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+main().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  const isUsage =
+    error instanceof Error &&
+    (/^Missing value for /.test(message) ||
+      /^Unknown argument: /.test(message) ||
+      message === invalidKeepLastMessage() ||
+      message === invalidPruneMaxAgeDaysMessage() ||
+      message === invalidPruneNowMessage());
+  if (isUsage) {
+    process.stderr.write(formatCliFailure(error) + usage());
+    process.exitCode = 2;
+    return;
+  }
+  process.stderr.write(formatCliFailure(error));
+  process.exitCode = 1;
+});
