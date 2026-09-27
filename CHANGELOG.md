@@ -23,6 +23,19 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   helper (RFC 9110 §15.5.6) instead of raw `sendJson`; HEAD-contract pin
   updated for the intake path (`web/server.js`,
   `test/seller-intake-405.test.js`, `test/head-method-contract.test.js`).
+- #143 (2026-09-27) TOG-6713: cap slowloris header/body receipt —
+  `createApp()` pins `headersTimeout` 10s / `requestTimeout` 120s on every
+  server it builds (below Node's 60s/300s defaults), with a validated
+  `httpTimeouts` override; both values logged at startup
+  (`web/server.js`, `test/preview-http-timeouts.test.js`).
+- #142 (2026-09-27) TOG-6737: seller-intake vs purchase error-envelope
+  parity note — §4A field table + rationale in the seller acceptance
+  spec, pinning both HTTP envelopes and both validator vocabularies to
+  code (`docs/wayselect-seller-acceptance.md`, docs-only).
+- #146 (2026-09-27) TOG-6371: IPv6-mapped IPv4 normalization pin —
+  `resolveClientIp` trusted-proxy matching and XFF client identity share
+  one bucket across plain/mapped/upper/translated/loopback spellings
+  (`test/ipv6-mapped-resolve-pin.test.js`, test-only, no source change).
 - TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
   read deadline (`MAX_JSON_BODY_READ_MS`) that fails closed with
   `body_timeout` (408 at the seller route, retryable; drains the stream
