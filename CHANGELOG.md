@@ -18,6 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
 - #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
   invalid `--now` exits 1 with empty stdout, exact
   `CatalogFreshnessError` bytes, `--out` dir never created, and no
