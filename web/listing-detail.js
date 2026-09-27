@@ -25,7 +25,12 @@ import {
   evaluateListingEligibility,
   evaluateListingsEligibility,
 } from "./eligibility.js";
-import { VALID_CAPABILITIES, VALID_MODALITIES, emptyFilters } from "./filter.js";
+import {
+  LISTINGS_MAX_QUERY_LENGTH,
+  VALID_CAPABILITIES,
+  VALID_MODALITIES,
+  emptyFilters,
+} from "./filter.js";
 
 // HTML escaping delegates to the `escape-html` library (`&<>"'` entity
 // encoding, output-identical to the previous hand-rolled version). The
@@ -388,7 +393,7 @@ function filterForm(filters) {
   const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
   const modalities = Array.isArray(active.modalities) ? active.modalities : [];
   return `<form method="get" action="/listings" role="search" aria-label="Filter listings">
-<label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}"></label>
+<label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"></label>
 <fieldset><legend>Capabilities</legend>
 ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
 </fieldset>

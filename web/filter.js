@@ -21,6 +21,15 @@ export const LISTINGS_DEFAULT_LIMIT = 20;
 export const LISTINGS_MAX_LIMIT = 100;
 export const LISTINGS_DEFAULT_OFFSET = 0;
 
+// Text-query bound (TOG-6370, P2/G9): `q` arrives from the URL bar and
+// `normalizeFilters` below previously accepted it unbounded — an
+// attacker-sized value flows into matching, the reflected form value, and
+// logs. Over-long values fail closed (400 upstream) naming this bound; the
+// echoed value is truncated so the error page itself stays bounded. 200 is
+// ~10x headroom over realistic listing-search terms, same order as the
+// intake free-string caps (buyer ≤120, etag ≤256 in src/intakeLimits.js).
+export const LISTINGS_MAX_QUERY_LENGTH = 200;
+
 // Known /listings query keys (TOG-6365): anything else is a typo failing
 // silently, so unknown keys fail closed (400 upstream) naming this list.
 export const VALID_LISTINGS_QUERY_PARAMS = Object.freeze([
@@ -79,6 +88,16 @@ export function parseListingsQuery(searchParams) {
     capabilities: searchParams.getAll("capability"),
     modalities: searchParams.getAll("modality"),
   });
+  // Fail closed on oversize q: the echoed value is truncated so the 400
+  // page itself stays bounded no matter how large the input is.
+  if (filters.q.length > LISTINGS_MAX_QUERY_LENGTH) {
+    return {
+      ok: false,
+      kind: "q",
+      value: filters.q.slice(0, 64),
+      valid: [`at most ${LISTINGS_MAX_QUERY_LENGTH} characters`],
+    };
+  }
   for (const name of filters.capabilities) {
     if (!CAPABILITY_SET.has(name)) {
       return { ok: false, kind: "capability", value: name, valid: VALID_CAPABILITIES };
