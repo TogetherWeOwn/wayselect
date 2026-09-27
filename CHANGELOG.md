@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #123 (2026-09-27) TOG-6374: multi-error 400 page — the HTML
+  invalid-filter page lists every error (counted list) instead of only
+  the first; single-error copy unchanged (`web/filter.js`,
+  `web/listing-detail.js`, `test/invalid-filter-multi-error.test.js`).
 - #133 (2026-09-27) TOG-5752: designed unknown-listing 404 — search hint
   (`searching the listings` → `/listings?q=<model>`, capped at the index
   `q` bound) plus the listing-index link, in the listing-shell chrome
