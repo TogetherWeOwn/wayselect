@@ -18,6 +18,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #88 (2026-09-27) TOG-6388: root `CONTRIBUTING.md` (setup, ground
+  rules, branch/PR/gates, review-and-merge policy) + README link
+  (`CONTRIBUTING.md`, `README.md`).
+- #93 (2026-09-27) TOG-6365: 400 on unknown /listings query params
+  (kind=query naming the valid keys) so typos fail closed (`web/filter.js`,
+  `test/listing-filter.test.js`, `test/listing-empty-error-states.test.js`).
+- #92 (2026-09-27) TOG-6449: "Updating this glossary" checklist for new
+  reason codes — Meaning + Display (Blocked/Unknown) + remediation,
+  backticked `<placeholder>` templates, out-of-scope labels
+  (`docs/eligibility-reasons.md`, docs-only).
 - #87 (2026-09-27) TOG-5740: snapshot retention policy (keep-last-10
   + 30 days) with dry-run-default prune CLI (`docs/snapshot-retention.md`,
   `bin/wayselect-snapshot-prune`, `src/snapshotPrune.js`,

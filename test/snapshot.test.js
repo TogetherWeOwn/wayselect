@@ -144,6 +144,10 @@ test("diff reports added, removed, and changed routes plus gap deltas", async ()
   assert.match(report, /orbit\/orbit-next/);
   assert.match(report, /## Removed routes/);
   assert.match(report, /## Changed routes/);
+  // TOG-5754: operator-readable gap deltas and enumerated open gaps.
+  assert.match(report, /- gaps: \d+ -> \d+ \(new \d+, resolved \d+\)/);
+  assert.match(report, /## Provenance gaps/);
+  assert.match(report, /Open gaps on current snapshot: \d+/);
 });
 
 test("identical snapshots produce an empty readable diff report", async () => {
@@ -155,7 +159,11 @@ test("identical snapshots produce an empty readable diff report", async () => {
   assert.deepEqual(diff.removed, []);
   assert.deepEqual(diff.changed, []);
   assert.equal(diff.summary.contentHashChanged, false);
-  assert.match(formatDiffReport(diff), /No route changes between snapshots/);
+  // TOG-5754: empty-diff wording names the unchanged count and hash state.
+  const emptyReport = formatDiffReport(diff);
+  assert.match(emptyReport, /No route changes between snapshots/);
+  assert.match(emptyReport, /unchanged; content hash unchanged/);
+  assert.match(emptyReport, /Open gaps on current snapshot: 5 \(no change since previous\)/);
 });
 
 test("diff refuses snapshots from different source prefixes", async () => {

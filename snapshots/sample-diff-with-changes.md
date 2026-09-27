@@ -5,6 +5,7 @@
 - routes: 6 -> 6 (added 1, removed 1, changed 1, unchanged 4)
 - provenance changed: no
 - content hash changed: yes
+- gaps: 5 -> 5 (new 0, resolved 0)
 
 ## Added routes
 - orbit/orbit-next
@@ -15,4 +16,10 @@
 ## Changed routes
 - northstar/alpha-chat (changed: name)
 
-Open provenance gaps on current snapshot: 5.
+## Provenance gaps
+Open gaps on current snapshot: 5 (no change since previous).
+- (snapshot): declared-hash-unverified — declared provenance.snapshotHash does not match the recomputed content hash; treat the declared hash as a placeholder until it is regenerated from this snapshot
+- northstar/unknown-tools: missing-capability:attachment
+- northstar/unknown-tools: missing-capability:reasoning
+- northstar/unknown-tools: missing-capability:toolUse
+- northstar/unknown-tools: missing-capability:structuredOutput

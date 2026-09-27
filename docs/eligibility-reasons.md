@@ -105,6 +105,24 @@ modality string from the requirement (seen in tests: `text`, `image`,
 `stale-catalog`, and `future-catalog`, render **Unknown** (fail-closed, not
 selectable). Any verdict carrying any other reason renders **Blocked**.
 
+## Updating this glossary
+
+When you add a reason in `src/eligibility.js`, update this file in the same PR:
+
+1. Every new reason literal or template emitted via `reasons.push`,
+   `catalogReason`, `return [...]`, `typedRequirementReasons`, or
+   `evidenceReasons` gets a glossary row with Meaning + Display (**Blocked**
+   vs **Unknown** per `UNKNOWN_REASON_SIGNALS` in `web/eligibility.js`) +
+   Operator remediation.
+2. Document templates in explicit backticked `<placeholder>` form (e.g.
+   `missing-capability:<name>`) — the guard test only accepts that form, not
+   bare examples.
+3. Keep `missing-rates` / `stale-catalog-fail-closed` listed as out-of-scope
+   non-evaluator labels (guard: `test/eligibility-reasons-glossary.test.js`).
+
+Verify with `node --test test/eligibility-reasons-glossary.test.js` (and full
+`npm test`) before requesting review.
+
 ## Out of scope (NOT evaluator reasons — do not look them up here)
 
 - `missing-rates` — a snapshot gap reported by `src/snapshot.js`, never an
