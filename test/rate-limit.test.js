@@ -142,4 +142,48 @@ describe("preview server rate limiting", () => {
     ok(Number.isInteger(retryAfter) && retryAfter >= 1);
     strictEqual((await limited.json()).retryAfterSec, retryAfter);
   });
+
+  it("429 Retry-After header carries the exact limiter verdict (TOG-6033)", async () => {
+    // Deterministic value pin: a stubbed verdict of 42s must surface
+    // verbatim as both the `Retry-After` header and the body field, so a
+    // regression that drops or rewrites the header fails here, not in prod.
+    const stubLimiter = { check: () => ({ allowed: false, retryAfterSec: 42 }) };
+    const server = createApp({ WAYSELECT_PREVIEW: "1" }, { rateLimiter: stubLimiter });
+    servers.push(server);
+    await new Promise((resolve) => server.listen(0, resolve));
+    const base = `http://localhost:${server.address().port}`;
+    const limited = await fetch(`${base}/listings`);
+    strictEqual(limited.status, 429);
+    strictEqual(limited.headers.get("retry-after"), "42");
+    const body = await limited.json();
+    strictEqual(body.error, "rate_limited");
+    strictEqual(body.retryAfterSec, 42);
+  });
+
+  it("every 429 under burst carries a matching Retry-After header (TOG-6033)", async () => {
+    // Burst pin: once the cap is hit, each subsequent refusal — not just
+    // the first — must carry a present, positive-integer `Retry-After`
+    // header that matches its own `retryAfterSec` body field.
+    const base = await start(
+      { WAYSELECT_PREVIEW: "1" },
+      { rateLimit: { windowMs: 60_000, max: 1 } },
+    );
+    strictEqual((await fetch(`${base}/listings`)).status, 200);
+    for (let i = 0; i < 5; i += 1) {
+      const limited = await fetch(`${base}/listings`);
+      strictEqual(limited.status, 429);
+      const header = limited.headers.get("retry-after");
+      ok(header !== null, `burst refusal ${i} must carry a Retry-After header`);
+      const retryAfter = Number(header);
+      ok(
+        Number.isInteger(retryAfter) && retryAfter >= 1,
+        `burst Retry-After must be a positive integer, got ${header}`,
+      );
+      strictEqual(
+        (await limited.json()).retryAfterSec,
+        retryAfter,
+        `burst refusal ${i} header and body must agree`,
+      );
+    }
+  });
 });
