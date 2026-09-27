@@ -1,0 +1,218 @@
+#!/usr/bin/env node
+
+// Docs-doctest runner for Wayselect (TOG-5743).
+//
+// Extracts every copy-pasteable `select`/`explain` shell example from
+// docs/cli.md, runs each against the checked-in fixtures, and compares the
+// normalized output against the doc's own expected-output blocks. A deliberate
+// docs typo (or a flag change that nobody documented) exits 1 — fail loud.
+//
+// Mirrors the assertions in test/cli-docs-examples.test.js (TOG-5725) so the
+// CI job and the unit suite pin the same contract; parsing lives in
+// support/cliDocsExamples.js, shared by both.
+//
+// Refresh-proofing: the doc pins literal `--evaluation-time` values, which
+// would read as stale once fixtures refresh past the 24h catalog window, so
+// the timestamp is substituted with the suite clock (snapshot + 2h, mirroring
+// support/helpers.js) before execution. Absolute ISO timestamps are
+// normalized on both sides before comparison.
+//
+// Zero dependencies: Node standard library only. No network, no credentials.
+//
+// Usage:
+//   node bin/check-cli-docs                  # repo doc vs fixtures, exit 0/1
+//   node bin/check-cli-docs --doc <path>     # scratch/mutated copy (negative control)
+//   npm run doctest:cli                      # same gate via package script
+//
+// Exit codes: 0 when every example passes, 1 on any example drift/failure,
+// 2 on usage errors.
+
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import {
+  exampleCommands,
+  fencedBlocks,
+  normalizeTimestamps,
+  substituteClock,
+} from "../support/cliDocsExamples.js";
+import { evaluationNow, readFixture } from "../support/helpers.js";
+
+const execFileAsync = promisify(execFile);
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const ISSUE = "TOG-5743";
+const DEFAULT_DOC = join(REPO_ROOT, "docs", "cli.md");
+const MIN_SH_BLOCKS = 5;
+const MIN_EXECUTED = 5;
+
+function parseArguments(argv) {
+  const values = { doc: DEFAULT_DOC };
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === "--doc") {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("usage error: Missing value for --doc");
+      }
+      values.doc = resolve(value);
+      index += 1;
+    } else if (token === "--help") {
+      process.stdout.write(
+        "check-cli-docs — run docs/cli.md shell examples as doctests\n\n" +
+          "Usage: node bin/check-cli-docs [--doc <path>] [--help]\n" +
+          "Exit 0 when every example passes, 1 on drift, 2 on usage errors.\n",
+      );
+      process.exit(0);
+    } else {
+      throw new Error(`usage error: Unknown argument: ${token}`);
+    }
+  }
+  return values;
+}
+
+async function runCli(argv) {
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      ["bin/wayselect", ...argv],
+      { cwd: REPO_ROOT },
+    );
+    return { code: 0, stdout, stderr };
+  } catch (error) {
+    return {
+      code: error.code,
+      stdout: String(error.stdout ?? ""),
+      stderr: String(error.stderr ?? ""),
+    };
+  }
+}
+
+function fail(label, detail) {
+  process.stderr.write(`FAIL ${label} — ${detail}\n`);
+}
+
+async function main() {
+  let options;
+  try {
+    options = parseArguments(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 2;
+    return;
+  }
+
+  let markdown;
+  try {
+    markdown = await readFile(options.doc, "utf8");
+  } catch (error) {
+    fail("read-doc", `cannot read ${options.doc}: ${error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const blocks = fencedBlocks(markdown);
+  const shBlocks = blocks.filter((block) => block.lang === "sh");
+  if (shBlocks.length < MIN_SH_BLOCKS) {
+    fail("sanity-sh-blocks", `expected at least ${MIN_SH_BLOCKS} sh examples, found ${shBlocks.length}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Guard the substitution contract before executing anything: the examples
+  // assume the checked-in request shape (chat + toolUse + northstar/orbit).
+  const request = await readFixture("request.synthetic.json");
+  if (
+    request.selection.operation !== "chat" ||
+    JSON.stringify(request.selection.requiredCapabilities) !== JSON.stringify(["toolUse"]) ||
+    JSON.stringify(request.selection.providerAllowlist) !== JSON.stringify(["northstar", "orbit"])
+  ) {
+    fail("sanity-fixture-shape", "request.synthetic.json no longer matches the docs examples' assumed shape");
+    process.exitCode = 1;
+    return;
+  }
+
+  const evaluationTime = evaluationNow().toISOString();
+  let executed = 0;
+  let failures = 0;
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (block.lang !== "sh") {
+      continue;
+    }
+    const next = blocks[index + 1];
+    const expectedText =
+      next && next.lang === "text"
+        ? next.body
+            .split("\n")
+            .filter((line) => !line.startsWith("exit="))
+            .join("\n")
+            .trim()
+        : null;
+
+    for (const argv of exampleCommands(block.body)) {
+      const args = substituteClock(argv, evaluationTime);
+      const expectedCode = args.includes("vision") ? 3 : 0;
+      const { code, stdout, stderr } = await runCli(args);
+      const label = `wayselect ${args.join(" ")}`;
+      executed += 1;
+
+      if (code !== expectedCode) {
+        fail(label, `exited ${code}, expected ${expectedCode}`);
+        failures += 1;
+        continue;
+      }
+      if (expectedCode === 0 && stderr !== "") {
+        fail(label, `wrote to stderr: ${stderr.slice(0, 200)}`);
+        failures += 1;
+        continue;
+      }
+      if (args.includes("--json")) {
+        let payload;
+        try {
+          payload = JSON.parse(stdout);
+        } catch (error) {
+          fail(label, `invalid --json output: ${error.message}`);
+          failures += 1;
+          continue;
+        }
+        if (payload.status !== "selected" || payload.selectedRouteId !== "northstar/alpha-chat") {
+          fail(label, `--json verdict drifted: ${JSON.stringify({ status: payload.status, selectedRouteId: payload.selectedRouteId })}`);
+          failures += 1;
+        }
+        continue;
+      }
+      if (expectedText !== null) {
+        const actual = normalizeTimestamps(stdout.trim());
+        const expected = normalizeTimestamps(expectedText);
+        if (actual !== expected) {
+          fail(label, "output drifted from docs/cli.md expected block");
+          failures += 1;
+        }
+      } else if (args[0] === "select" && !/Selected route: northstar\/alpha-chat/.test(stdout)) {
+        fail(label, "missing pinned select verdict in output");
+        failures += 1;
+      } else if (args[0] === "explain" && !/verdict: selected northstar\/alpha-chat/.test(stdout)) {
+        fail(label, "missing pinned explain verdict in output");
+        failures += 1;
+      }
+    }
+  }
+
+  if (executed < MIN_EXECUTED) {
+    fail("sanity-executed", `expected at least ${MIN_EXECUTED} examples to execute, ran ${executed}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (failures > 0) {
+    process.stderr.write(`${failures} doctest failure(s) in ${options.doc} (${ISSUE})\n`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(`PASS cli-doctests — ${executed} examples from ${options.doc} match fixture output\n`);
+}
+
+await main();

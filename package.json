@@ -40,6 +40,7 @@
     "refresh:search-index": "node bin/wayselect-search-index-refresh",
     "check:search-index": "node bin/wayselect-search-index-refresh --check --max-catalog-age-hours 24",
     "probe:models-dev": "node bin/check-models-dev-freshness",
+    "doctest:cli": "node bin/check-cli-docs",
     "pre-push": "node bin/pre-push-check"
   },
   "dependencies": {
