@@ -1,9 +1,17 @@
 // Listing-detail page renderer for the Wayselect web slice (TOG-4882) with
-// per-model eligibility display (TOG-5221).
+// per-model eligibility display (TOG-5221) and a shell-first loading state
+// (TOG-5499).
 //
 // Pure functions: listing in, HTML string out. All dynamic values are
 // HTML-escaped. The purchase CTA is a stub — a disabled form that posts to a
 // route which refuses with 403. No backend writes anywhere on this page.
+//
+// Loading model: `renderListingDetailShell` returns the first paint — a
+// skeleton behind `aria-busy` plus a `<noscript>` full render and an inline
+// script that fetches the `application/json` fragment (`listingDetailFragment`)
+// and swaps it in. Slow networks show skeleton then content; failed fetches
+// show the `role="alert"` error panel with retry. No-JS clients, bots, and the
+// acceptance probes read the `<noscript>` full render.
 //
 // Eligibility is a read-only display over existing capability-check output
 // (web/eligibility.js consuming src/eligibility.js): granted / blocked /
@@ -74,6 +82,15 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 .cta button { font-size: 1rem; padding: 0.6rem 1.2rem; cursor: not-allowed; }
 .cta p { font-size: 0.9rem; margin-bottom: 0; }
 .back { display: inline-block; margin-top: 2rem; }
+.skeleton { border-radius: 0.375rem; background: linear-gradient(90deg, rgba(128, 128, 128, 0.28) 25%, rgba(128, 128, 128, 0.12) 50%, rgba(128, 128, 128, 0.28) 75%); background-size: 200% 100%; animation: skeleton-pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+@keyframes skeleton-pulse { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.skeleton-title { height: 2rem; width: 60%; margin: 0.75rem 0 1rem; }
+.skeleton-line { height: 1rem; margin: 0.5rem 0; }
+.skeleton-line.short { width: 45%; }
+.skeleton-block { height: 5.5rem; margin: 0.75rem 0; }
+.skeleton-cta { height: 3.5rem; margin-top: 1.5rem; }
+.loading-note { font-size: 0.9rem; }
 </style>
 </head>
 <body>
@@ -136,16 +153,20 @@ function costCell(cost, key) {
   return typeof value === "number" && Number.isFinite(value) ? `$${escapeHtml(value)}` : "unknown";
 }
 
-export function renderListingDetail(listing, evaluationOverride) {
+function listingDetailTitle(listing) {
   const { entry } = listing;
-  const title = `${entry.name} (${listing.providerId}/${listing.modelId})`;
+  return `${entry.name} (${listing.providerId}/${listing.modelId})`;
+}
+
+function listingDetailBody(listing, evaluationOverride) {
+  const { entry } = listing;
   const inputModalities = Array.isArray(entry.modalities?.input) ? entry.modalities.input : [];
   const outputModalities = Array.isArray(entry.modalities?.output) ? entry.modalities.output : [];
   const modalities = [...inputModalities, ...outputModalities].filter(
     (value, index, all) => all.indexOf(value) === index,
   );
 
-  const body = `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
+  return `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
 <h1>${escapeHtml(entry.name)}</h1>
 <p>Listing <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code> from ${escapeHtml(listing.providerName)}.</p>
 ${eligibilitySection(listing, evaluationOverride)}
@@ -175,8 +196,98 @@ ${capabilityRow("Structured output", entry.structured_output)}
 <p>No backend writes: the purchase endpoint refuses with <code>403 preview_only</code> while the flag gates this page.</p>
 </div>
 <a class="back" href="/listings">Back to listings</a>`;
+}
+
+// First paint (TOG-5499): the skeleton shell. `aria-busy` marks the loading
+// region while the inline script fetches the fragment; the `<noscript>`
+// branch carries the same full render so no-JS clients, bots, and the
+// plain-fetch acceptance probes see complete content. The error panel is
+// hidden until a fetch fails, and Retry re-runs the same fragment request.
+export function renderListingDetailShell(listing, evaluationOverride) {
+  const { entry } = listing;
+  const title = listingDetailTitle(listing);
+  const routePath = `/listings/${encodeURIComponent(listing.providerId)}/${encodeURIComponent(listing.modelId)}`;
+  const noscriptBody = listingDetailBody(listing, evaluationOverride);
+  const body = `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
+<div id="listing-detail" aria-busy="true" aria-live="polite">
+<p class="loading-note">Loading listing details…</p>
+<div class="skeleton skeleton-title" aria-hidden="true"></div>
+<div class="skeleton skeleton-line" aria-hidden="true"></div>
+<div class="skeleton skeleton-line short" aria-hidden="true"></div>
+<div class="skeleton skeleton-block" aria-hidden="true"></div>
+<div class="skeleton skeleton-block" aria-hidden="true"></div>
+<div class="skeleton skeleton-cta" aria-hidden="true"></div>
+<div id="listing-detail-error" role="alert" hidden>
+<p>Couldn&rsquo;t load listing details. Check your connection and retry.</p>
+<button type="button" id="listing-detail-retry">Retry</button>
+</div>
+</div>
+<noscript>${noscriptBody}</noscript>
+<script>
+(function () {
+  var mount = document.getElementById("listing-detail");
+  var errorPanel = document.getElementById("listing-detail-error");
+  var retryButton = document.getElementById("listing-detail-retry");
+  function load() {
+    if (errorPanel) {
+      errorPanel.hidden = true;
+    }
+    fetch(${JSON.stringify(routePath)}, { headers: { accept: "application/json" } })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error("listing fragment " + res.status);
+        }
+        return res.json();
+      })
+      .then(function (payload) {
+        if (!payload || typeof payload.html !== "string") {
+          throw new Error("listing fragment malformed");
+        }
+        mount.setAttribute("aria-busy", "false");
+        var content = document.createElement("template");
+        content.innerHTML = payload.html;
+        mount.replaceChildren(content.content.cloneNode(true));
+      })
+      .catch(function () {
+        mount.setAttribute("aria-busy", "false");
+        if (errorPanel) {
+          errorPanel.hidden = false;
+        }
+      });
+  }
+  if (retryButton) {
+    retryButton.addEventListener("click", load);
+  }
+  load();
+})();
+</script>
+<noscript><a class="back" href="/listings">Back to listings</a></noscript>`;
 
   return layout({ title, body });
+}
+
+// JSON fragment payload behind the shell: the full detail body as `html`,
+// rendered from the same builder as the `<noscript>` branch so skeleton,
+// noscript, and async content can never drift apart. Same route path —
+export function listingDetailFragment(listing, evaluationOverride) {
+  return { html: listingDetailBody(listing, evaluationOverride) };
+}
+
+export function renderListingDetail(listing, evaluationOverride) {
+  return layout({
+    title: listingDetailTitle(listing),
+    body: listingDetailBody(listing, evaluationOverride),
+  });
+}
+
+export function renderListingDetailError(providerId, modelId) {
+  const body = `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
+<div role="alert">
+<h1>Couldn&rsquo;t load listing details</h1>
+<p>No stub listing data could be loaded for <code>${escapeHtml(providerId)}/${escapeHtml(modelId)}</code>. Please retry.</p>
+</div>
+<a class="back" href="/listings">Back to listings</a>`;
+  return layout({ title: "Listing unavailable", body });
 }
 
 export function renderNotFound(providerId, modelId) {
