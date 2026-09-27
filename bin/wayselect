@@ -7,6 +7,7 @@ import {
   FakeTransport,
   IngestError,
   applySupportConfiguration,
+  compareRouteIds,
   hashRawText,
   ingestModelsDev,
   normalizeCatalog,
@@ -587,7 +588,7 @@ function rankCandidates(evaluations) {
       if (leftRate === null && rightRate !== null) {
         return 1;
       }
-      return left.routeId.localeCompare(right.routeId);
+      return compareRouteIds(left.routeId, right.routeId);
     });
   const excluded = evaluations.filter((candidate) => !candidate.eligible);
   return [...eligible, ...excluded];
