@@ -204,7 +204,7 @@ ${capabilityRow("Structured output", entry.structured_output)}
 </table>
 <p><small>Synthetic list-price estimates only; not actual cost or savings. Modalities covered: ${escapeHtml(modalities.join(", "))}.</small></p>
 <div class="cta">
-<form method="post" action="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}/purchase">
+<form method="post" action="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}/purchase">
 <button type="submit" disabled aria-disabled="true" title="Disabled in preview">Purchase (stub — disabled in preview)</button>
 </form>
 <p>No backend writes: the purchase endpoint refuses with <code>403 preview_only</code> while the flag gates this page.</p>
@@ -324,6 +324,18 @@ export function renderNotFound(providerId, modelId) {
   return layout({ title: "Not found", body });
 }
 
+// TOG-5714: HTML 404 page for unknown (non-listing) paths, served only when
+// the client explicitly negotiates `Accept: text/html` (e.g. a browser
+// address-bar navigation). API-shaped callers get the JSON `{error:
+// "not_found"}` payload instead — see the 404 content-type contract in
+// web/server.js.
+export function renderRouteNotFound(path) {
+  const body = `<h1>Page not found</h1>
+<p>No preview page matches <code>${escapeHtml(path)}</code>.</p>
+<a class="back" href="/listings">Back to listings</a>`;
+  return layout({ title: "Not found", body });
+}
+
 export function renderPreviewDisabled() {
   const body = `<h1>Preview unavailable</h1>
 <p>This page is behind the <code>WAYSELECT_PREVIEW</code> flag, which is currently off.</p>`;
@@ -384,7 +396,10 @@ export function renderListingIndex(listings, evaluationsOverride, filters) {
             const described = describeEligibility(
               evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
             );
-            return `<li><a href="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+            // S2 (TOG-5475, preserved through the main rebase): path
+            // segments are URL-encoded inside the HTML escape so ids with
+            // reserved characters keep working hrefs without XSS.
+            return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
           })
           .join("\n")}\n</ul>\n</section>`;
   const body = `<div class="preview-banner" role="note">Preview build: stub data only.</div>

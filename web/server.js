@@ -10,6 +10,17 @@
 //                                            unknown listings, 403 for known
 //                                            listings (no backend writes)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
+//
+// 404 content-type contract (TOG-5714):
+//   - Browser routes (index, detail incl. listing misses, flag-off pages):
+//     HTML by default; JSON only when the client explicitly negotiates
+//     `Accept: application/json` (the shell's fragment fetch).
+//   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
+//     always JSON.
+//   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
+//     default; HTML only when the client explicitly negotiates
+//     `Accept: text/html` without `application/json` (a browser address-bar
+//     navigation). `*/*` (fetch/curl defaults) gets JSON.
 
 import { createServer } from "node:http";
 import { isPreviewEnabled } from "./preview.js";
@@ -23,6 +34,7 @@ import {
   renderListingIndex,
   renderNotFound,
   renderPreviewDisabled,
+  renderRouteNotFound,
 } from "./listing-detail.js";
 import { applyListingsFilters, parseListingsQuery } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
@@ -30,13 +42,18 @@ import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
 const LISTING_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/?$/;
 const PURCHASE_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/purchase\/?$/;
 
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+};
+
 function sendHtml(res, status, html) {
-  res.writeHead(status, { "content-type": "text/html; charset=utf-8" });
+  res.writeHead(status, { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS });
   res.end(html);
 }
 
 function sendJson(res, status, payload) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
   res.end(JSON.stringify(payload));
 }
 
@@ -142,7 +159,11 @@ export function createApp(env = process.env, options = {}) {
     }
 
     const listingMatch = pathname.match(LISTING_ROUTE);
-    if (listingMatch && req.method === "GET") {
+    if (listingMatch) {
+      if (req.method !== "GET") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
       if (!isPreviewEnabled(env)) {
         sendHtml(res, 404, renderPreviewDisabled());
         return;
@@ -199,6 +220,15 @@ export function createApp(env = process.env, options = {}) {
       return;
     }
 
+    // TOG-5714 fallback (see the 404 content-type contract above):
+    // unknown paths are JSON by default; HTML only for explicit browser
+    // navigation (`Accept: text/html` without `application/json`). `*/*`
+    // (fetch/curl defaults) and missing Accept get JSON.
+    const accept = String(req.headers?.accept ?? "");
+    if (!accept.includes("application/json") && accept.includes("text/html")) {
+      sendHtml(res, 404, renderRouteNotFound(pathname));
+      return;
+    }
     sendJson(res, 404, { error: "not_found" });
   });
 }
@@ -206,13 +236,29 @@ export function createApp(env = process.env, options = {}) {
 const isMainModule =
   process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 
+export function resolvePort(raw = process.env.PORT ?? "3000") {
+  const port = Number.parseInt(String(raw).trim(), 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new RangeError(`Invalid PORT ${JSON.stringify(String(raw))}: expected an integer 1-65535`);
+  }
+  return port;
+}
+
 if (isMainModule) {
-  const port = Number.parseInt(process.env.PORT ?? "3000", 10);
+  let port;
+  try {
+    port = resolvePort();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(err.message);
+    process.exit(1);
+  }
+  const host = process.env.HOST ?? "127.0.0.1";
   const server = createApp();
-  server.listen(port, () => {
+  server.listen(port, host, () => {
     // eslint-disable-next-line no-console
     console.log(
-      `wayselect preview server on http://localhost:${port} (preview=${isPreviewEnabled() ? "on" : "off"})`,
+      `wayselect preview server on http://${host}:${port} (preview=${isPreviewEnabled() ? "on" : "off"})`,
     );
   });
 }
