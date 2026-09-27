@@ -141,6 +141,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   15 min after intake (`SELLER_INTENT_TTL_MS`, injectable `options.now`);
   expired confirms 404 as missing; intake sweeps stale entries
   (`web/server.js`, `test/seller-intent-ttl.test.js`).
+- #152 (2026-09-27) TOG-7272: seller-submission echo stored-XSS audit pin — hostile
+  strings through every seller-controlled echo path (confirm, receipt
+  incl. timestamp, detail, shell, fragment, index, error/missing-intent
+  pages, hostile-id form actions and shell fetch) render escaped
+  (`test/seller-xss-audit.test.js`, test-only, no source change: every
+  path already escapes via `escape-html` + `encodeURIComponent`, and
+  the accepted-but-silent `description`/`etag` fields have no echo path).
 - #151 (2026-09-27) TOG-7286: concurrent slow-fragment load budget —
   12 parallel listing-detail JSON-fragment hits with
   `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` set all return 200 with intact
