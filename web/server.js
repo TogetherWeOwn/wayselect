@@ -23,7 +23,7 @@
 
 import { createServer } from "node:http";
 import { isPreviewEnabled } from "./preview.js";
-import { createRateLimiter } from "./rate-limit.js";
+import { createRateLimiter, resolveClientIp } from "./rate-limit.js";
 import {
   listingDetailFragment,
   renderInvalidFilter,
@@ -92,12 +92,24 @@ function routeBucket(method, pathname) {
 
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
+  // XFF trust boundary (TOG-6029): unset by default (direct-remote only).
+  // Opt-in for a single trusted proxy hop via `trustedProxyIp` option or
+  // the `WAYSELECT_TRUSTED_PROXY_IP` env var — exactly one peer IP. Empty
+  // string env counts as unset. Documented in rate-limit.js; no prod use.
+  const rawTrusted = options.trustedProxyIp ?? env.WAYSELECT_TRUSTED_PROXY_IP ?? null;
+  const trustedProxyIp = rawTrusted === null || String(rawTrusted).trim() === "" ? null : String(rawTrusted).trim();
   return createServer((req, res) => {
     // Per-IP/per-route cap (TOG-5563). Bucket by route shape so one hot
     // listing cannot starve — or be starved by — unrelated routes.
     // Unparseable targets count against the fallback bucket so garbage
-    // requests cannot bypass the cap.
-    const ip = req.socket?.remoteAddress ?? "unknown";
+    // requests cannot bypass the cap. Client identity goes through
+    // resolveClientIp so spoofed XFF from an untrusted peer never evades
+    // the bucket (TOG-6029).
+    const ip = resolveClientIp(
+      req.socket?.remoteAddress ?? "unknown",
+      req.headers?.["x-forwarded-for"],
+      trustedProxyIp,
+    );
     let pathname = null;
     try {
       pathname = new URL(req.url ?? "/", "http://localhost").pathname;

@@ -3,12 +3,20 @@
 // Zero dependencies: fixed-window counters keyed by client IP + route bucket.
 // Over-limit requests are refused with 429 + Retry-After (see web/server.js).
 //
-// NOTE: the client key is the direct TCP peer (req.socket.remoteAddress).
-// X-Forwarded-For is deliberately ignored — it is client-controlled and would
-// let a caller rotate identities. Re-evaluate only if the preview ever sits
-// behind a reverse proxy or a public URL: then key on X-Forwarded-For solely
-// from a configured allowlist of trusted proxy peer IPs (never uncondition-
-// ally), and treat a missing/untrusted peer as the direct TCP peer.
+// NOTE: the client key is the direct TCP peer (req.socket.remoteAddress)
+// by default. X-Forwarded-For is client-controlled and MUST NOT be trusted
+// unless the direct peer is a proxy the operator explicitly configured (see
+// resolveClientIp below). Never trust XFF unconditionally: behind no proxy
+// it lets a caller rotate identities at will.
+//
+// TRUSTED-PROXY OPT-IN (TOG-6029): when the preview sits behind a single
+// reverse proxy, set exactly one trusted proxy peer IP
+// (`WAYSELECT_TRUSTED_PROXY_IP`, or `trustedProxyIp` in createApp options).
+// Only then — and only when the direct TCP peer normalizes to that IP — is
+// the leftmost X-Forwarded-For entry used as the client key. A missing or
+// unparseable XFF falls back to the direct peer; an untrusted peer always
+// keys on the direct peer, so spoofed XFF never evades the bucket.
+// No production activation: the default is unset (direct-remote only).
 //
 // Accepted risk (TOG-5732 audit): fixed-window counters admit a boundary
 // burst of up to 2x max across a window edge (max at the end of window N
@@ -55,6 +63,47 @@ export function normalizeClientIp(raw) {
     }
   }
   return ip;
+}
+
+// Explicit trust boundary for X-Forwarded-For (TOG-6029).
+//
+// Default (no trusted proxy configured): returns the direct TCP peer —
+// XFF is ignored entirely, so spoofed headers cannot rotate identities.
+//
+// Opt-in (exactly one trusted proxy hop): when `trustedProxyIp` is set and
+// the direct peer normalizes to it, the leftmost XFF entry is the client.
+// Single-hop only: entries beyond the first are proxy-chain artifacts and
+// are never consulted. Missing/empty/unparseable XFF falls back to the
+// direct peer. A direct peer that is NOT the trusted proxy never consults
+// XFF, whatever the header claims.
+//
+// Both inputs are normalized with normalizeClientIp, so `127.0.0.1` matches
+// a `::ffff:127.0.0.1` peer or header entry.
+export function resolveClientIp(remoteAddress, xForwardedFor, trustedProxyIp = null) {
+  const peer = normalizeClientIp(remoteAddress);
+  const trusted = trustedProxyIp === null || trustedProxyIp === undefined
+    ? null
+    : normalizeClientIp(trustedProxyIp);
+  if (trusted === null || trusted === "unknown" || peer !== trusted) {
+    return peer;
+  }
+  const first = String(xForwardedFor ?? "").split(",")[0].trim();
+  if (first === "") {
+    return peer;
+  }
+  // Fail closed on unparseable input: the token must consist solely of
+  // IP characters (digits, dots, hex, colons, `%zone`) and be an IPv4
+  // dotted-quad or a colon-bearing (IPv6) value. Anything else — garbage,
+  // hostnames, whitespace/control-character injection attempts — falls
+  // back to the direct peer so it cannot mint arbitrary bucket keys.
+  const looksLikeIp =
+    /^[0-9a-fA-F.:%]+$/.test(first) &&
+    (/^\d{1,3}(\.\d{1,3}){3}$/.test(first) || first.includes(":"));
+  if (!looksLikeIp) {
+    return peer;
+  }
+  const client = normalizeClientIp(first);
+  return client === "unknown" ? peer : client;
 }
 
 export function createRateLimiter({ windowMs, max } = {}) {

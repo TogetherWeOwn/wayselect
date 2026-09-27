@@ -4,7 +4,12 @@
 
 import { strictEqual, ok } from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import { createRateLimiter, DEFAULT_RATE_LIMIT, normalizeClientIp } from "../web/rate-limit.js";
+import {
+  createRateLimiter,
+  DEFAULT_RATE_LIMIT,
+  normalizeClientIp,
+  resolveClientIp,
+} from "../web/rate-limit.js";
 import { createApp } from "../web/server.js";
 
 describe("rate limiter", () => {
@@ -76,6 +81,49 @@ describe("rate limiter", () => {
   });
 });
 
+describe("XFF trust boundary (TOG-6029)", () => {
+  it("ignores XFF by default: untrusted peer keys on the direct peer", () => {
+    strictEqual(resolveClientIp("192.0.2.10", "9.9.9.9"), "192.0.2.10");
+    strictEqual(resolveClientIp("192.0.2.10", "9.9.9.9", null), "192.0.2.10");
+    strictEqual(resolveClientIp("192.0.2.10", "9.9.9.9", ""), "192.0.2.10");
+  });
+
+  it("ignores XFF when the peer is not the trusted proxy (spoof-proof)", () => {
+    strictEqual(resolveClientIp("192.0.2.10", "9.9.9.9", "10.0.0.1"), "192.0.2.10");
+    strictEqual(resolveClientIp("192.0.2.99", "9.9.9.9", "192.0.2.10"), "192.0.2.99");
+  });
+
+  it("uses the leftmost XFF entry only when the peer is the trusted proxy", () => {
+    strictEqual(resolveClientIp("10.0.0.1", "9.9.9.9, 10.0.0.2", "10.0.0.1"), "9.9.9.9");
+    // Single-hop only: later chain entries never become the client.
+    strictEqual(resolveClientIp("10.0.0.1", "9.9.9.9, 8.8.8.8", "10.0.0.1"), "9.9.9.9");
+  });
+
+  it("falls back to the peer on missing, empty, or garbage XFF", () => {
+    strictEqual(resolveClientIp("10.0.0.1", undefined, "10.0.0.1"), "10.0.0.1");
+    strictEqual(resolveClientIp("10.0.0.1", "", "10.0.0.1"), "10.0.0.1");
+    strictEqual(resolveClientIp("10.0.0.1", "   ", "10.0.0.1"), "10.0.0.1");
+    // Fail closed: garbage/hostname/injection first-entries mint no bucket.
+    strictEqual(resolveClientIp("10.0.0.1", "garbage", "10.0.0.1"), "10.0.0.1");
+    strictEqual(resolveClientIp("10.0.0.1", "evil.example.com", "10.0.0.1"), "10.0.0.1");
+    strictEqual(resolveClientIp("10.0.0.1", "9.9.9.9\nX-Injected: 1", "10.0.0.1"), "10.0.0.1");
+  });
+
+  it("normalizes both peer and trusted proxy before comparing", () => {
+    // IPv4-mapped peer matches a plain-IPv4 trusted proxy entry.
+    strictEqual(resolveClientIp("::ffff:10.0.0.1", "9.9.9.9", "10.0.0.1"), "9.9.9.9");
+    // Case/zone-insensitive comparison on the trusted entry.
+    strictEqual(resolveClientIp("FE80::1", "9.9.9.9", "fe80::1"), "9.9.9.9");
+    // An "unknown" trusted entry never matches: fail closed to the peer.
+    strictEqual(resolveClientIp("10.0.0.5", "9.9.9.9", ""), "10.0.0.5");
+    // IPv6 client identities survive the trusted path intact.
+    strictEqual(
+      resolveClientIp("10.0.0.1", "2001:db8::7", "10.0.0.1"),
+      "2001:db8::7",
+    );
+  });
+});
+
 describe("preview server rate limiting", () => {
   const servers = [];
   async function start(env, options) {
@@ -126,6 +174,46 @@ describe("preview server rate limiting", () => {
     });
     strictEqual(spoofed.status, 429);
     strictEqual((await spoofed.json()).error, "rate_limited");
+  });
+
+  it("honors XFF identities only behind the configured trusted proxy (TOG-6029)", async () => {
+    // The test client connects from localhost, so trusting 127.0.0.1 puts
+    // the suite behind the (simulated) single proxy hop: distinct XFF
+    // clients get distinct budgets instead of sharing the peer bucket.
+    const base = await start(
+      { WAYSELECT_PREVIEW: "1" },
+      { rateLimit: { windowMs: 60_000, max: 1 }, trustedProxyIp: "127.0.0.1" },
+    );
+    strictEqual(
+      (await fetch(`${base}/listings`, { headers: { "x-forwarded-for": "9.9.9.9" } })).status,
+      200,
+    );
+    strictEqual(
+      (await fetch(`${base}/listings`, { headers: { "x-forwarded-for": "9.9.9.9" } })).status,
+      429,
+    );
+    // A different client behind the same trusted proxy keeps its own budget.
+    strictEqual(
+      (await fetch(`${base}/listings`, { headers: { "x-forwarded-for": "10.10.10.10" } }))
+        .status,
+      200,
+    );
+  });
+
+  it("reads the trusted proxy from WAYSELECT_TRUSTED_PROXY_IP env (TOG-6029)", async () => {
+    const base = await start(
+      { WAYSELECT_PREVIEW: "1", WAYSELECT_TRUSTED_PROXY_IP: "127.0.0.1" },
+      { rateLimit: { windowMs: 60_000, max: 1 } },
+    );
+    strictEqual(
+      (await fetch(`${base}/listings`, { headers: { "x-forwarded-for": "9.9.9.9" } })).status,
+      200,
+    );
+    strictEqual(
+      (await fetch(`${base}/listings`, { headers: { "x-forwarded-for": "10.10.10.10" } }))
+        .status,
+      200,
+    );
   });
 
   it("429 carries the security headers and an exact retry body", async () => {
