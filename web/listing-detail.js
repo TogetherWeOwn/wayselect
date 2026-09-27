@@ -432,7 +432,13 @@ function filterForm(filters) {
   const q = typeof active.q === "string" ? active.q : "";
   const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
   const modalities = Array.isArray(active.modalities) ? active.modalities : [];
-  return `<form method="get" action="/listings" role="search" aria-label="Filter listings">
+  // TOG-6392: the form lives in a labelled section with a visible h2 so
+  // the index keeps an unbroken h1 -> h2 hierarchy like the detail page
+  // (h1 + h2 Eligibility/Capabilities/List-price). The section name mirrors
+  // the form's accessible name so SR users hear one consistent label.
+  return `<section aria-labelledby="filter-heading">
+<h2 id="filter-heading">Filter listings</h2>
+<form method="get" action="/listings" role="search" aria-label="Filter listings">
 <label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"></label>
 <fieldset><legend>Capabilities</legend>
 ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
@@ -445,7 +451,8 @@ ${sortOptions(active.sort)}
 </select></label>
 <button type="submit">Apply filters</button>
 <a href="/listings">Clear filters</a>
-</form>`;
+</form>
+</section>`;
 }
 
 function invalidFilterLine({ kind, value, valid }) {
@@ -525,18 +532,23 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
   const windowed = total !== listings.length || offset > 0;
   const countCopy = total === 1 ? "1 listing" : `${total} listings`;
   let results;
+  // TOG-6392: every results branch carries a visible h2 Results heading
+  // (labelledby, not aria-label) so the index keeps an unbroken h1 -> h2
+  // hierarchy on populated, empty, and past-the-end renders alike. The
+  // accessible name stays "Results" so existing SR announcements match.
+  const resultsOpen = `<section aria-labelledby="results-heading">\n<h2 id="results-heading">Results</h2>`;
   if (listings.length === 0) {
     // Offset past the end is a valid empty page, not a filter miss: say so
     // and link back to the first page instead of blaming the filters.
     results =
       total > 0
-        ? `<section aria-label="Results">\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
-        : `<section aria-label="Results">\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
+        ? `${resultsOpen}\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
+        : `${resultsOpen}\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
   } else {
     const status =
       `${countCopy} found.` + (windowed ? ` Showing ${offset + 1}-${offset + listings.length}.` : "");
     results =
-      `<section aria-label="Results">\n<p role="status" aria-live="polite">${escapeHtml(status)}</p>\n<ul>\n${listings
+      `${resultsOpen}\n<p role="status" aria-live="polite">${escapeHtml(status)}</p>\n<ul>\n${listings
         .map((listing) => {
           const described = describeEligibility(
             evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
