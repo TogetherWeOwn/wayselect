@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- #TBD (2026-09-27) TOG-5744: visible-focus + reduced-motion polish —
+- #137 (2026-09-27) TOG-5744: visible-focus + reduced-motion polish —
   skip-link transition disabled under `prefers-reduced-motion`, seller
   pages to focus-ring parity (`a`/`button`/`input` + forced-colors),
   pin test for both (`test/listing-focus-motion.test.js`)
