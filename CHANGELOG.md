@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #108 (2026-09-28) TOG-6372: CLI-vs-modules audit doc (gap G11) —
+  all 21 exports of `searchIndex.js`/`snapshot.js`/`provenanceAudit.js`
+  mapped to CLI callers, plus guard test
+  (`docs/cli-module-coverage.md`, `test/cli-module-coverage.test.js`,
+  `README.md`).
 - #177 (2026-09-28) TOG-6040: preview-server route table — OpenAPI 3.1 doc
   covering every route/method/params/status in `web/server.js` (incl.
   `sort` vocabulary, `x-request-id` triage envelope, case-sensitive
