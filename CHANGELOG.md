@@ -18,6 +18,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #88 (2026-09-27) TOG-6388: root `CONTRIBUTING.md` (setup, ground
+  rules, branch/PR/gates, review-and-merge policy) + README link
+  (`CONTRIBUTING.md`, `README.md`).
 - #87 (2026-09-27) TOG-5740: snapshot retention policy (keep-last-10
   + 30 days) with dry-run-default prune CLI (`docs/snapshot-retention.md`,
   `bin/wayselect-snapshot-prune`, `src/snapshotPrune.js`,
