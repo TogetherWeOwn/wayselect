@@ -84,11 +84,21 @@ export {
   failOnGapsMessage,
   formatCliFailure,
   futureSnapshotMessage,
+  invalidKeepLastMessage,
   invalidMaxCatalogAgeMessage,
+  invalidPruneMaxAgeDaysMessage,
+  invalidPruneNowMessage,
   missingValueMessage,
   staleSnapshotMessage,
   unknownArgumentMessage,
 } from "./cliErrors.js";
+export {
+  DEFAULT_KEEP_LAST,
+  DEFAULT_MAX_AGE_DAYS,
+  SNAPSHOT_FILE_PATTERN,
+  SnapshotPruneError,
+  planSnapshotPrune,
+} from "./snapshotPrune.js";
 export {
   compareProbeProvenance,
   diffProbedRoutes,
