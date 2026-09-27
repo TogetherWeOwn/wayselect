@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
+  Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
+  output, no route redirects, links stay relative, and rotating Host/XFH
+  mints no rate-limit budget (XFH ignored even behind the trusted proxy)
+  (`test/host-header-audit.test.js`, test-only, no source change: the
+  server never reads Host/XFH).
 - TOG-7277: gateway 401 contract pin — missing/wrong bearer key returns
   byte-identical status/body/headers with `WWW-Authenticate: Bearer`
   carried on the 401 result for a future HTTP binding to forward verbatim
