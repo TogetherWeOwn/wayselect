@@ -1,0 +1,223 @@
+#!/usr/bin/env node
+
+// QA acceptance harness for the Wayselect catalog fixture-refresh automation
+// (TOG-4976, refreshed by bin/refresh-catalog-fixtures).
+//
+// What it proves, end to end on scratch copies (live fixtures untouched):
+//   1. refresh at a pinned stamp advances the set and reports changed:true
+//   2. the stamped provenance.snapshotHash equals an independently recomputed
+//      canonical SHA-256 of the stored catalog body
+//   3. re-running at the same stamp is a byte-identical no-op (changed:false)
+//   4. --check passes on the refreshed catalog at the stamp
+//   5. golden demo: bin/wayselect on the refreshed set still selects
+//      northstar/alpha-chat with networkUsed:false
+//   6. the full test suite stays green
+//
+// Usage: node bin/accept-fixture-refresh [--out evidence.json] [--keep-tmp]
+//   (or: npm run accept:fixture-refresh)
+// Zero dependencies: Node standard library only, plus the real src/index.js
+// stableStringify primitive for the independent hash check. No network access.
+// Exit 0 on zero failures, 1 otherwise. The stamp is derived as
+// recorded snapshot + 1h, so the harness stays re-runnable across real
+// refreshes (a literal fixed timestamp would eventually read as a rewind).
+// Demo provenance.fetchedAt is wall-clock, so the golden check asserts
+// semantic fields, never full bytes.
+
+import { execFile } from "node:child_process";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { createHash } from "node:crypto";
+import { stableStringify } from "../src/index.js";
+
+const execFileAsync = promisify(execFile);
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const ISSUE = "TOG-5116";
+const STAMP_OFFSET_MS = 60 * 60 * 1000;
+
+const GOLDEN = {
+  status: "selected",
+  routeId: "northstar/alpha-chat",
+  adapter: "fake",
+  networkUsed: false,
+};
+
+function parseArgs(argv) {
+  const out = { out: null, keepTmp: false };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--out") out.out = resolve(argv[++i]);
+    else if (argv[i] === "--keep-tmp") out.keepTmp = true;
+    else if (argv[i] === "--help" || argv[i] === "-h") {
+      process.stdout.write(
+        "Usage: node bin/accept-fixture-refresh [--out evidence.json] [--keep-tmp]\n",
+      );
+      process.exit(0);
+    } else throw new Error(`Unknown argument: ${argv[i]}`);
+  }
+  return out;
+}
+
+async function gitHead() {
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT });
+  return stdout.trim();
+}
+
+async function runBin(script, args) {
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [join(REPO_ROOT, script), ...args], {
+      cwd: REPO_ROOT,
+    });
+    return { ok: true, stdout };
+  } catch (error) {
+    const detail = error.stderr?.trim() || error.stdout?.trim() || error.message;
+    throw new Error(`${script} ${args.join(" ")} exited ${error.code ?? "?"}: ${detail.slice(0, 300)}`);
+  }
+}
+
+function expectedSnapshotHash(catalogBody) {
+  return `sha256:${createHash("sha256").update(stableStringify(catalogBody), "utf8").digest("hex")}`;
+}
+
+const checks = [];
+async function check(name, fn) {
+  try {
+    const detail = await fn();
+    checks.push({ name, status: "pass", detail });
+    process.stdout.write(`PASS  ${name}\n`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    checks.push({ name, status: "fail", detail });
+    process.stdout.write(`FAIL  ${name}: ${detail}\n`);
+  }
+}
+
+function assertEqual(actual, expected, label) {
+  if (actual !== expected)
+    throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const repoHead = await gitHead();
+  const scratch = mkdtempSync(join(tmpdir(), "fixture-refresh-accept-"));
+  const names = {
+    catalog: join(scratch, "catalog.json"),
+    configuration: join(scratch, "configuration.json"),
+    request: join(scratch, "request.json"),
+  };
+  const live = {
+    catalog: readFileSync(join(REPO_ROOT, "fixtures/catalog.synthetic.json"), "utf8"),
+    configuration: readFileSync(join(REPO_ROOT, "fixtures/configuration.synthetic.json"), "utf8"),
+    request: readFileSync(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
+  };
+  writeFileSync(names.catalog, live.catalog);
+  writeFileSync(names.configuration, live.configuration);
+  writeFileSync(names.request, live.request);
+
+  const recorded = JSON.parse(live.catalog).provenance.snapshotTimestamp;
+  const stamp = new Date(Date.parse(recorded) + STAMP_OFFSET_MS).toISOString();
+  const paths = ["--catalog", names.catalog, "--configuration", names.configuration, "--request", names.request];
+  process.stdout.write(`stamp ${stamp} (recorded ${recorded} + 1h)\n`);
+
+  let stampedHash = null;
+
+  await check("refresh: stamps provenance at the pinned stamp", async () => {
+    const { stdout } = await runBin("bin/refresh-catalog-fixtures", [...paths, "--timestamp", stamp]);
+    const report = JSON.parse(stdout);
+    assertEqual(report.ok, true, "report.ok");
+    assertEqual(report.changed, true, "report.changed");
+    assertEqual(report.provenance.snapshotTimestamp, stamp, "provenance.snapshotTimestamp");
+    stampedHash = report.provenance.snapshotHash;
+    return `changed:true hash=${stampedHash.slice(0, 20)}…`;
+  });
+
+  await check("refresh: stamped hash matches the stored catalog body", async () => {
+    const stamped = JSON.parse(readFileSync(names.catalog, "utf8"));
+    const recomputed = expectedSnapshotHash(stamped.catalog);
+    assertEqual(stamped.provenance.snapshotHash, recomputed, "provenance.snapshotHash");
+    assertEqual(stamped.provenance.snapshotHash, stampedHash, "report hash");
+    return `recorded ${recomputed.slice(0, 20)}… recomputed identically`;
+  });
+
+  await check("refresh: same stamp is a byte-identical no-op", async () => {
+    const before = {
+      catalog: readFileSync(names.catalog, "utf8"),
+      configuration: readFileSync(names.configuration, "utf8"),
+      request: readFileSync(names.request, "utf8"),
+    };
+    const { stdout } = await runBin("bin/refresh-catalog-fixtures", [...paths, "--timestamp", stamp]);
+    assertEqual(JSON.parse(stdout).changed, false, "report.changed");
+    assertEqual(readFileSync(names.catalog, "utf8"), before.catalog, "catalog bytes");
+    assertEqual(readFileSync(names.configuration, "utf8"), before.configuration, "configuration bytes");
+    assertEqual(readFileSync(names.request, "utf8"), before.request, "request bytes");
+    return "changed:false, 3/3 files byte-identical";
+  });
+
+  await check("refresh: --check passes on the refreshed catalog", async () => {
+    const { stdout } = await runBin("bin/refresh-catalog-fixtures", [
+      "--check",
+      "--catalog",
+      names.catalog,
+      "--now",
+      stamp,
+    ]);
+    assertEqual(JSON.parse(stdout).ok, true, "check.ok");
+    return `fresh at stamp (age 0ms)`;
+  });
+
+  await check("golden: refreshed fixtures still select northstar/alpha-chat", async () => {
+    const { stdout } = await runBin("bin/wayselect", [...paths]);
+    const demo = JSON.parse(stdout);
+    assertEqual(demo.mode, "dry-run-only", "mode");
+    assertEqual(demo.selection.status, GOLDEN.status, "selection.status");
+    assertEqual(demo.selection.selected?.routeId, GOLDEN.routeId, "selected.routeId");
+    assertEqual(demo.transport.adapter, GOLDEN.adapter, "transport.adapter");
+    assertEqual(demo.transport.networkUsed, GOLDEN.networkUsed, "transport.networkUsed");
+    assertEqual(demo.provenance.snapshotHash, stampedHash, "demo provenance hash");
+    return `selected ${GOLDEN.routeId}; networkUsed=false; provenance hash matches stamp`;
+  });
+
+  await check("suite: full test suite stays green", async () => {
+    const files = readdirSync(join(REPO_ROOT, "test"))
+      .filter((f) => f.endsWith(".test.js"))
+      .map((f) => join("test", f));
+    try {
+      await execFileAsync(process.execPath, ["--test", ...files], { cwd: REPO_ROOT });
+    } catch (error) {
+      const tail = (error.stdout || "").trim().split("\n").slice(-8).join(" | ");
+      throw new Error(`node --test failed: ${tail.slice(0, 300)}`);
+    }
+    return `${files.length} test files, exit 0`;
+  });
+
+  const failed = checks.filter((c) => c.status === "fail");
+  const evidence = {
+    issue: ISSUE,
+    ranAt: new Date().toISOString(),
+    repoHead,
+    stamp,
+    recordedSnapshot: recorded,
+    provenanceHash: stampedHash,
+    golden: GOLDEN,
+    checks,
+    verdict: failed.length === 0 ? "PASS" : "NEEDS WORK",
+  };
+  if (args.out) {
+    writeFileSync(args.out, JSON.stringify(evidence, null, 2) + "\n");
+    process.stdout.write(`Evidence: ${args.out}\n`);
+  }
+  process.stdout.write(
+    `\nVerdict: QA ${repoHead.slice(0, 7)}: ${evidence.verdict} (${checks.length - failed.length}/${checks.length} checks passed)\n`,
+  );
+
+  if (!args.keepTmp) rmSync(scratch, { recursive: true, force: true });
+  else process.stdout.write(`Scratch kept: ${scratch}\n`);
+  process.exit(failed.length === 0 ? 0 : 1);
+}
+
+main().catch((error) => {
+  process.stderr.write(`ERROR: ${error instanceof Error ? error.stack : error}\n`);
+  process.exit(2);
+});

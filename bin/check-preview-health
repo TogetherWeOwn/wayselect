@@ -1,0 +1,332 @@
+#!/usr/bin/env node
+
+// Scheduled-style health probe for the Wayselect preview (TOG-5500).
+//
+// Probes three surfaces and exits non-zero on any failure (an alert):
+//   1. homepage      — GET /listings (listing index) returns 200 with every
+//                      stub listing and the preview banner; a known detail
+//                      page renders its field contract.
+//   2. search API    — forward contract from docs/wayselect-web-acceptance.md
+//                      §2. Until the search/filter slice lands, these probes
+//                      report SKIP (never fail); once present they assert
+//                      filtering, empty-state, 400-on-unknown-value, and the
+//                      filter form.
+//   3. index freshness — fixtures/catalog.synthetic.json provenance
+//                      snapshotTimestamp checked with checkCatalogFreshness:
+//                      stale or future-dated snapshots FAIL (the stale-index
+//                      alert). Provenance is file-side: the index page does
+//                      not render the timestamp (accepted gap G1).
+//
+// Bonus guard: the purchase stub must still refuse 403 preview_only (the
+// preview never gains backend writes silently).
+//
+// Zero dependencies: Node standard library only. By default the probe starts
+// the real server from web/server.js on an ephemeral port (in-process, no
+// network beyond loopback). Pass --base-url to probe a deployed preview
+// (e.g. Coolify staging) instead.
+//
+// Usage:
+//   node bin/check-preview-health [--base-url <url>] [--catalog <path>]
+//     [--now <ISO>] [--max-catalog-age-hours <n>]
+//   npm run preview:health
+//
+// Exit codes: 0 when every check passes (skips allowed), 1 on any failure
+// (including stale/future index), 2 on usage errors. Budget: under 15 min.
+
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { createApp } from "../web/server.js";
+import { checkCatalogFreshness } from "../src/index.js";
+import {
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const DEFAULT_CATALOG = "fixtures/catalog.synthetic.json";
+const DEFAULT_MAX_AGE_HOURS = 24;
+const startedAt = Date.now();
+const results = [];
+
+function parseArguments(argv) {
+  const values = {
+    baseUrl: null,
+    catalog: DEFAULT_CATALOG,
+    now: null,
+    maxCatalogAgeHours: String(DEFAULT_MAX_AGE_HOURS),
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--help" || flag === "-h") {
+      values.help = true;
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === undefined) {
+      throw new Error(missingValueMessage(flag));
+    }
+    if (flag === "--base-url") {
+      values.baseUrl = value;
+    } else if (flag === "--catalog") {
+      values.catalog = value;
+    } else if (flag === "--now") {
+      values.now = value;
+    } else if (flag === "--max-catalog-age-hours") {
+      values.maxCatalogAgeHours = value;
+    } else {
+      throw new Error(unknownArgumentMessage(flag));
+    }
+    index += 1;
+  }
+  return values;
+}
+
+function usage() {
+  return (
+    "Usage: node bin/check-preview-health [--base-url <url>] [--catalog <path>]\n" +
+    "    [--now <ISO>] [--max-catalog-age-hours <n>]\n"
+  );
+}
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function skip(id, label, reason) {
+  record("skip", id, label, reason);
+}
+
+async function listen() {
+  const server = createApp({ WAYSELECT_PREVIEW: "1" });
+  await new Promise((resolvePromise, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  return server;
+}
+
+async function request(base, path, options) {
+  const res = await fetch(`${base}${path}`, options);
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status: res.status, text, json };
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(usage());
+    return;
+  }
+
+  const maxCatalogAgeMs = Number(args.maxCatalogAgeHours) * 60 * 60 * 1000;
+  if (!Number.isFinite(maxCatalogAgeMs) || maxCatalogAgeMs < 0) {
+    throw new Error(invalidMaxCatalogAgeMessage());
+  }
+  const now = args.now ?? new Date().toISOString();
+  if (!Number.isFinite(Date.parse(now))) {
+    throw new Error("--now must be a valid ISO timestamp");
+  }
+  let base = args.baseUrl;
+  if (base !== null) {
+    base = base.replace(/\/+$/, "");
+  }
+
+  let server = null;
+  if (base === null) {
+    server = await listen();
+    base = `http://127.0.0.1:${server.address().port}`;
+  }
+
+  try {
+    // ---- 1. homepage: listing index + one detail page ----
+    const index = await request(base, "/listings");
+    check(index.status === 200, "H1", "index returns 200", `got ${index.status}`);
+    check(
+      index.status === 200 &&
+        index.text.includes("Alpha Chat") &&
+        index.text.includes("Image Lite") &&
+        index.text.includes("Unknown Tools"),
+      "H1b",
+      "index lists every stub listing",
+    );
+    check(
+      index.status === 200 && index.text.includes("Preview build: stub data only"),
+      "H1c",
+      "index carries the preview banner",
+    );
+
+    const detail = await request(base, "/listings/northstar/alpha-chat");
+    check(detail.status === 200, "H2", "detail returns 200", `got ${detail.status}`);
+    check(
+      detail.status === 200 &&
+        detail.text.includes("<h1>Alpha Chat</h1>") &&
+        detail.text.includes("<code>northstar/alpha-chat</code>") &&
+        detail.text.includes("Purchase (stub"),
+      "H2b",
+      "detail renders name, route line, and purchase stub",
+    );
+
+    const missing = await request(base, "/listings/northstar/nope");
+    check(
+      missing.status === 404 && missing.text.includes("Listing not found"),
+      "H3",
+      "unknown listing is a 404 not-found page",
+      `got ${missing.status}`,
+    );
+
+    // ---- bonus guard: preview-only invariant (no backend writes) ----
+    const purchase = await request(base, "/listings/northstar/alpha-chat/purchase", {
+      method: "POST",
+    });
+    check(
+      purchase.status === 403 && purchase.json?.error === "preview_only",
+      "H4",
+      "purchase stub still refuses 403 preview_only",
+      `got ${purchase.status}`,
+    );
+
+    // ---- 2. search API (forward contract; skip until the slice lands) ----
+    const bogus = await request(base, "/listings?capability=__bogus__");
+    const searchPresent = bogus.status === 400;
+    const SKIP_REASON = "search/filter slice not present";
+    if (!searchPresent) {
+      for (const [id, label] of [
+        ["S2", "q text search filters the index"],
+        ["S4", "capability filter keeps all-named-true listings"],
+        ["S5", "modality filter matches input or output"],
+        ["S6", "combined q x capability x modality is AND"],
+        ["S8", "no matches render the empty state with a clear link"],
+        ["S9", "unknown filter value is a 400 naming valid values"],
+        ["S10", "index exposes a GET filter form with clear link"],
+      ]) {
+        skip(id, label, SKIP_REASON);
+      }
+    } else {
+      const q = await request(base, "/listings?q=alpha");
+      check(
+        q.status === 200 && q.text.includes("Alpha Chat") && !q.text.includes("Image Lite"),
+        "S2",
+        "q text search filters the index",
+        `got ${q.status}`,
+      );
+      const cap = await request(base, "/listings?capability=tool_call");
+      check(
+        cap.status === 200 && cap.text.includes("Alpha Chat") && !cap.text.includes("Image Lite"),
+        "S4",
+        "capability filter keeps all-named-true listings",
+        `got ${cap.status}`,
+      );
+      const mod = await request(base, "/listings?modality=image");
+      check(
+        mod.status === 200 && mod.text.includes("Image Lite") && !mod.text.includes("Alpha Chat"),
+        "S5",
+        "modality filter matches input or output",
+        `got ${mod.status}`,
+      );
+      const both = await request(base, "/listings?q=image&capability=attachment");
+      check(
+        both.status === 200 &&
+          both.text.includes("Image Lite") &&
+          !both.text.includes("Alpha Chat"),
+        "S6",
+        "combined q x capability x modality is AND",
+        `got ${both.status}`,
+      );
+      const empty = await request(base, "/listings?q=zzz-no-such-listing");
+      check(
+        empty.status === 200 &&
+          empty.text.includes("No listings match these filters") &&
+          empty.text.includes('href="/listings"'),
+        "S8",
+        "no matches render the empty state with a clear link",
+        `got ${empty.status}`,
+      );
+      check(
+        bogus.status === 400 && bogus.text.includes("tool_call"),
+        "S9",
+        "unknown filter value is a 400 naming valid values",
+        `got ${bogus.status}`,
+      );
+      const form = await request(base, "/listings");
+      check(
+        form.text.includes("<form") &&
+          form.text.includes('name="q"') &&
+          form.text.includes('name="capability"') &&
+          form.text.includes('name="modality"'),
+        "S10",
+        "index exposes a GET filter form with clear link",
+      );
+    }
+
+    // ---- 3. index freshness: catalog provenance snapshotTimestamp ----
+    let freshnessDetail = "";
+    let freshnessOk = false;
+    try {
+      const raw = await readFile(resolve(args.catalog), "utf8");
+      const fixture = JSON.parse(raw);
+      const probe = checkCatalogFreshness(fixture, { now, maxCatalogAgeMs });
+      const ageHours = (probe.ageMs / 3_600_000).toFixed(2);
+      const limitHours = (probe.maxCatalogAgeMs / 3_600_000).toFixed(2);
+      freshnessDetail =
+        `snapshot ${probe.snapshotTimestamp}, age ${ageHours}h (limit ${limitHours}h)`;
+      if (probe.fresh) {
+        freshnessOk = true;
+      } else {
+        freshnessDetail = probe.ageMs < 0
+          ? `FUTURE-DATED ${freshnessDetail}`
+          : `STALE ${freshnessDetail}`;
+      }
+    } catch (error) {
+      freshnessDetail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    }
+    check(freshnessOk, "F1", "catalog index is fresh (stale/future alerts)", freshnessDetail);
+  } finally {
+    if (server !== null) {
+      await new Promise((resolvePromise) => server.close(resolvePromise));
+    }
+  }
+
+  const elapsedMs = Date.now() - startedAt;
+  const elapsedS = (elapsedMs / 1000).toFixed(1);
+  const pass = results.filter((r) => r.status === "pass").length;
+  const fail = results.filter((r) => r.status === "fail").length;
+  const skipped = results.filter((r) => r.status === "skip").length;
+  const overBudget = elapsedMs > BUDGET_MS;
+  process.stdout.write(
+    `SUMMARY: ${pass} pass, ${fail} fail, ${skipped} skip — ${elapsedS}s (budget 15m)\n`,
+  );
+  if (overBudget) {
+    process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+  }
+  process.exitCode = fail === 0 && !overBudget ? 0 : 1;
+}
+
+main().catch((error) => {
+  const isUsage =
+    error instanceof Error &&
+    (/^Missing value for /.test(error.message) ||
+      /^Unknown argument: /.test(error.message) ||
+      /must be a non-negative number/.test(error.message) ||
+      /must be a valid ISO timestamp/.test(error.message));
+  if (isUsage) {
+    process.stderr.write(`${error.name}: ${error.message}\n${usage()}`);
+    process.exitCode = 2;
+    return;
+  }
+  process.stderr.write(`${error instanceof Error ? `${error.name}: ${error.message}` : error}\n`);
+  process.exitCode = 1;
+});

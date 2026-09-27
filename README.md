@@ -125,6 +125,75 @@ node bin/refresh-catalog-fixtures --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 npm run refresh:check && npm test
 ```
 
+## Provenance-drift detector probe (TOG-5542)
+
+Independent leaf beside the [TOG-5116](/TOG/issues/TOG-5116) harness: where
+`bin/accept-fixture-refresh` re-runs the refresh on scratch copies, this
+probe is read-only and checks the committed state — it never writes
+fixtures, never refreshes, never runs the suite. Three fail-loud checks,
+exit non-zero on any drift (an alert):
+
+```sh
+npm run check:drift
+node bin/check-provenance-drift --now 2026-09-26T16:00:00.000Z --out drift-report.json
+```
+
+- **D1 self-hash:** the live catalog body recomputes to its own recorded
+  `snapshotHash` (catches hand-edits and bad merges; the library boundary
+  also rejects unknown fields fail-closed).
+- **D2 evidence pin:** the same hash equals the `provenanceHash` in
+  `fixture-refresh-evidence.json` from the last green harness run, and that
+  run's verdict is `PASS` (catches body changes made outside a re-pinned
+  refresh).
+- **D3 freshness:** the recorded snapshot is within the freshness window
+  (catches a refresh scheduler that went quiet).
+
+Suggested pairing after each refresh: `npm run accept:fixture-refresh`
+re-pins the evidence, then `npm run check:drift` confirms the committed
+state — the probe stays green across 3 consecutive refreshes.
+
+## Search-prompt regression eval (TOG-5492)
+
+```sh
+npm run eval:search-prompts
+```
+
+Compares two storefront search-prompt versions over 20 fixed queries
+(`evals/search-prompt-regression/queries.json`) against the 3 stub listings
+and records top-1 relevance before/after in
+`evals/search-prompt-regression/results.md`: v1-baseline (raw substring
+pass-through, shipped S2 rule) vs v2-cue-extraction (deterministic
+interpret-then-match). Stdlib only, no network, no credentials; seed 5492
+recorded for the shuffle-invariance self-check. Today: before 12/20, after
+20/20 — 8 fixed, 0 regressed.
+
+## Catalog search-index refresh
+
+Fixture-only automation with no network access and no production writes.
+`src/searchIndex.js` derives a frozen, searchable view over the fixture
+catalog through the same `normalizeCatalog` boundary the CLI uses, so the
+index can never describe routes the catalog boundary would reject. Refresh
+is a queued job (`createRefreshQueue`: FIFO, identical pending requests
+dedup instead of stacking) with an idempotent reload proof
+(`reloadSearchIndex` reports `changed:false` on identical input).
+Non-`synthetic://` sources are refused; stale or future-dated catalogs fail
+closed instead of writing an index.
+
+```sh
+npm run check:search-index
+node bin/wayselect-search-index-refresh --check --max-catalog-age-hours 24
+node bin/wayselect-search-index-refresh --max-catalog-age-hours 24 --out search-index
+```
+
+The probe (`--check`, five checks R1–R5) rebuilds twice and reloads: done
+criteria for TOG-5460 is the probe passing twice consecutively with the same
+content hash. Same-input refreshes over `--previous` report
+`changedVsPrevious:false`. The evaluation clock follows the same
+snapshot-derived pattern as the suite (`support/helpers.js`
+`evaluationNow()`): when no `--now` is given, the CLI evaluates two hours
+after the live fixture `snapshotTimestamp`, so the probe stays green across
+fixture refreshes without edits.
+
 ## Library boundaries
 
 - `src/catalog.js` validates a narrow provider-keyed, models.dev-shaped fixture subset and preserves provenance. Unknown fields are rejected at the boundary.

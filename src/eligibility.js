@@ -43,18 +43,43 @@ function normalizeOptions(options) {
   }
 
   const catalog = options?.catalog ?? null;
-  let catalogProbe = null;
-  if (catalog !== null) {
-    if (!Number.isFinite(options?.maxCatalogAgeMs) || options.maxCatalogAgeMs < 0) {
+  const skipCatalogCheck = options?.skipCatalogCheck ?? false;
+  if (skipCatalogCheck !== true && skipCatalogCheck !== false) {
+    throw new EligibilityRequestError(
+      "options.skipCatalogCheck must be a boolean (true to explicitly opt out of catalog freshness)",
+    );
+  }
+  const hasMaxCatalogAgeMs = options?.maxCatalogAgeMs !== undefined;
+  if (catalog === null) {
+    // TOG-5299: catalog-less calls used to skip the staleness gate silently
+    // (catalogProbe null => stale/future-catalog branch never runs). Omission
+    // is now loud: pass an explicit catalog, or explicitly opt out.
+    if (hasMaxCatalogAgeMs) {
       throw new EligibilityRequestError(
-        "options.maxCatalogAgeMs must be a non-negative number",
+        "options.catalog is required when options.maxCatalogAgeMs is set",
       );
     }
-    catalogProbe = checkCatalogFreshness(catalog, {
-      now,
-      maxCatalogAgeMs: options.maxCatalogAgeMs,
-    });
+    if (skipCatalogCheck !== true) {
+      throw new EligibilityRequestError(
+        "options.catalog is required for catalog freshness enforcement, " +
+          "or pass options.skipCatalogCheck:true to explicitly opt out",
+      );
+    }
+    return { now, maxEvidenceAgeMs, catalogProbe: null };
   }
+  // When a catalog is present the freshness gate always runs; an inherited
+  // skipCatalogCheck from a shared base options object must not silently
+  // disable it, so the flag is ignored here (it only matters when catalog
+  // is absent).
+  if (!Number.isFinite(options?.maxCatalogAgeMs) || options.maxCatalogAgeMs < 0) {
+    throw new EligibilityRequestError(
+      "options.maxCatalogAgeMs must be a non-negative number",
+    );
+  }
+  const catalogProbe = checkCatalogFreshness(catalog, {
+    now,
+    maxCatalogAgeMs: options.maxCatalogAgeMs,
+  });
 
   return { now, maxEvidenceAgeMs, catalogProbe };
 }

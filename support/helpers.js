@@ -34,9 +34,13 @@ export function evaluationNow() {
   return new Date(Date.parse(fixture.provenance.snapshotTimestamp) + 2 * 60 * 60 * 1000);
 }
 
+// TOG-5299: these unit options intentionally exercise the non-catalog gates
+// (capabilities, evidence, providers), so they carry the explicit catalog
+// opt-out rather than silently skipping freshness enforcement.
 export const evaluationOptions = Object.freeze({
   get now() {
     return evaluationNow();
   },
   maxEvidenceAgeMs: 72 * 60 * 60 * 1000,
+  skipCatalogCheck: true,
 });

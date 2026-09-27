@@ -26,9 +26,13 @@ export const PREVIEW_ELIGIBILITY_REQUEST = Object.freeze({
 
 // Frozen synthetic evaluation options. Mirrors fixtures/request.synthetic.json
 // (`evaluationTime`, `maxEvidenceAgeHours`) via support/helpers.js.
+// TOG-5299: the stub preview has no catalog provenance to probe, so it
+// carries the explicit catalog opt-out rather than silently skipping
+// freshness enforcement.
 export const PREVIEW_ELIGIBILITY_OPTIONS = Object.freeze({
   now: new Date("2026-09-24T12:00:00.000Z"),
   maxEvidenceAgeMs: 72 * 60 * 60 * 1000,
+  skipCatalogCheck: true,
 });
 
 // Frozen synthetic support context per stub route. Mirrors
@@ -162,8 +166,13 @@ export function classifyEligibilityDisplay(evaluation) {
   ) {
     return ELIGIBILITY_STATE.UNKNOWN;
   }
+  // Defense-in-depth invariant (TOG-5298): the real evaluator guarantees
+  // eligible = reasons.length === 0, so eligible:true with non-empty reasons
+  // is forged or compromised output — fail closed to unknown, never granted.
   if (evaluation.eligible === true) {
-    return ELIGIBILITY_STATE.GRANTED;
+    return evaluation.reasons.length === 0
+      ? ELIGIBILITY_STATE.GRANTED
+      : ELIGIBILITY_STATE.UNKNOWN;
   }
   if (evaluation.reasons.length === 0) {
     return ELIGIBILITY_STATE.UNKNOWN;

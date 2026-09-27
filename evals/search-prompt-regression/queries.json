@@ -1,0 +1,22 @@
+[
+  { "id": "Q01", "query": "alpha", "expectedTop1": "northstar/alpha-chat", "note": "exact name fragment" },
+  { "id": "Q02", "query": "Alpha Chat", "expectedTop1": "northstar/alpha-chat", "note": "exact full name" },
+  { "id": "Q03", "query": "ALPHA CHAT", "expectedTop1": "northstar/alpha-chat", "note": "case-insensitivity (S2)" },
+  { "id": "Q04", "query": "  alpha  ", "expectedTop1": "northstar/alpha-chat", "note": "padded whitespace trims" },
+  { "id": "Q05", "query": "northstar", "expectedTop1": "northstar/alpha-chat", "note": "provider-name match hits all three; stub order (S7) puts alpha-chat first" },
+  { "id": "Q06", "query": "image", "expectedTop1": "northstar/image-lite", "note": "name fragment and image-modality cue" },
+  { "id": "Q07", "query": "Image Lite", "expectedTop1": "northstar/image-lite", "note": "exact full name" },
+  { "id": "Q08", "query": "picture", "expectedTop1": "northstar/image-lite", "note": "synonym of image; not a substring of any name" },
+  { "id": "Q09", "query": "photo upload", "expectedTop1": "northstar/image-lite", "note": "image + attachment cues; no name overlap" },
+  { "id": "Q10", "query": "tool", "expectedTop1": "northstar/alpha-chat", "note": "substring alone top-1s the Unknown Tools listing; tool_call cue should prefer Alpha Chat" },
+  { "id": "Q11", "query": "structured output", "expectedTop1": "northstar/alpha-chat", "note": "structured_output cue; only Alpha Chat has it true" },
+  { "id": "Q12", "query": "json", "expectedTop1": "northstar/alpha-chat", "note": "shorthand for structured output" },
+  { "id": "Q13", "query": "chat with tools", "expectedTop1": "northstar/alpha-chat", "note": "natural phrasing; whole-string substring matches nothing" },
+  { "id": "Q14", "query": "vision", "expectedTop1": "northstar/image-lite", "note": "image-modality synonym; matches no name" },
+  { "id": "Q15", "query": "unknown", "expectedTop1": "northstar/unknown-tools", "note": "name fragment; no cue words involved" },
+  { "id": "Q16", "query": "orbit", "expectedTop1": null, "note": "provider on the allowlist but absent from stub listings; honest no-match" },
+  { "id": "Q17", "query": "zzz-no-such-listing", "expectedTop1": null, "note": "mirrors the S8 empty-state probe; no-match" },
+  { "id": "Q18", "query": "", "expectedTop1": "northstar/alpha-chat", "note": "blank query means no text filtering (S3); stub order first" },
+  { "id": "Q19", "query": "reasoning model", "expectedTop1": null, "note": "reasoning cue matches no listing (Alpha/Image false, Unknown null); honest no-match" },
+  { "id": "Q20", "query": "attach an image", "expectedTop1": "northstar/image-lite", "note": "attachment + image cues; only Image Lite satisfies both" }
+]

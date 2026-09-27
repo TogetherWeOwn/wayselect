@@ -9,7 +9,8 @@
   },
   "bin": {
     "wayselect": "bin/wayselect",
-    "wayselect-snapshot": "bin/wayselect-snapshot"
+    "wayselect-snapshot": "bin/wayselect-snapshot",
+    "wayselect-search-index-refresh": "bin/wayselect-search-index-refresh"
   },
   "scripts": {
     "demo": "node bin/wayselect",
@@ -18,18 +19,27 @@
     "accept:web": "node bin/accept-wayselect-web",
     "accept:search-filter": "node bin/accept-wayselect-search-filter",
     "accept:seller": "node bin/accept-wayselect-seller",
+    "accept:seller-payout": "node bin/accept-wayselect-seller-payout",
     "accept:buyer": "node bin/accept-wayselect-buyer",
+    "accept:payout": "node bin/accept-wayselect-payout",
     "accept:eligibility": "node bin/accept-wayselect-eligibility",
     "accept:dryrun-explain": "node bin/accept-wayselect-dryrun-explain",
     "accept:checkout": "node bin/accept-wayselect-checkout",
     "snapshot": "node bin/wayselect-snapshot",
     "check:provenance": "node bin/check-ingestion-provenance",
     "smoke": "node bin/smoke-wayselect-ingestion",
+    "preview:health": "node bin/check-preview-health",
     "refresh": "node bin/refresh-catalog-fixtures",
-    "refresh:check": "node bin/refresh-catalog-fixtures --check"
+    "refresh:check": "node bin/refresh-catalog-fixtures --check",
+    "check:drift": "node bin/check-provenance-drift",
+    "eval:search-prompts": "node bin/eval-wayselect-search-prompts --seed 5492",
+    "accept:fixture-refresh": "node bin/accept-fixture-refresh",
+    "refresh:search-index": "node bin/wayselect-search-index-refresh",
+    "check:search-index": "node bin/wayselect-search-index-refresh --check --max-catalog-age-hours 24"
   },
   "dependencies": {
     "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1"
+    "ajv-formats": "^3.0.1",
+    "escape-html": "1.0.3"
   }
 }

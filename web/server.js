@@ -13,12 +13,15 @@ import { createServer } from "node:http";
 import { isPreviewEnabled } from "./preview.js";
 import {
   listingDetailFragment,
+  renderInvalidFilter,
+  renderListingDetail,
   renderListingDetailError,
   renderListingDetailShell,
   renderListingIndex,
   renderNotFound,
   renderPreviewDisabled,
 } from "./listing-detail.js";
+import { applyListingsFilters, parseListingsQuery } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
 
 const LISTING_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/?$/;
@@ -49,7 +52,23 @@ export function createApp(env = process.env) {
         sendHtml(res, 404, renderPreviewDisabled());
         return;
       }
-      sendHtml(res, 200, renderListingIndex(STUB_LISTINGS));
+      let params;
+      try {
+        params = new URL(req.url ?? "/", "http://localhost").searchParams;
+      } catch {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      const parsed = parseListingsQuery(params);
+      if (!parsed.ok) {
+        sendHtml(res, 400, renderInvalidFilter(parsed));
+        return;
+      }
+      sendHtml(
+        res,
+        200,
+        renderListingIndex(applyListingsFilters(STUB_LISTINGS, parsed.filters), undefined, parsed.filters),
+      );
       return;
     }
 
