@@ -29,3 +29,31 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run smoke
+
+  search-index-probe:
+    # TOG-5722: R1-R5 search-index refresh probe, fixture-only, no network/credentials.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check:search-index
+
+  e2e-staging-acceptance:
+    # TOG-5722: CLI e2e staging acceptance, fixture-only, no network/credentials.
+    # WAYSELECT_STAGING_ENDPOINT is intentionally unset so the publish step
+    # runs as a local validator gate. fetch-depth 0 is required: the script
+    # extracts its CLI/schema slices via `git archive origin/<ref>`.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: node scripts/e2e-staging-acceptance.mjs --out ${{ runner.temp }}/e2e-evidence.json
