@@ -5,6 +5,7 @@ import { deepStrictEqual, ok, strictEqual } from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   VALID_CAPABILITIES,
+  VALID_LISTINGS_QUERY_PARAMS,
   VALID_MODALITIES,
   applyListingsFilters,
   emptyFilters,
@@ -49,6 +50,30 @@ describe("parseListingsQuery", () => {
     strictEqual(parsed.ok, false);
     strictEqual(parsed.kind, "modality");
     deepStrictEqual(parsed.valid, [...VALID_MODALITIES]);
+  });
+
+  it("fails closed on unknown query param names, naming the valid keys (TOG-6365)", () => {
+    const parsed = parseListingsQuery(params("?capabilty=tool_call"));
+    strictEqual(parsed.ok, false);
+    strictEqual(parsed.kind, "query");
+    strictEqual(parsed.value, "capabilty");
+    deepStrictEqual(parsed.valid, [...VALID_LISTINGS_QUERY_PARAMS]);
+  });
+
+  it("fails closed when valid filters ride with an unknown param (TOG-6365)", () => {
+    const parsed = parseListingsQuery(params("?q=alpha&capability=tool_call&bogus=1"));
+    strictEqual(parsed.ok, false);
+    strictEqual(parsed.kind, "query");
+    strictEqual(parsed.value, "bogus");
+  });
+
+  it("accepts every known key together (TOG-6365)", () => {
+    const parsed = parseListingsQuery(
+      params("?q=a&capability=tool_call&modality=text&limit=5&offset=1"),
+    );
+    strictEqual(parsed.ok, true);
+    strictEqual(parsed.paging.limit, 5);
+    strictEqual(parsed.paging.offset, 1);
   });
 });
 
