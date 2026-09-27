@@ -1,7 +1,7 @@
 {
   "issue": "TOG-6387",
-  "ranAt": "2026-09-27T10:50:00.000Z",
-  "repoHead": "56db5ce74d9ba2a005dc4fd515f5b1d7f2fde8a2",
+  "ranAt": "2026-09-27T11:06:25.000Z",
+  "repoHead": "ca727d93a1d17a690e4aeecf2a47efece38ae71b",
   "method": "git archive origin/main | tar -x to scratch + npm ci + npm audit --audit-level=low (same pristine-tree method as the TOG-6037 one-shot, so worktree changes cannot pollute the result)",
   "baseline": {
     "issue": "TOG-6037",
@@ -35,7 +35,7 @@
     {
       "name": "audit: pristine origin/main tree reports 0 vulnerabilities at --audit-level=low",
       "status": "pass",
-      "detail": "git archive 56db5ce + npm ci (7 packages) + npm audit exit 0, found 0 vulnerabilities"
+      "detail": "git archive ca727d9 + npm ci (7 packages) + npm audit exit 0, found 0 vulnerabilities (re-verified after rebase; lockfile still byte-identical to baseline)"
     },
     {
       "name": "audit: pins exact and unchanged since baseline",
