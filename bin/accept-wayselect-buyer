@@ -1,0 +1,379 @@
+#!/usr/bin/env node
+
+// Executable acceptance script for the Wayselect buyer activation spec (TOG-5413).
+//
+// Spec: docs/wayselect-buyer-activation.md (§1 search baseline B1–B4, §2
+// compare B5–B7, §4 terminal honesty B8–B9; §1-forward F1–F3 probes auto-skip
+// until the search/filter slice lands; §3 shortlist SH0–SH10 probes auto-skip
+// until the shortlist slice lands).
+//
+// Usage: node bin/accept-wayselect-buyer   (or: npm run accept:buyer)
+// Zero dependencies: Node standard library only. Starts the real server from
+// web/server.js on ephemeral ports, probes it, exits 0 when there are zero
+// failures (skips allowed), 1 otherwise. Budget: under 15 minutes.
+
+import { createApp } from "../web/server.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function skip(id, label, reason) {
+  record("skip", id, label, reason);
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+function baseOf(server) {
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function close(server) {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+async function request(base, path, options) {
+  const res = await fetch(`${base}${path}`, options);
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status: res.status, text, json };
+}
+
+function jsonRequest(base, path, method, body) {
+  return request(base, path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+// Map each index <li> to its listing name + badge class.
+function indexBadges(indexHtml) {
+  const items = indexHtml.match(/<li>[\s\S]*?<\/li>/g) ?? [];
+  const found = new Map();
+  for (const item of items) {
+    const name = item.match(/>([^<>]+) <code>/)?.[1]?.trim();
+    const badge = item.match(/badge-(granted|blocked|unknown)/)?.[1];
+    if (name && badge) {
+      found.set(name, badge);
+    }
+  }
+  return found;
+}
+
+const SEARCH_SKIP = "search/filter slice not present";
+const SHORTLIST_SKIP = "shortlist slice not present";
+
+const on = await listen({ WAYSELECT_PREVIEW: "1" });
+const off = await listen({});
+const baseOn = baseOf(on);
+const baseOff = baseOf(off);
+
+try {
+  // ---- §1 M1 search baseline (runnable today) ----
+  const index = await request(baseOn, "/listings");
+  check(index.status === 200, "B1", "index returns 200", `got ${index.status}`);
+  const alphaPos = index.text.indexOf("Alpha Chat");
+  const imagePos = index.text.indexOf("Image Lite");
+  const unknownPos = index.text.indexOf("Unknown Tools");
+  check(
+    alphaPos !== -1 && imagePos !== -1 && unknownPos !== -1,
+    "B1b",
+    "index lists every stub listing",
+  );
+  check(
+    alphaPos !== -1 && imagePos !== -1 && unknownPos !== -1 &&
+      alphaPos < imagePos && imagePos < unknownPos,
+    "B2",
+    "index preserves stub order (deterministic, no re-ranking)",
+  );
+  const badges = indexBadges(index.text);
+  check(badges.get("Alpha Chat") === "granted", "B3a", "Alpha Chat badge is Granted");
+  check(badges.get("Image Lite") === "blocked", "B3b", "Image Lite badge is Blocked");
+  check(badges.get("Unknown Tools") === "unknown", "B3c", "Unknown Tools badge is Unknown (fail closed)");
+  check(
+    index.text.includes('href="/listings/northstar/alpha-chat"') &&
+      index.text.includes('href="/listings/northstar/image-lite"') &&
+      index.text.includes('href="/listings/northstar/unknown-tools"'),
+    "B4",
+    "every listing item links to its detail page",
+  );
+
+  // ---- §2 M2 compare (runnable today) ----
+  const alpha = await request(baseOn, "/listings/northstar/alpha-chat");
+  const image = await request(baseOn, "/listings/northstar/image-lite");
+  const unknown = await request(baseOn, "/listings/northstar/unknown-tools");
+  check(
+    alpha.status === 200 && alpha.text.includes("<h1>Alpha Chat</h1>") &&
+      image.status === 200 && image.text.includes("<h1>Image Lite</h1>") &&
+      unknown.status === 200 && unknown.text.includes("<h1>Unknown Tools</h1>"),
+    "B5",
+    "every index link opens its detail page with the matching h1",
+    `got ${alpha.status}/${image.status}/${unknown.status}`,
+  );
+  check(
+    alpha.text.includes("badge-granted") &&
+      image.text.includes("badge-blocked") &&
+      unknown.text.includes("badge-unknown"),
+    "B6",
+    "detail badges match index badges (index never promises what detail retracts)",
+  );
+  check(
+    alpha.text.includes('aria-label="Eligibility"') &&
+      !alpha.text.includes("<ul>"),
+    "B7a",
+    "granted detail shows the Eligibility section with no exclusion reasons",
+  );
+  check(
+    image.text.includes("<code>unsupported-capability:toolUse</code>"),
+    "B7b",
+    "blocked detail names the verbatim exclusion reason in code",
+  );
+  check(
+    unknown.text.includes("<code>missing-capability:toolUse</code>") &&
+      unknown.text.includes("not selectable"),
+    "B7c",
+    "unknown detail names the verbatim reason with not-selectable copy",
+  );
+
+  // ---- §4 terminal honesty (runnable today) ----
+  const purchaseOn = await jsonRequest(
+    baseOn, "/listings/northstar/alpha-chat/purchase", "POST", {},
+  );
+  const purchaseOff = await jsonRequest(
+    baseOff, "/listings/northstar/alpha-chat/purchase", "POST", {},
+  );
+  check(
+    alpha.text.includes("Purchase (stub") &&
+      alpha.text.includes("disabled") &&
+      alpha.text.includes('aria-disabled="true"') &&
+      purchaseOn.status === 403 && purchaseOn.json?.error === "preview_only" &&
+      purchaseOff.status === 403,
+    "B8",
+    "purchase CTA disabled; stub refuses 403 preview_only on and off the flag",
+    `got ${purchaseOn.status}/${purchaseOff.status}`,
+  );
+  const offIndex = await request(baseOff, "/listings");
+  const offDetail = await request(baseOff, "/listings/northstar/alpha-chat");
+  check(
+    offIndex.status === 404 && offIndex.text.includes("Preview unavailable") &&
+      offIndex.text.includes("WAYSELECT_PREVIEW") &&
+      offDetail.status === 404 && offDetail.text.includes("Preview unavailable"),
+    "B9",
+    "flag off hides index and detail behind the preview-disabled page",
+    `got ${offIndex.status}/${offDetail.status}`,
+  );
+
+  // ---- §1-forward search/filter (skip until the slice lands) ----
+  const bogus = await request(baseOn, "/listings?capability=__bogus__");
+  if (bogus.status !== 400) {
+    for (const [id, label] of [
+      ["F1", "q text search keeps matching listings with badges intact"],
+      ["F2", "no matches render the empty state with a clear link"],
+      ["F3", "unknown filter value is a 400 naming valid values"],
+    ]) {
+      skip(id, label, SEARCH_SKIP);
+    }
+  } else {
+    const q = await request(baseOn, "/listings?q=alpha");
+    check(
+      q.status === 200 && q.text.includes("Alpha Chat") &&
+        q.text.includes("badge-granted") && !q.text.includes("Image Lite"),
+      "F1",
+      "q text search keeps matching listings with badges intact",
+      `got ${q.status}`,
+    );
+    const empty = await request(baseOn, "/listings?q=zzz-no-such-listing");
+    check(
+      empty.status === 200 &&
+        empty.text.includes("No listings match these filters") &&
+        empty.text.includes('href="/listings"'),
+      "F2",
+      "no matches render the empty state with a clear link",
+      `got ${empty.status}`,
+    );
+    check(
+      bogus.status === 400 && bogus.text.includes("tool_call"),
+      "F3",
+      "unknown filter value is a 400 naming valid values",
+      `got ${bogus.status}`,
+    );
+  }
+
+  // ---- §3 shortlist (forward contract; skip until the slice lands) ----
+  const shortlistProbe = await request(baseOn, "/shortlist");
+  if (shortlistProbe.status !== 200) {
+    for (const [id, label] of [
+      ["SH0", "shortlist starts empty"],
+      ["SH1", "saving a stub listing returns a deterministic entry"],
+      ["SH2", "saved entry appears in the shortlist"],
+      ["SH3", "single entry fetch returns the saved entry"],
+      ["SH4", "invalid shapes fail closed with invalid_shortlist"],
+      ["SH5", "unknown listing is a 404 not_found"],
+      ["SH6", "removing an entry clears it (repeat is 404)"],
+      ["SH7", "unknown entry id is a 404 not_found"],
+      ["SH8", "malformed JSON fails closed with invalid_shortlist"],
+      ["SH9", "flag off gates every shortlist route"],
+      ["SH10", "shortlist never performs a purchase"],
+    ]) {
+      skip(id, label, SHORTLIST_SKIP);
+    }
+  } else {
+    const emptyList = await request(baseOn, "/shortlist");
+    check(
+      emptyList.status === 200 &&
+        Array.isArray(emptyList.json?.shortlist) &&
+        emptyList.json.shortlist.length === 0,
+      "SH0",
+      "shortlist starts empty",
+      `got ${emptyList.status}`,
+    );
+    const created = await jsonRequest(baseOn, "/shortlist", "POST", {
+      provider: "northstar",
+      model: "alpha-chat",
+    });
+    check(
+      created.status === 201 &&
+        created.json?.id === "short-1" &&
+        created.json?.listing === "northstar/alpha-chat" &&
+        created.json?.status === "saved",
+      "SH1",
+      "saving a stub listing returns a deterministic entry",
+      `got ${created.status}`,
+    );
+    const afterSave = await request(baseOn, "/shortlist");
+    check(
+      afterSave.status === 200 &&
+        (afterSave.json?.shortlist ?? []).some(
+          (entry) => entry.id === "short-1" && entry.status === "saved",
+        ),
+      "SH2",
+      "saved entry appears in the shortlist",
+      `got ${afterSave.status}`,
+    );
+    const single = await request(baseOn, "/shortlist/short-1");
+    check(
+      single.status === 200 && single.json?.status === "saved",
+      "SH3",
+      "single entry fetch returns the saved entry",
+      `got ${single.status}`,
+    );
+    const badShapes = await Promise.all([
+      jsonRequest(baseOn, "/shortlist", "POST", { provider: "", model: "alpha-chat" }),
+      jsonRequest(baseOn, "/shortlist", "POST", {
+        provider: "northstar",
+        model: "alpha-chat",
+        evil: true,
+      }),
+    ]);
+    check(
+      badShapes.every(
+        (res) => res.status === 400 && res.json?.error === "invalid_shortlist",
+      ),
+      "SH4",
+      "invalid shapes fail closed with invalid_shortlist",
+      `got ${badShapes.map((res) => res.status).join("/")}`,
+    );
+    const unknownListing = await jsonRequest(baseOn, "/shortlist", "POST", {
+      provider: "northstar",
+      model: "nope",
+    });
+    check(
+      unknownListing.status === 404 && unknownListing.json?.error === "not_found",
+      "SH5",
+      "unknown listing is a 404 not_found",
+      `got ${unknownListing.status}`,
+    );
+    const removed = await request(baseOn, "/shortlist/short-1", { method: "DELETE" });
+    const afterRemove = await request(baseOn, "/shortlist/short-1");
+    const removeAgain = await request(baseOn, "/shortlist/short-1", { method: "DELETE" });
+    check(
+      removed.status === 200 && removed.json?.status === "removed" &&
+        afterRemove.status === 404 && removeAgain.status === 404,
+      "SH6",
+      "removing an entry clears it (repeat is 404)",
+      `got ${removed.status}/${afterRemove.status}/${removeAgain.status}`,
+    );
+    const unknownGet = await request(baseOn, "/shortlist/short-999");
+    const unknownDelete = await request(baseOn, "/shortlist/short-999", {
+      method: "DELETE",
+    });
+    check(
+      unknownGet.status === 404 && unknownDelete.status === 404,
+      "SH7",
+      "unknown entry id is a 404 not_found",
+      `got ${unknownGet.status}/${unknownDelete.status}`,
+    );
+    const malformed = await request(baseOn, "/shortlist", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not-json",
+    });
+    check(
+      malformed.status === 400 && malformed.json?.error === "invalid_shortlist",
+      "SH8",
+      "malformed JSON fails closed with invalid_shortlist",
+      `got ${malformed.status}`,
+    );
+    const offList = await request(baseOff, "/shortlist");
+    const offSingle = await request(baseOff, "/shortlist/short-1");
+    const offSave = await jsonRequest(baseOff, "/shortlist", "POST", {
+      provider: "northstar",
+      model: "alpha-chat",
+    });
+    check(
+      offList.status === 404 && offSingle.status === 404 && offSave.status === 404,
+      "SH9",
+      "flag off gates every shortlist route",
+      `got ${offList.status}/${offSingle.status}/${offSave.status}`,
+    );
+    const purchaseAfter = await jsonRequest(
+      baseOn, "/listings/northstar/alpha-chat/purchase", "POST", {},
+    );
+    check(
+      purchaseAfter.status === 403 && purchaseAfter.json?.error === "preview_only",
+      "SH10",
+      "shortlist never performs a purchase",
+      `got ${purchaseAfter.status}`,
+    );
+  }
+} finally {
+  await Promise.all([close(on), close(off)]);
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const skipped = results.filter((r) => r.status === "skip").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(
+  `SUMMARY: ${pass} pass, ${fail} fail, ${skipped} skip — ${elapsedS}s (budget 15m)\n`,
+);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;
