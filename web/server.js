@@ -252,12 +252,44 @@ export function configureHttpTimeouts(server, overrides = {}) {
   return { headersTimeout, requestTimeout };
 }
 
+// Seller-intent TTL (TOG-6716): a staged intent stays confirmable for 15
+// minutes after intake; afterwards it 404s as missing and is dropped from
+// the map. One named constant so the value lives in a single place.
+export const SELLER_INTENT_TTL_MS = 15 * 60 * 1000;
+
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
-  // Pending seller intents (TOG-4969): routeId -> frozen confirm model.
-  // In-memory only — restart clears. Confirm records intent; nothing here
-  // publishes, charges, or persists.
+  // Clock for intent expiry (TOG-6716): injectable via `options.now` so
+  // tests can pin the expiry boundary; production uses wall-clock time.
+  const now = options.now ?? Date.now;
+  // Pending seller intents (TOG-4969) with expiry (TOG-6716):
+  // routeId -> { model, storedAt }. In-memory only — restart clears.
+  // Confirm records intent; nothing here publishes, charges, or persists.
+  // Expired entries 404 as missing on read and are swept on intake, so
+  // unread stale intents cannot grow the map.
   const sellerIntents = new Map();
+  // Reads the live intent for a route: null when never staged or expired.
+  // Expired entries are deleted on read so a stale confirm never revives.
+  function getLiveIntent(routeId) {
+    const entry = sellerIntents.get(routeId) ?? null;
+    if (!entry) {
+      return null;
+    }
+    if (now() - entry.storedAt >= SELLER_INTENT_TTL_MS) {
+      sellerIntents.delete(routeId);
+      return null;
+    }
+    return entry.model;
+  }
+  // Drops every expired entry. Runs on intake so intents nobody ever
+  // confirms still leave the map instead of leaking.
+  function sweepExpiredIntents() {
+    for (const [routeId, entry] of sellerIntents) {
+      if (now() - entry.storedAt >= SELLER_INTENT_TTL_MS) {
+        sellerIntents.delete(routeId);
+      }
+    }
+  }
   // XFF trust boundary (TOG-6029): unset by default (direct-remote only).
   // Opt-in for a single trusted proxy hop via `trustedProxyIp` option or
   // the `WAYSELECT_TRUSTED_PROXY_IP` env var — exactly one peer IP. Empty
@@ -471,7 +503,8 @@ export function createApp(env = process.env, options = {}) {
         return;
       }
       const model = confirmModel(normalized);
-      sellerIntents.set(model.routeId, model);
+      sweepExpiredIntents();
+      sellerIntents.set(model.routeId, { model, storedAt: now() });
       const confirmPath = `/sellers/submissions/${encodeURIComponent(model.providerId)}/${encodeURIComponent(model.modelId)}/confirm`;
       if (String(req.headers?.accept ?? "").includes("text/html")) {
         const nonce = newCspNonce();
@@ -510,7 +543,7 @@ export function createApp(env = process.env, options = {}) {
         return;
       }
       const routeId = `${providerId}/${modelId}`;
-      const model = sellerIntents.get(routeId) ?? null;
+      const model = getLiveIntent(routeId);
       if (req.method === "GET") {
         if (!model) {
           if (String(req.headers?.accept ?? "").includes("text/html")) {

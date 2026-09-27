@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #138 (2026-09-27) TOG-6716: seller-intent TTL — staged intents expire
+  15 min after intake (`SELLER_INTENT_TTL_MS`, injectable `options.now`);
+  expired confirms 404 as missing; intake sweeps stale entries
+  (`web/server.js`, `test/seller-intent-ttl.test.js`).
 - #151 (2026-09-27) TOG-7286: concurrent slow-fragment load budget —
   12 parallel listing-detail JSON-fragment hits with
   `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` set all return 200 with intact
