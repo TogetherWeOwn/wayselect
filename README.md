@@ -315,6 +315,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Seller payout-eligibility checklist](docs/wayselect-seller-payout-eligibility.md) — payout-eligibility rules (part 4).
 - [Snapshot retention policy](docs/snapshot-retention.md) — keep-last-10 + 30-day prune rule and `bin/wayselect-snapshot-prune` usage.
 - [Web acceptance](docs/wayselect-web-acceptance.md) — listing-detail + search/filter web slices.
+- [Slow-network knob](docs/wayselect-slow-network-knob.md) — `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` operator contract (fragment only, never the shell).
 
 ## Contributing
 
