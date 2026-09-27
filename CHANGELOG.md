@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #122 (2026-09-27) TOG-6369: serve `GET /favicon.ico` as 204 (ungated,
+  rate-limit-exempt like `/healthz`; non-GET 405s with `Allow: GET`)
+  (`web/server.js`, `test/favicon-route.test.js`,
+  `test/method-not-allowed.test.js`).
 - #125 (2026-09-27) TOG-6718: duplicate routeId feed policy pin — duplicate
   JSON keys last-win at parse with zero quarantine; slash-collision duplicates
   (`p`+`a/b` vs `p/a`+`b`) are kept by ingest/normalize but fail closed at
