@@ -354,7 +354,11 @@ function checkboxRow(name, values, selected) {
     .map((value) => {
       const label = name === "capability" ? (CAPABILITY_LABELS[value] ?? value) : value;
       const checked = selected.includes(value) ? " checked" : "";
-      return `<label><input type="checkbox" name="${name}" value="${escapeHtml(value)}"${checked}> ${escapeHtml(label)}</label>`;
+      // TOG-6038: explicit id/for pairing on top of the wrapping label so
+      // every checkbox has a programmatically associated label that both AT
+      // and tests can resolve. Ids derive from the enum-controlled value.
+      const id = `filter-${name}-${value}`;
+      return `<label for="${escapeHtml(id)}"><input type="checkbox" id="${escapeHtml(id)}" name="${name}" value="${escapeHtml(value)}"${checked}> ${escapeHtml(label)}</label>`;
     })
     .join("\n");
 }
@@ -365,7 +369,7 @@ function filterForm(filters) {
   const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
   const modalities = Array.isArray(active.modalities) ? active.modalities : [];
   return `<form method="get" action="/listings" role="search" aria-label="Filter listings">
-<label>Search <input type="text" name="q" value="${escapeHtml(q)}"></label>
+<label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}"></label>
 <fieldset><legend>Capabilities</legend>
 ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
 </fieldset>
