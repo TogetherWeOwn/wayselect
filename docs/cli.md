@@ -7,7 +7,8 @@
 The CLI is a thin wrapper: `bin/wayselect` parses arguments, loads the fixture
 files, calls `selectRoute`, and formats the result. All examples run from the
 repo root against the checked-in fixtures. Pin `--evaluation-time` to keep
-output deterministic.
+output deterministic. Ranking ties break by UTF-16 code-unit route-ID order
+(`src/routeId.js`) — identical on every machine regardless of locale.
 
 ## `select`: pick a route, show ranked candidates
 
