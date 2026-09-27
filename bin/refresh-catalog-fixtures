@@ -1,0 +1,400 @@
+#!/usr/bin/env node
+// Refresh the Wayselect staging catalog fixture set with a provenance stamp.
+//
+// Fixture-only and dry-run only: stdlib only, no network access, no credentials,
+// no endpoint discovery. Advances the whole set by one uniform clock delta so
+// QA fixtures never go stale behind the models.dev ingestion:
+//
+//   fixtures/catalog.synthetic.json       -> provenance { source, snapshotTimestamp, snapshotHash }
+//   fixtures/configuration.synthetic.json -> every evidence.observedAt shifted by the same delta
+//   fixtures/request.synthetic.json       -> evaluationTime shifted by the same delta
+//
+// The delta is (new snapshotTimestamp - recorded snapshotTimestamp), so the
+// set's internal story is preserved: intentionally stale evidence (e.g. the
+// retired legacy route that exercises the stale-evidence path) stays stale,
+// fresh evidence stays fresh, and evaluation stays its fixed distance ahead of
+// the snapshot. The test clock (support/helpers.js) is derived from the live
+// snapshot, so the suite stays green across refreshes without edits.
+//
+// snapshotHash is a deterministic SHA-256 over the canonical (recursively
+// key-sorted) catalog body. Re-running with the same --timestamp is a
+// byte-identical no-op (reported as changed:false), which lets a scheduler
+// skip empty commits; QA verifies with --check. Only stamped values change in
+// the files; formatting elsewhere is preserved. Unknown fields, malformed
+// capabilities, bad provenance, ambiguous shapes, and rewound timestamps fail
+// closed (exit 1, files untouched).
+//
+// Usage:
+//   node bin/refresh-catalog-fixtures [--catalog <path>] [--configuration <path>]
+//     [--request <path>] [--timestamp <ISO>] [--source <s>]
+//   node bin/refresh-catalog-fixtures --check [--catalog <path>] [--now <ISO>]
+//     [--max-age-ms <n> | --max-age-hours <n>]
+//
+// Exit codes: 0 on success, 1 on any validation / freshness / hash failure.
+
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { stableStringify } from "../src/index.js";
+
+const DEFAULT_SOURCE = "synthetic://wayselect/fixture-v1";
+const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function fixtureDir() {
+  return resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "fixtures");
+}
+
+function parseArguments(argv) {
+  const dir = fixtureDir();
+  const values = {
+    catalog: resolve(dir, "catalog.synthetic.json"),
+    configuration: resolve(dir, "configuration.synthetic.json"),
+    request: resolve(dir, "request.synthetic.json"),
+    timestamp: null,
+    source: null,
+    now: null,
+    maxAgeMs: DEFAULT_MAX_AGE_MS,
+    check: false,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--check") {
+      values.check = true;
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new Error(`Missing value for ${flag}`);
+    }
+    if (flag === "--catalog") {
+      values.catalog = resolve(value);
+    } else if (flag === "--configuration") {
+      values.configuration = resolve(value);
+    } else if (flag === "--request") {
+      values.request = resolve(value);
+    } else if (flag === "--timestamp") {
+      values.timestamp = value;
+    } else if (flag === "--source") {
+      values.source = value;
+    } else if (flag === "--now") {
+      values.now = value;
+    } else if (flag === "--max-age-ms") {
+      values.maxAgeMs = Number(value);
+    } else if (flag === "--max-age-hours") {
+      values.maxAgeMs = Number(value) * 60 * 60 * 1000;
+    } else {
+      throw new Error(`Unknown argument: ${flag}`);
+    }
+    index += 1;
+  }
+
+  return values;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function catalogSnapshotHash(catalogBody) {
+  return `sha256:${createHash("sha256").update(stableStringify(catalogBody), "utf8").digest("hex")}`;
+}
+
+function requireIsoTimestamp(value, label) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${label} must be a non-empty ISO timestamp string`);
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label} must be an ISO timestamp`);
+  }
+  return new Date(parsed).toISOString();
+}
+
+function requireNonNegativeNumber(value, label) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative number`);
+  }
+  return value;
+}
+
+async function readJsonFile(path, label) {
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    throw new Error(`cannot read ${label} fixture at ${path}: ${error.message}`);
+  }
+  try {
+    return { text, json: JSON.parse(text) };
+  } catch {
+    throw new Error(`${label} fixture at ${path} is not valid JSON`);
+  }
+}
+
+// Collect every string value stored under `key` anywhere in a parsed fixture.
+function collectStringValues(node, key, out) {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      collectStringValues(item, key, out);
+    }
+    return;
+  }
+  if (isPlainObject(node)) {
+    for (const [childKey, childValue] of Object.entries(node)) {
+      if (childKey === key && typeof childValue === "string") {
+        out.push(childValue);
+      } else {
+        collectStringValues(childValue, key, out);
+      }
+    }
+  }
+}
+
+// Replace exact `"key": "<oldValue>"` occurrences in raw text so formatting
+// elsewhere is preserved. Fails closed when the count is not as expected.
+function replaceExactStringValue(text, key, oldValue, newValue, expectedCount) {
+  const pattern = new RegExp(`"${key}"(\\s*:\\s*)${JSON.stringify(oldValue)}`, "g");
+  let count = 0;
+  const edited = text.replace(pattern, (_match, separator) => {
+    count += 1;
+    return `"${key}"${separator}${JSON.stringify(newValue)}`;
+  });
+  if (count !== expectedCount) {
+    throw new Error(
+      `fixture shape is ambiguous for "${key}": expected ${expectedCount} occurrence(s) of ${JSON.stringify(oldValue)}, found ${count}; refusing to edit`,
+    );
+  }
+  return edited;
+}
+
+function shiftIso(value, deltaMs, label) {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label} ${JSON.stringify(value)} is not an ISO timestamp; refusing to edit`);
+  }
+  return new Date(parsed + deltaMs).toISOString();
+}
+
+async function refresh(options) {
+  const { normalizeCatalog, applySupportConfiguration } = await import("../src/index.js");
+
+  const catalogFile = await readJsonFile(options.catalog, "catalog");
+  if (!isPlainObject(catalogFile.json) || !isPlainObject(catalogFile.json.catalog)) {
+    throw new Error("catalog fixture must be an object with a catalog object");
+  }
+  if (!isPlainObject(catalogFile.json.provenance)) {
+    throw new Error("catalog fixture provenance is missing");
+  }
+
+  const recordedTimestamp = requireIsoTimestamp(
+    catalogFile.json.provenance.snapshotTimestamp,
+    "recorded provenance.snapshotTimestamp",
+  );
+  const snapshotTimestamp =
+    options.timestamp !== null && options.timestamp !== undefined
+      ? requireIsoTimestamp(options.timestamp, "--timestamp")
+      : new Date().toISOString();
+  const deltaMs = Date.parse(snapshotTimestamp) - Date.parse(recordedTimestamp);
+  if (deltaMs < 0) {
+    throw new Error(
+      `--timestamp ${snapshotTimestamp} precedes the recorded snapshot ${recordedTimestamp}; refusing to rewind provenance`,
+    );
+  }
+
+  const existingSource =
+    typeof catalogFile.json.provenance.source === "string" &&
+    catalogFile.json.provenance.source.trim() !== ""
+      ? catalogFile.json.provenance.source
+      : DEFAULT_SOURCE;
+  const source =
+    options.source !== null && options.source !== undefined ? options.source : existingSource;
+  if (typeof source !== "string" || source.trim() === "") {
+    throw new Error("provenance source must be a non-empty string");
+  }
+
+  const snapshotHash = catalogSnapshotHash(catalogFile.json.catalog);
+  const provenance = { source, snapshotTimestamp, snapshotHash };
+
+  // Fail closed through the same boundary the CLI uses before writing.
+  const normalized = normalizeCatalog(catalogFile.json.catalog, provenance);
+
+  // Stamp the catalog in place. The catalog boundary rejects unknown fields,
+  // so snapshotTimestamp and snapshotHash can only occur inside provenance;
+  // the occurrence counts below fail closed if that ever changes.
+  let catalogText = catalogFile.text;
+  catalogText = replaceExactStringValue(
+    catalogText,
+    "snapshotTimestamp",
+    catalogFile.json.provenance.snapshotTimestamp,
+    snapshotTimestamp,
+    1,
+  );
+  catalogText = replaceExactStringValue(
+    catalogText,
+    "snapshotHash",
+    catalogFile.json.provenance.snapshotHash,
+    snapshotHash,
+    1,
+  );
+  if (catalogFile.json.provenance.source !== source) {
+    catalogText = replaceExactStringValue(
+      catalogText,
+      "source",
+      catalogFile.json.provenance.source,
+      source,
+      1,
+    );
+  }
+
+  // Shift evidence and evaluation time by the same delta so the set stays
+  // coherent. Values are enumerated from parsed JSON but replaced in raw text
+  // to preserve formatting; the boundary check below rejects strays.
+  const configurationFile = await readJsonFile(options.configuration, "configuration");
+  const observedValues = [];
+  collectStringValues(configurationFile.json, "observedAt", observedValues);
+  let configurationText = configurationFile.text;
+  for (const oldValue of new Set(observedValues)) {
+    const newValue = shiftIso(oldValue, deltaMs, "evidence.observedAt");
+    const expected = observedValues.filter((value) => value === oldValue).length;
+    configurationText = replaceExactStringValue(
+      configurationText,
+      "observedAt",
+      oldValue,
+      newValue,
+      expected,
+    );
+  }
+
+  const requestFile = await readJsonFile(options.request, "request");
+  const evaluationValues = [];
+  collectStringValues(requestFile.json, "evaluationTime", evaluationValues);
+  if (evaluationValues.length > 1) {
+    throw new Error("request fixture evaluationTime shape is ambiguous; refusing to edit");
+  }
+  let requestText = requestFile.text;
+  if (evaluationValues.length === 1) {
+    requestText = replaceExactStringValue(
+      requestText,
+      "evaluationTime",
+      evaluationValues[0],
+      shiftIso(evaluationValues[0], deltaMs, "evaluationTime"),
+      1,
+    );
+  }
+
+  // Verify the edited bytes through the library boundary before writing.
+  const reparsedCatalog = JSON.parse(catalogText);
+  const verified = normalizeCatalog(reparsedCatalog.catalog, reparsedCatalog.provenance);
+  if (verified.provenance.snapshotHash !== catalogSnapshotHash(reparsedCatalog.catalog)) {
+    throw new Error("refreshed catalog bytes do not match the stamped snapshotHash");
+  }
+  applySupportConfiguration(verified, JSON.parse(configurationText));
+  JSON.parse(requestText);
+
+  const changed =
+    catalogText !== catalogFile.text ||
+    configurationText !== configurationFile.text ||
+    requestText !== requestFile.text;
+  if (changed) {
+    await writeFile(options.catalog, catalogText, "utf8");
+    await writeFile(options.configuration, configurationText, "utf8");
+    await writeFile(options.request, requestText, "utf8");
+  }
+
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        ok: true,
+        mode: "refresh",
+        changed,
+        catalog: options.catalog,
+        configuration: options.configuration,
+        request: options.request,
+        provenance: verified.provenance,
+        clockDeltaMs: deltaMs,
+        evidenceStamped: observedValues.length,
+        evaluationTimeStamped: evaluationValues.length,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+async function check(options) {
+  const { normalizeCatalog } = await import("../src/index.js");
+  const catalogFile = await readJsonFile(options.catalog, "catalog");
+  if (!isPlainObject(catalogFile.json) || !isPlainObject(catalogFile.json.catalog)) {
+    throw new Error("catalog fixture must be an object with a catalog object");
+  }
+  if (!isPlainObject(catalogFile.json.provenance)) {
+    throw new Error("catalog fixture provenance is missing");
+  }
+  // Boundary validation first: malformed catalog or provenance fails closed.
+  const catalog = normalizeCatalog(catalogFile.json.catalog, catalogFile.json.provenance);
+
+  const expectedHash = catalogSnapshotHash(catalogFile.json.catalog);
+  if (catalog.provenance.snapshotHash !== expectedHash) {
+    throw new Error(
+      `provenance snapshotHash mismatch: recorded ${catalog.provenance.snapshotHash}, recomputed ${expectedHash}`,
+    );
+  }
+
+  const nowIso =
+    options.now !== null && options.now !== undefined
+      ? requireIsoTimestamp(options.now, "--now")
+      : new Date().toISOString();
+  const maxAgeMs = requireNonNegativeNumber(options.maxAgeMs, "--max-age-ms");
+  const snapshotMs = Date.parse(catalog.provenance.snapshotTimestamp);
+  const ageMs = Date.parse(nowIso) - snapshotMs;
+  if (ageMs < 0) {
+    throw new Error(
+      `catalog snapshot ${catalog.provenance.snapshotTimestamp} is in the future relative to ${nowIso}`,
+    );
+  }
+  if (ageMs > maxAgeMs) {
+    throw new Error(
+      `catalog snapshot ${catalog.provenance.snapshotTimestamp} is stale ` +
+        `(age ${ageMs}ms, limit ${maxAgeMs}ms)`,
+    );
+  }
+
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        ok: true,
+        mode: "check",
+        path: options.catalog,
+        snapshotTimestamp: catalog.provenance.snapshotTimestamp,
+        snapshotHash: catalog.provenance.snapshotHash,
+        ageMs,
+        maxAgeMs,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+async function main() {
+  const options = parseArguments(process.argv.slice(2));
+  if (options.check) {
+    await check(options);
+  } else {
+    await refresh(options);
+  }
+}
+
+// Guarded entrypoint: importing this file (e.g. from tests) must never
+// refresh the live fixtures as a side effect.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (invokedDirectly || import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main().catch((error) => {
+    process.stderr.write(`${error.name}: ${error.message}\n`);
+    process.exitCode = 1;
+  });
+}

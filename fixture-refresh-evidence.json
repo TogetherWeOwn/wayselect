@@ -1,0 +1,47 @@
+{
+  "issue": "TOG-5116",
+  "ranAt": "2026-09-27T00:58:13.501Z",
+  "repoHead": "966eb5c98140603288bef674a0ea632bd6f78572",
+  "stamp": "2026-09-26T15:00:00.000Z",
+  "recordedSnapshot": "2026-09-26T14:00:00.000Z",
+  "provenanceHash": "sha256:4c3fc1cff7c83871b4f0600b0688cb87fe27cb82f6f42672460dd2dadb2a2e5d",
+  "golden": {
+    "status": "selected",
+    "routeId": "northstar/alpha-chat",
+    "adapter": "fake",
+    "networkUsed": false
+  },
+  "checks": [
+    {
+      "name": "refresh: stamps provenance at the pinned stamp",
+      "status": "pass",
+      "detail": "changed:true hash=sha256:4c3fc1cff7c83…"
+    },
+    {
+      "name": "refresh: stamped hash matches the stored catalog body",
+      "status": "pass",
+      "detail": "recorded sha256:4c3fc1cff7c83… recomputed identically"
+    },
+    {
+      "name": "refresh: same stamp is a byte-identical no-op",
+      "status": "pass",
+      "detail": "changed:false, 3/3 files byte-identical"
+    },
+    {
+      "name": "refresh: --check passes on the refreshed catalog",
+      "status": "pass",
+      "detail": "fresh at stamp (age 0ms)"
+    },
+    {
+      "name": "golden: refreshed fixtures still select northstar/alpha-chat",
+      "status": "pass",
+      "detail": "selected northstar/alpha-chat; networkUsed=false; provenance hash matches stamp"
+    },
+    {
+      "name": "suite: full test suite stays green",
+      "status": "pass",
+      "detail": "18 test files, exit 0"
+    }
+  ],
+  "verdict": "PASS"
+}

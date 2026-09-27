@@ -1,0 +1,244 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/TogetherWeOwn/wayselect/schema/catalog-entry/v1.json",
+  "title": "WayselectCatalogEntry",
+  "description": "Versioned schema (v1) for a single models.dev catalog entry ingested by Wayselect. Fail-closed: additionalProperties is false at every object level, so unknown fields are rejected.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "providerId", "modelId", "provenance", "entry"],
+  "properties": {
+    "schemaVersion": {
+      "description": "Wayselect catalog-entry schema version. Only v1 is accepted by this validator.",
+      "const": "v1"
+    },
+    "providerId": { "type": "string", "minLength": 1 },
+    "modelId": { "type": "string", "minLength": 1 },
+    "provenance": {
+      "description": "Where this entry came from; always present so rejections can name the source.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "fetchedAt"],
+      "properties": {
+        "source": {
+          "description": "Catalog URL or fixture path the entry was read from.",
+          "type": "string",
+          "minLength": 1
+        },
+        "fetchedAt": {
+          "description": "RFC 3339 timestamp of when the entry was fetched.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "etag": { "type": "string" }
+      }
+    },
+    "entry": { "$ref": "#/definitions/model" }
+  },
+  "definitions": {
+    "modality": { "enum": ["text", "image", "audio", "video", "pdf"] },
+    "costObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cache_read": { "type": "number", "minimum": 0 },
+        "cache_write": { "type": "number", "minimum": 0 },
+        "reasoning": { "type": "number", "minimum": 0 },
+        "input_audio": { "type": "number", "minimum": 0 },
+        "output_audio": { "type": "number", "minimum": 0 }
+      }
+    },
+    "costTier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output", "tier"],
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cache_read": { "type": "number", "minimum": 0 },
+        "cache_write": { "type": "number", "minimum": 0 },
+        "input_audio": { "type": "number", "minimum": 0 },
+        "reasoning": { "type": "number", "minimum": 0 },
+        "tier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "size"],
+          "properties": {
+            "type": { "const": "context" },
+            "size": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cache_read": { "type": "number", "minimum": 0 },
+        "cache_write": { "type": "number", "minimum": 0 },
+        "reasoning": { "type": "number", "minimum": 0 },
+        "input_audio": { "type": "number", "minimum": 0 },
+        "output_audio": { "type": "number", "minimum": 0 },
+        "context_over_200k": { "$ref": "#/definitions/costObject" },
+        "tiers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/costTier" }
+        }
+      }
+    },
+    "reasoningOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["toggle", "effort", "budget_tokens"] },
+        "values": { "type": "array", "minItems": 1, "items": { "type": ["string", "null"] } },
+        "min": { "type": "number" },
+        "max": { "type": "number" }
+      }
+    },
+    "interleaved": {
+      "description": "How interleaved thinking content is exposed: a bare flag or a named field mapping.",
+      "anyOf": [
+        { "const": true },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["field"],
+          "properties": {
+            "field": { "enum": ["reasoning_content", "reasoning_details"] }
+          }
+        }
+      ]
+    },
+    "scalarValue": { "type": ["string", "number", "boolean"] },
+    "flatStringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "providerBody": {
+      "description": "Opaque provider request overrides. Keys are provider-defined, but values are bounded to scalars or one flat string map so fail-closed key checking still applies at every level.",
+      "type": "object",
+      "additionalProperties": {
+        "anyOf": [
+          { "$ref": "#/definitions/scalarValue" },
+          { "$ref": "#/definitions/flatStringMap" }
+        ]
+      }
+    },
+    "experimentalMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cost": { "$ref": "#/definitions/costObject" },
+        "provider": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "body": { "$ref": "#/definitions/providerBody" },
+            "headers": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "experimental": {
+      "description": "Provider-specific experimental serving modes. Mode names are an open vocabulary keyed by the provider, but each mode's value shape is strictly validated.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modes"],
+      "properties": {
+        "modes": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/definitions/experimentalMode" }
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description",
+        "attachment",
+        "reasoning",
+        "tool_call",
+        "release_date",
+        "last_updated",
+        "modalities",
+        "open_weights",
+        "limit"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "family": { "type": "string" },
+        "attachment": { "type": "boolean" },
+        "reasoning": { "type": "boolean" },
+        "reasoning_options": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/reasoningOption" }
+        },
+        "tool_call": { "type": "boolean" },
+        "structured_output": { "type": "boolean" },
+        "temperature": { "type": "boolean" },
+        "release_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}(-\\d{2})?$" },
+        "last_updated": { "type": "string", "pattern": "^\\d{4}-\\d{2}(-\\d{2})?$" },
+        "knowledge": { "type": "string", "pattern": "^\\d{4}-\\d{2}(-\\d{2})?$" },
+        "interleaved": { "$ref": "#/definitions/interleaved" },
+        "experimental": { "$ref": "#/definitions/experimental" },
+        "status": { "enum": ["deprecated", "beta"] },
+        "modalities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "output"],
+          "properties": {
+            "input": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/definitions/modality" }
+            },
+            "output": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/definitions/modality" }
+            }
+          }
+        },
+        "open_weights": { "type": "boolean" },
+        "limit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["context", "output"],
+          "properties": {
+            "context": { "type": "integer", "minimum": 0 },
+            "input": { "type": "integer", "minimum": 0 },
+            "output": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "cost": { "$ref": "#/definitions/cost" },
+        "provider": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "npm": { "type": "string" },
+            "api": { "type": "string" },
+            "shape": { "enum": ["responses", "completions"] },
+            "body": { "$ref": "#/definitions/providerBody" }
+          }
+        }
+      }
+    }
+  }
+}

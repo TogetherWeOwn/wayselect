@@ -58,6 +58,81 @@ test("marks old support evidence stale", async () => {
   assert.ok(legacy.reasons.includes("stale-evidence"));
 });
 
+test("malformed evidence timestamps fail closed as invalid evidence", async () => {
+  // TOG-4951 HIGH-1: Date.parse returns NaN for malformed input, and NaN
+  // comparisons are always false, so without the invalid-evidence guard these
+  // tampered timestamps passed with zero reasons (fail-open). Every variant
+  // below must yield exactly ["invalid-evidence"] and eligible === false.
+  const tamperedValues = [
+    "not-a-date",
+    "",
+    "   ",
+    "2026-13-45",
+    "Infinity",
+    "NaN",
+    undefined,
+    null,
+    1727265600000,
+    true,
+    {},
+    [],
+  ];
+  const { candidates } = await loadConfiguredCandidates();
+
+  for (const observedAt of tamperedValues) {
+    const tampered = structuredClone(candidates);
+    const target = tampered.find(
+      (candidate) => candidate.routeId === "northstar/alpha-chat",
+    );
+    target.evidence = { observedAt };
+
+    const evaluations = evaluateEligibility(
+      tampered,
+      {
+        operation: "chat",
+        requiredCapabilities: [],
+        providerAllowlist: ["northstar"],
+      },
+      evaluationOptions,
+    );
+    const alpha = evaluations.find(
+      (candidate) => candidate.routeId === "northstar/alpha-chat",
+    );
+
+    assert.equal(alpha.eligible, false, `observedAt=${String(observedAt)}`);
+    assert.deepEqual(
+      [...alpha.reasons],
+      ["invalid-evidence"],
+      `observedAt=${String(observedAt)}`,
+    );
+  }
+});
+
+test("absent support evidence fails closed as missing evidence", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const tampered = structuredClone(candidates);
+  const target = tampered.find(
+    (candidate) => candidate.routeId === "northstar/alpha-chat",
+  );
+  delete target.evidence;
+
+  const evaluations = evaluateEligibility(
+    tampered,
+    {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+    },
+    evaluationOptions,
+  );
+  const alpha = evaluations.find(
+    (candidate) => candidate.routeId === "northstar/alpha-chat",
+  );
+
+  assert.equal(alpha.eligible, false);
+  assert.deepEqual([...alpha.reasons], ["missing-evidence"]);
+});
+
 test("unknown required capabilities fail closed as missing data", async () => {
   const { candidates } = await loadConfiguredCandidates();
   const evaluations = evaluateEligibility(
@@ -71,4 +146,93 @@ test("unknown required capabilities fail closed as missing data", async () => {
       candidate.reasons.includes("missing-capability:unpublishedCapability"),
     ),
   );
+});
+
+test("malformed candidates fail closed with EligibilityRequestError", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const valid = candidates.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+
+  assert.throws(
+    () => evaluateEligibility(null, defaultRequest, evaluationOptions),
+    EligibilityRequestError,
+  );
+  assert.throws(
+    () => evaluateEligibility([{ ...valid, capabilities: null }], defaultRequest, evaluationOptions),
+    /capabilities must be an object/,
+  );
+  assert.throws(
+    () => evaluateEligibility([{ ...valid, catalogOperations: undefined }], defaultRequest, evaluationOptions),
+    /catalogOperations must be an array/,
+  );
+  assert.throws(
+    () =>
+      evaluateEligibility(
+        candidates,
+        { ...defaultRequest, requiredCapabilities: null },
+        evaluationOptions,
+      ),
+    EligibilityRequestError,
+  );
+});
+
+test("malformed evidence observedAt fails closed as invalid-evidence", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const base = candidates.find((candidate) => candidate.routeId === "northstar/alpha-chat");
+  const malformed = [
+    { observedAt: "garbage-not-a-date" },
+    { observedAt: 12345 },
+    { observedAt: "" },
+    "not-an-object",
+  ];
+
+  for (const evidence of malformed) {
+    const tampered = [{ ...base, evidence }];
+    const evaluations = evaluateEligibility(
+      tampered,
+      defaultRequest,
+      evaluationOptions,
+    );
+    assert.equal(evaluations[0].eligible, false);
+    assert.ok(evaluations[0].reasons.includes("invalid-evidence"));
+  }
+});
+
+// TOG-5299: catalog-less calls used to skip the staleness gate silently
+// (catalogProbe null => stale/future-catalog branch never runs). Omission is
+// now loud: an explicit catalog or an explicit skipCatalogCheck:true opt-out
+// is required; stripping the flag from the shared helper options throws.
+test("catalog-less eligibility without the explicit opt-out throws", async () => {
+  const { candidates } = await loadConfiguredCandidates();
+  const { skipCatalogCheck: _ignored, ...withoutOptOut } = evaluationOptions;
+
+  assert.throws(
+    () => evaluateEligibility(candidates, defaultRequest, withoutOptOut),
+    /options\.catalog is required for catalog freshness enforcement/,
+  );
+  assert.throws(
+    () =>
+      evaluateEligibility(candidates, defaultRequest, {
+        ...withoutOptOut,
+        maxCatalogAgeMs: 24 * 60 * 60 * 1000,
+      }),
+    /options\.catalog is required when options\.maxCatalogAgeMs is set/,
+  );
+  assert.throws(
+    () =>
+      evaluateEligibility(candidates, defaultRequest, {
+        ...withoutOptOut,
+        skipCatalogCheck: "yes",
+      }),
+    /options\.skipCatalogCheck must be a boolean/,
+  );
+
+  // The explicit opt-out preserves the pre-gate behavior: capability and
+  // evidence checks run, and alpha-chat stays eligible.
+  const evaluations = evaluateEligibility(
+    candidates,
+    defaultRequest,
+    evaluationOptions,
+  );
+  const byRoute = new Map(evaluations.map((candidate) => [candidate.routeId, candidate]));
+  assert.equal(byRoute.get("northstar/alpha-chat").eligible, true);
 });

@@ -1,0 +1,63 @@
+{
+  "valid": {
+    "providerId": "northstar",
+    "modelId": "seller-chat",
+    "entry": {
+      "id": "seller-chat",
+      "name": "Seller Chat",
+      "description": "A synthetic seller-submitted chat listing. No compatibility, cost, or savings claims.",
+      "attachment": false,
+      "reasoning": false,
+      "tool_call": true,
+      "structured_output": true,
+      "modalities": {
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "limit": {
+        "context": 8192,
+        "output": 2048
+      },
+      "cost": {
+        "input": 1,
+        "output": 2
+      },
+      "release_date": "2026-08",
+      "last_updated": "2026-09-20",
+      "open_weights": false,
+      "status": "beta"
+    },
+    "provenance": {
+      "source": "synthetic://wayselect/seller-fixture-v1",
+      "fetchedAt": "2026-09-24T10:00:00.000Z"
+    }
+  },
+  "minimal": {
+    "providerId": "northstar",
+    "modelId": "price-unpublished",
+    "entry": {
+      "id": "price-unpublished",
+      "name": "Price Unpublished",
+      "description": "A synthetic listing with unpublished price. No cost or savings claims.",
+      "attachment": true,
+      "reasoning": false,
+      "tool_call": false,
+      "modalities": {
+        "input": ["image"],
+        "output": ["text"]
+      },
+      "limit": {
+        "context": 4096,
+        "output": 1024
+      },
+      "release_date": "2026-09",
+      "last_updated": "2026-09-24",
+      "open_weights": true
+    },
+    "provenance": {
+      "source": "synthetic://wayselect/seller-fixture-v1",
+      "fetchedAt": "2026-09-24T10:00:00.000Z",
+      "etag": "synthetic-etag-1"
+    }
+  }
+}

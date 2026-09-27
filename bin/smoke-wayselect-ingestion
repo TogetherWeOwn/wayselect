@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+/**
+ * Nightly ingestion smoke for the Wayselect fixture pipeline (TOG-5246).
+ *
+ * Exercises the proven ingestion boundaries with fixture data only:
+ * catalog normalization + provenance, freshness probe, stale fail-closed
+ * routing, catalog-entry schema validation, deterministic snapshot hashing,
+ * and the dry-run CLI demo (fresh selects, stale refuses, never transports).
+ *
+ * No network, no credentials, no spend, no production authority. Exit code
+ * is 0 only when every check passes. Runs nightly via the schedule trigger
+ * in .github/workflows/ci.yml, and on every push/PR through the same job
+ * so each PR carries its own green run log.
+ */
+
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import {
+  CatalogStaleError,
+  applySupportConfiguration,
+  buildSnapshot,
+  checkCatalogFreshness,
+  normalizeCatalog,
+  requireFreshCatalog,
+  selectRoute,
+} from "../src/index.js";
+import { validateCatalogEntry } from "../src/validate-catalog-entry.js";
+
+const execFileAsync = promisify(execFile);
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const MAX_CATALOG_AGE_MS = 24 * 60 * 60 * 1000;
+const MAX_EVIDENCE_AGE_MS = 72 * 60 * 60 * 1000;
+
+const checks = [];
+
+async function check(name, fn) {
+  try {
+    const detail = await fn();
+    checks.push({ name, status: "pass", detail });
+    process.stdout.write(`PASS  ${name} — ${detail}\n`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    checks.push({ name, status: "fail", detail });
+    process.stdout.write(`FAIL  ${name}: ${detail}\n`);
+  }
+}
+
+function assertEqual(actual, expected, label) {
+  if (actual !== expected) {
+    throw new Error(
+      `${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
+  }
+}
+
+function assertMatch(actual, re, label) {
+  if (typeof actual !== "string" || !re.test(actual)) {
+    throw new Error(`${label}: ${JSON.stringify(actual)} does not match ${re}`);
+  }
+}
+
+async function readJson(path) {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function runCli(args, cwd = REPO_ROOT) {
+  const { stdout, stderr } = await execFileAsync(process.execPath, args, { cwd });
+  if (stderr) throw new Error(`CLI stderr: ${stderr.slice(0, 200)}`);
+  return JSON.parse(stdout);
+}
+
+async function main() {
+  const catalogFixture = await readJson(join(REPO_ROOT, "fixtures", "catalog.synthetic.json"));
+  const configuration = await readJson(
+    join(REPO_ROOT, "fixtures", "configuration.synthetic.json"),
+  );
+  const request = await readJson(join(REPO_ROOT, "fixtures", "request.synthetic.json"));
+
+  await check("ingest: catalog fixture normalizes with provenance", async () => {
+    const catalog = normalizeCatalog(catalogFixture.catalog, catalogFixture.provenance);
+    assertEqual(catalog.entries.length, 6, "entry count");
+    assertMatch(catalog.provenance.source, /^synthetic:\/\//, "provenance.source");
+    assertMatch(
+      catalog.provenance.snapshotHash,
+      /^sha256:[0-9a-f]{64}$/,
+      "provenance.snapshotHash",
+    );
+    return `${catalog.entries.length} entries from ${catalog.provenance.source}`;
+  });
+
+  await check("freshness: fresh snapshot passes the probe", async () => {
+    const catalog = normalizeCatalog(catalogFixture.catalog, catalogFixture.provenance);
+    const freshNow = new Date(Date.parse(catalog.provenance.snapshotTimestamp) + 2 * 60 * 60 * 1000);
+    const probe = checkCatalogFreshness(catalog, { now: freshNow, maxCatalogAgeMs: MAX_CATALOG_AGE_MS });
+    assertEqual(probe.fresh, true, "probe.fresh");
+    requireFreshCatalog(catalog, { now: freshNow, maxCatalogAgeMs: MAX_CATALOG_AGE_MS });
+    return `fresh at +2h against a 24h limit`;
+  });
+
+  await check("fail-closed: stale snapshot refuses routing", async () => {
+    const catalog = normalizeCatalog(catalogFixture.catalog, catalogFixture.provenance);
+    const staleNow = new Date(
+      Date.parse(catalog.provenance.snapshotTimestamp) + MAX_CATALOG_AGE_MS + 1000,
+    );
+    const candidates = applySupportConfiguration(catalog, configuration);
+    const result = selectRoute(candidates, request.selection, {
+      now: new Date(request.evaluationTime),
+      maxEvidenceAgeMs: MAX_EVIDENCE_AGE_MS,
+      catalog,
+      maxCatalogAgeMs: 1,
+    });
+    assertEqual(result.status, "no-eligible-route", "selection.status");
+    assertEqual(result.selected, null, "selection.selected");
+    let threw = false;
+    try {
+      requireFreshCatalog(catalog, { now: staleNow, maxCatalogAgeMs: MAX_CATALOG_AGE_MS });
+    } catch (error) {
+      if (!(error instanceof CatalogStaleError)) throw error;
+      threw = true;
+    }
+    if (!threw) throw new Error("requireFreshCatalog did not throw on a stale snapshot");
+    return `no route served past the 24h limit; CatalogStaleError raised`;
+  });
+
+  await check("schema: catalog-entry validator accepts valid, rejects bad", async () => {
+    const fixture = (name) =>
+      readJson(join(REPO_ROOT, "test", "fixtures", name));
+    const valid = validateCatalogEntry(await fixture("valid.json"));
+    assertEqual(valid.ok, true, "valid.json");
+    for (const name of ["malformed.json", "stale.json", "unknown-field.json"]) {
+      const result = validateCatalogEntry(await fixture(name));
+      assertEqual(result.ok, false, `${name} ok flag`);
+      assertMatch(result.error, /Catalog entry rejected/, `${name} verdict`);
+      assertMatch(
+        result.error,
+        /source=https:\/\/models\.dev\/api\.json fetchedAt=/,
+        `${name} provenance`,
+      );
+    }
+    return `1 accepted, 3 rejected with provenance`;
+  });
+
+  await check("snapshot: content hash is deterministic", async () => {
+    const first = buildSnapshot(catalogFixture.catalog, catalogFixture.provenance);
+    const second = buildSnapshot(catalogFixture.catalog, catalogFixture.provenance);
+    assertEqual(first.contentHash, second.contentHash, "contentHash stability");
+    assertMatch(first.contentHash, /^sha256:[0-9a-f]{64}$/, "contentHash shape");
+    assertEqual(first.entries.length, 6, "snapshot entry count");
+    return `${first.contentHash.slice(0, 15)}… stable across builds`;
+  });
+
+  await check("demo: dry-run CLI selects a route without network", async () => {
+    const out = await runCli([join(REPO_ROOT, "bin", "wayselect")]);
+    assertEqual(out.mode, "dry-run-only", "mode");
+    assertEqual(out.selection.status, "selected", "selection.status");
+    assertEqual(out.selection.selected.routeId, "northstar/alpha-chat", "selected route");
+    assertEqual(out.transport.networkUsed, false, "transport.networkUsed");
+    return `selected northstar/alpha-chat; networkUsed=false`;
+  });
+
+  await check("demo: stale CLI serves no route and no transport", async () => {
+    const workDir = await mkdtemp(join(tmpdir(), "wayselect-smoke-"));
+    try {
+      const staleRequest = {
+        ...request,
+        evaluationTime: "2026-09-25T10:00:01.000Z",
+      };
+      const requestPath = join(workDir, "request.json");
+      await writeFile(requestPath, JSON.stringify(staleRequest));
+      const out = await runCli([
+        join(REPO_ROOT, "bin", "wayselect"),
+        "--request",
+        requestPath,
+      ]);
+      assertEqual(out.selection.status, "no-eligible-route", "selection.status");
+      assertEqual(out.selection.selected, null, "selection.selected");
+      assertEqual(out.transport, null, "transport");
+      return `no-eligible-route with null transport past the 24h limit`;
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  const failed = checks.filter((c) => c.status === "fail");
+  process.stdout.write(
+    `\nsmoke: ${checks.length - failed.length}/${checks.length} passed\n`,
+  );
+  process.exit(failed.length === 0 ? 0 : 1);
+}
+
+main().catch((error) => {
+  process.stderr.write(`ERROR: ${error instanceof Error ? error.stack : error}\n`);
+  process.exit(2);
+});

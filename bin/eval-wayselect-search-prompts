@@ -1,0 +1,174 @@
+#!/usr/bin/env node
+
+// Search-prompt regression eval for the Wayselect storefront (TOG-5492).
+//
+// Compares two prompt versions over 20 fixed queries against the stub
+// listings in web/stub-listing.js and records top-1 relevance before/after:
+//   v1-baseline       — raw substring pass-through (shipped S2 rule)
+//   v2-cue-extraction — interpret-then-match (see prompts/v2-cue-extraction.md)
+//
+// Usage: node bin/eval-wayselect-search-prompts [--seed 5492] [--write]
+//   --write  rewrite evals/search-prompt-regression/results.md with this run
+//   --seed   deterministic seed for the shuffle-invariance self-check
+//            (default 5492); recorded in the results for reproducibility.
+//
+// Zero dependencies: Node standard library only. No network, no credentials,
+// no paid calls. Ranking lives in support/search-prompts.js (imported here so
+// the eval and the repo test pin the same code). Exit 0 when the eval
+// completes, 1 on crash or a failed determinism self-check. The eval
+// measures — it never gates — so regressions exit 0.
+
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { STUB_LISTINGS } from "../web/stub-listing.js";
+import { rankV1, rankV2, routeId, top1 } from "../support/search-prompts.js";
+
+const EVAL_DIR = new URL("../evals/search-prompt-regression/", import.meta.url);
+const QUERIES_FILE = new URL("queries.json", EVAL_DIR);
+const RESULTS_FILE = new URL("results.md", EVAL_DIR);
+const V1_FILE = new URL("prompts/v1-baseline.md", EVAL_DIR);
+const V2_FILE = new URL("prompts/v2-cue-extraction.md", EVAL_DIR);
+
+const args = process.argv.slice(2);
+const WRITE = args.includes("--write");
+const seedIndex = args.indexOf("--seed");
+const SEED = seedIndex === -1 ? 5492 : Number.parseInt(args[seedIndex + 1], 10);
+if (!Number.isInteger(SEED) || SEED < 0) {
+  console.error(`eval-wayselect-search-prompts: --seed must be a non-negative integer`);
+  process.exit(1);
+}
+
+function mulberry32(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffled(listings, seed) {
+  const rand = mulberry32(seed);
+  const copy = [...listings];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function sha256(text) {
+  return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 12);
+}
+
+async function main() {
+  const startedAt = Date.now();
+  const [queriesRaw, v1Raw, v2Raw] = await Promise.all([
+    readFile(QUERIES_FILE, "utf8"),
+    readFile(V1_FILE, "utf8"),
+    readFile(V2_FILE, "utf8"),
+  ]);
+  const queries = JSON.parse(queriesRaw);
+  if (!Array.isArray(queries) || queries.length !== 20) {
+    throw new Error(`expected 20 fixed queries, found ${Array.isArray(queries) ? queries.length : "non-array"}`);
+  }
+
+  // Determinism self-check (seed recorded for reproducibility):
+  //  - both versions are repeatable: identical top-1s across repeated runs
+  //    on the same input;
+  //  - v2 is additionally shuffle-invariant on non-blank queries (canonical
+  //    S7 stub-order tie-breaks), so its top-1s never depend on caller
+  //    input order.
+  // v1 deliberately preserves caller order (pass-through of the shipped S2
+  // rule), so multi-match queries (e.g. Q05 "northstar") are order-dependent
+  // by design; production is reproducible because the server always feeds
+  // canonical stub order. Blank queries (S3: no text filtering) preserve
+  // caller order in both versions.
+  const shuffledListings = shuffled(STUB_LISTINGS, SEED);
+  for (const { id, query } of queries) {
+    for (const [name, rank] of [["v1", rankV1], ["v2", rankV2]]) {
+      const a = JSON.stringify(rank(STUB_LISTINGS, query).map(routeId));
+      const b = JSON.stringify(rank(STUB_LISTINGS, query).map(routeId));
+      if (a !== b) {
+        throw new Error(`determinism self-check failed (seed ${SEED}): ${name} ${id} not repeatable`);
+      }
+    }
+    if (query.trim() === "") {
+      continue;
+    }
+    const v2a = routeId(top1(rankV2(STUB_LISTINGS, query)));
+    const v2b = routeId(top1(rankV2(shuffledListings, query)));
+    if (v2a !== v2b) {
+      throw new Error(`determinism self-check failed (seed ${SEED}): v2 ${id} top-1 moved ${v2a} -> ${v2b} under shuffle`);
+    }
+  }
+
+  const rows = queries.map(({ id, query, expectedTop1, note }) => {
+    const before = routeId(top1(rankV1(STUB_LISTINGS, query)));
+    const after = routeId(top1(rankV2(STUB_LISTINGS, query)));
+    return {
+      id, query, expectedTop1, before, after,
+      beforeHit: before === expectedTop1,
+      afterHit: after === expectedTop1,
+      fixed: before !== expectedTop1 && after === expectedTop1,
+      regressed: before === expectedTop1 && after !== expectedTop1,
+      note,
+    };
+  });
+
+  const beforeHits = rows.filter((r) => r.beforeHit).length;
+  const afterHits = rows.filter((r) => r.afterHit).length;
+  const fixed = rows.filter((r) => r.fixed).length;
+  const regressed = rows.filter((r) => r.regressed).length;
+  const elapsedS = ((Date.now() - startedAt) / 1000).toFixed(1);
+
+  const cell = (value) => value ?? "∅ (no match)";
+  const mark = (hit) => (hit ? "✓" : "✗");
+  const lines = [
+    `# Search-prompt regression eval — results (TOG-5492)`,
+    ``,
+    `20 fixed queries over the 3 stub listings in \`web/stub-listing.js\`.`,
+    `\`before\` = v1-baseline (raw substring pass-through, shipped S2 rule);`,
+    `\`after\` = v2-cue-extraction (interpret-then-match). Top-1 compared to the`,
+    `golden \`expectedTop1\` in \`queries.json\` (\`∅\` = honest no-match).`,
+    ``,
+    `| ID | Query | Expected top-1 | Before top-1 | After top-1 | Before | After | Note |`,
+    `| --- | --- | --- | --- | --- | --- | --- | --- |`,
+    ...rows.map((r) =>
+      `| ${r.id} | \`${r.query.replaceAll("`", "")}\` | ${cell(r.expectedTop1)} | ${cell(r.before)} | ${cell(r.after)} | ${mark(r.beforeHit)} | ${mark(r.afterHit)} | ${r.note} |`,
+    ),
+    ``,
+    `**Summary: before ${beforeHits}/20, after ${afterHits}/20 — ${fixed} fixed, ${regressed} regressed.**`,
+    ``,
+    `Reproducibility: \`node bin/eval-wayselect-search-prompts --seed ${SEED}\` (stdlib only,`,
+    `no network). Determinism self-check passed: both versions are repeatable, and`,
+    `v2 top-1s on non-blank queries are shuffle-invariant with seed ${SEED} (S7`,
+    `stub-order tie-breaks). v1 multi-matches preserve caller order by design (the`,
+    `server always feeds canonical stub order, so production top-1s reproduce);`,
+    `blank queries (S3) preserve caller order in both versions.`,
+    `Content hashes — queries.json \`${sha256(queriesRaw)}\`, v1-baseline.md \`${sha256(v1Raw)}\`,`,
+    `v2-cue-extraction.md \`${sha256(v2Raw)}\`. Run time ${elapsedS}s (budget 90 run-min).`,
+    ``,
+  ];
+  const markdown = lines.join("\n");
+
+  for (const r of rows) {
+    const flag = r.regressed ? "REGRESSED" : r.fixed ? "fixed" : r.afterHit ? "hit" : "miss";
+    process.stdout.write(`${r.id} ${JSON.stringify(r.query)} expected=${cell(r.expectedTop1)} before=${cell(r.before)} after=${cell(r.after)} [${flag}]\n`);
+  }
+  process.stdout.write(`SUMMARY: before ${beforeHits}/20, after ${afterHits}/20, ${fixed} fixed, ${regressed} regressed — ${elapsedS}s\n`);
+
+  if (WRITE) {
+    await writeFile(RESULTS_FILE, markdown);
+    process.stdout.write(`wrote ${RESULTS_FILE}\n`);
+  }
+}
+
+try {
+  await main();
+} catch (error) {
+  console.error(`eval-wayselect-search-prompts: ${error.message}`);
+  process.exit(1);
+}

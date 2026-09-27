@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import {
   applySupportConfiguration,
@@ -22,7 +23,24 @@ export async function loadConfiguredCandidates() {
   };
 }
 
+// Evaluation clock derived from the live catalog snapshot so the suite stays
+// green across provenance refreshes: evaluation sits two hours after the
+// snapshot, matching the recorded QA scenario distance. Sync read keeps the
+// helper usable from both sync and async test contexts.
+export function evaluationNow() {
+  const fixture = JSON.parse(
+    readFileSync(new URL("../fixtures/catalog.synthetic.json", import.meta.url), "utf8"),
+  );
+  return new Date(Date.parse(fixture.provenance.snapshotTimestamp) + 2 * 60 * 60 * 1000);
+}
+
+// TOG-5299: these unit options intentionally exercise the non-catalog gates
+// (capabilities, evidence, providers), so they carry the explicit catalog
+// opt-out rather than silently skipping freshness enforcement.
 export const evaluationOptions = Object.freeze({
-  now: new Date("2026-09-24T12:00:00.000Z"),
+  get now() {
+    return evaluationNow();
+  },
   maxEvidenceAgeMs: 72 * 60 * 60 * 1000,
+  skipCatalogCheck: true,
 });

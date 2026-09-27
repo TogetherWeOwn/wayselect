@@ -1,0 +1,237 @@
+#!/usr/bin/env node
+
+// Single-run models.dev catalog freshness probe (TOG-5551).
+//
+// Follow-up to the models.dev catalog ingestion work (TOG-4791): re-fetch
+// the live models.dev catalog (or read a saved copy with --input), diff its
+// route ids against the ingested fixture snapshot (added/removed/changed),
+// compare provenance fields, and report the fixture freshness verdict.
+//
+// Read-only: never writes to the catalog, never configures routes, never
+// touches production. The only networked path is an explicit --fetch of the
+// public catalog URL (no credentials, no spend). Stdlib only.
+//
+// Usage:
+//   node bin/check-models-dev-freshness --fetch [--report <path>]
+//   node bin/check-models-dev-freshness --input <file> [--report <path>]
+//   node bin/check-models-dev-freshness --fetch --json
+//   npm run probe:models-dev
+//
+// Options:
+//   --fetch                  fetch the live catalog from --fetch-url
+//   --input <file>           read a saved catalog copy instead (offline; used by tests)
+//   --fetch-url <url>        live catalog URL (default https://models.dev/api.json)
+//   --catalog <path>         fixture snapshot to diff against
+//                            (default fixtures/catalog.synthetic.json)
+//   --now <ISO>              evaluation clock (default: current time)
+//   --max-catalog-age-hours <n>  freshness window in hours (default 24)
+//   --report <path>          also write the Markdown report to a file
+//   --json                   print a machine-readable JSON summary instead of Markdown
+//
+// Exit codes: 0 on a completed probe (even when the fixture is stale or the
+// catalog drifted — drift is reported, not failed), 1 on usage errors,
+// unreadable input, fetch failure, or malformed data.
+
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { normalizeCatalog, checkCatalogFreshness } from "../src/index.js";
+import {
+  compareProbeProvenance,
+  diffProbedRoutes,
+  extractLiveRoutes,
+  formatProbeReport,
+} from "../src/modelsDevProbe.js";
+import {
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
+
+export const DEFAULT_MODELS_DEV_URL = "https://models.dev/api.json";
+const DEFAULT_CATALOG = "fixtures/catalog.synthetic.json";
+const DEFAULT_MAX_AGE_HOURS = 24;
+const FETCH_TIMEOUT_MS = 30000;
+
+function parseArguments(argv) {
+  const values = {
+    fetch: false,
+    input: null,
+    fetchUrl: DEFAULT_MODELS_DEV_URL,
+    catalog: DEFAULT_CATALOG,
+    now: null,
+    maxCatalogAgeHours: String(DEFAULT_MAX_AGE_HOURS),
+    report: null,
+    json: false,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--fetch") {
+      values.fetch = true;
+      continue;
+    }
+    if (flag === "--json") {
+      values.json = true;
+      continue;
+    }
+    if (
+      flag === "--input" ||
+      flag === "--fetch-url" ||
+      flag === "--catalog" ||
+      flag === "--now" ||
+      flag === "--max-catalog-age-hours" ||
+      flag === "--report"
+    ) {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith("--")) {
+        throw new Error(missingValueMessage(flag));
+      }
+      if (flag === "--input") {
+        values.input = value;
+      } else if (flag === "--fetch-url") {
+        values.fetchUrl = value;
+      } else if (flag === "--catalog") {
+        values.catalog = value;
+      } else if (flag === "--now") {
+        values.now = value;
+      } else if (flag === "--max-catalog-age-hours") {
+        values.maxCatalogAgeHours = value;
+      } else {
+        values.report = value;
+      }
+      index += 1;
+      continue;
+    }
+    throw new Error(unknownArgumentMessage(flag));
+  }
+  if (values.fetch && values.input !== null) {
+    throw new Error("probe takes either --fetch or --input, not both");
+  }
+  if (!values.fetch && values.input === null) {
+    throw new Error("probe needs --fetch or --input <file>");
+  }
+  return values;
+}
+
+async function fetchLiveCatalog(url) {
+  // The ONLY networked path in this probe: explicit opt-in via --fetch,
+  // never exercised in tests (tests use --input).
+  const startedAt = Date.now();
+  let response;
+  try {
+    response = await globalThis.fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  } catch (error) {
+    throw new Error(`Cannot fetch ${url}: ${error.message}`);
+  }
+  if (!response.ok) {
+    throw new Error(`Cannot fetch ${url}: HTTP ${response.status}`);
+  }
+  const rawText = await response.text();
+  return { rawText, source: url, fetchDurationMs: Date.now() - startedAt };
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+
+  const maxAgeHours = Number(args.maxCatalogAgeHours);
+  if (!Number.isFinite(maxAgeHours) || maxAgeHours < 0) {
+    throw new Error(invalidMaxCatalogAgeMessage());
+  }
+  const maxCatalogAgeMs = maxAgeHours * 60 * 60 * 1000;
+  const now = args.now === null ? new Date() : new Date(args.now);
+  if (!Number.isFinite(now.getTime())) {
+    throw new Error("options.now must be a valid date");
+  }
+
+  const fixture = JSON.parse(await readFile(resolve(args.catalog), "utf8"));
+  const catalog = normalizeCatalog(fixture.catalog, fixture.provenance);
+
+  let rawText;
+  let liveSource;
+  let fetchDurationMs;
+  if (args.fetch) {
+    const fetched = await fetchLiveCatalog(args.fetchUrl);
+    rawText = fetched.rawText;
+    liveSource = fetched.source;
+    fetchDurationMs = fetched.fetchDurationMs;
+  } else {
+    const startedAt = Date.now();
+    rawText = await readFile(resolve(args.input), "utf8");
+    liveSource = `file://${resolve(args.input)}`;
+    fetchDurationMs = Date.now() - startedAt;
+  }
+  let liveInput;
+  try {
+    liveInput = JSON.parse(rawText);
+  } catch {
+    throw new Error(`live catalog input is not valid JSON (${liveSource})`);
+  }
+  const fetchedAt = new Date().toISOString();
+  const rawHash = `sha256:${createHash("sha256").update(rawText, "utf8").digest("hex")}`;
+
+  const { routes, quarantined, providerCount } = extractLiveRoutes(liveInput);
+  const freshness = checkCatalogFreshness(catalog, { now, maxCatalogAgeMs });
+  const diff = diffProbedRoutes(catalog.entries, routes);
+  const provenance = compareProbeProvenance(catalog.provenance, {
+    source: liveSource,
+    fetchedAt,
+    rawHash,
+  });
+
+  const context = {
+    fetchedAt,
+    fetchSource: liveSource,
+    rawHash,
+    fetchDurationMs,
+    networkUsed: args.fetch,
+    fixtureProvenance: catalog.provenance,
+    fixtureCount: catalog.entries.length,
+    liveProviderCount: providerCount,
+    liveCount: routes.size,
+    quarantined,
+    freshness,
+    provenance,
+    diff,
+  };
+  const report = formatProbeReport(context);
+
+  if (args.report !== null) {
+    await writeFile(resolve(args.report), report);
+  }
+
+  if (args.json) {
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          earlyDevelopment: true,
+          mode: "probe-only",
+          networkUsed: args.fetch,
+          fetchedAt,
+          fetchSource: liveSource,
+          rawHash,
+          fetchDurationMs,
+          fixtureProvenance: catalog.provenance,
+          fixtureCount: catalog.entries.length,
+          liveProviderCount: providerCount,
+          liveCount: routes.size,
+          quarantinedCount: quarantined.length,
+          quarantined: quarantined.map((entry) => ({ ...entry })),
+          freshness,
+          provenance,
+          diffSummary: diff.summary,
+          changed: diff.changed.map((entry) => ({ ...entry })),
+          reportPath: args.report,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  } else {
+    process.stdout.write(report);
+  }
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.name}: ${error.message}\n`);
+  process.exitCode = 1;
+});
