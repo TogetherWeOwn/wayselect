@@ -1,0 +1,489 @@
+#!/usr/bin/env node
+
+// Executable acceptance script for the Wayselect seller payout-status slice (TOG-5370).
+//
+// Spec: docs/wayselect-payout-acceptance.md (§1 listing payout fields P1–P5;
+// §2 payout read + release contract R0–R12; §3 flag gating).
+//
+// Usage: node bin/accept-wayselect-payout   (or: npm run accept:payout)
+// Zero dependencies: Node standard library only. Starts the real server from
+// web/server.js on ephemeral ports, probes it, exits 0 when there are zero
+// failures (skips allowed), 1 otherwise. Budget: under 15 minutes.
+//
+// Until the payout slice lands, §1-forward (P1–P5) and §2–§3 payout probes
+// report SKIP (payout slice not present) and the run still exits 0. The next
+// slice is accepted when this command reports zero skips and zero fails.
+
+import { createApp } from "../web/server.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function skip(id, label, reason) {
+  record("skip", id, label, reason);
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+function baseOf(server) {
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function close(server) {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+async function request(base, path, options = {}) {
+  const res = await fetch(`${base}${path}`, options);
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return {
+    status: res.status,
+    text,
+    json,
+    contentType: res.headers.get("content-type") ?? "",
+  };
+}
+
+function postJson(base, path, body) {
+  return request(base, path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function postEmpty(base, path) {
+  return request(base, path, { method: "POST" });
+}
+
+function previewDisabled(r) {
+  return (
+    r.status === 404 &&
+    (r.json?.error === "preview_disabled" ||
+      (r.text.includes("Preview unavailable") && r.text.includes("WAYSELECT_PREVIEW")))
+  );
+}
+
+const on = await listen({ WAYSELECT_PREVIEW: "1" });
+const off = await listen({});
+const baseOn = baseOf(on);
+const baseOff = baseOf(off);
+
+const SKIP_REASON = "payout slice not present";
+const PAYOUT_ROWS = [
+  ["P1", "fresh detail shows the Payout section with No payouts yet"],
+  ["P2", "accepted offer renders a Pending payout row with amount, buyer, disclaimer"],
+  ["P3", "released payout renders Released with amount and buyer unchanged"],
+  ["P4", "evil buyer name is HTML-escaped on the page, raw in JSON"],
+  ["P5", "flag off keeps the detail page behind preview-disabled"],
+  ["R0", "payouts list starts empty for a fresh listing"],
+  ["R1", "accepted offer yields one pending payout with buyer and amount"],
+  ["R2", "single payout fetch returns the pending payout"],
+  ["R3", "accepted offer carries a payout pointer; open offers carry null"],
+  ["R4", "releasing a pending payout returns 200 released"],
+  ["R5", "payout and offer pointers both read released after release"],
+  ["R6", "double-release is a 409 payout_conflict"],
+  ["R7", "releasing an unknown payout is a 404 not_found"],
+  ["R8", "payout routes on an unknown listing are 404 not_found"],
+  ["R9", "GET on the release route is a 405"],
+  ["R10", "malformed / mistyped / non-empty release body is a 400 invalid_payout"],
+  ["R11", "purchase stub still refuses 403 after release"],
+  ["R12", "open offers yield no payout (404 before a second accept)"],
+  ["OFF1", "flag off hides the payouts list behind preview-disabled"],
+  ["OFF2", "flag off hides single payouts behind preview-disabled"],
+  ["OFF3", "flag off refuses releases behind preview-disabled"],
+];
+
+try {
+  // ---- baseline (shipped slice; must pass today and later) ----
+  const index = await request(baseOn, "/listings");
+  check(
+    index.status === 200 && index.text.includes("Alpha Chat"),
+    "B0",
+    "listing visible in GET /listings",
+    `got ${index.status}`,
+  );
+  const detail = await request(baseOn, "/listings/northstar/alpha-chat");
+  check(
+    detail.status === 200 && detail.text.includes("<h1>Alpha Chat</h1>"),
+    "B1",
+    "listing detail page renders",
+    `got ${detail.status}`,
+  );
+  const purchase = await postEmpty(baseOn, "/listings/northstar/alpha-chat/purchase");
+  check(
+    purchase.status === 403 && purchase.json?.error === "preview_only",
+    "B2",
+    "purchase stub still refuses 403 preview_only",
+    `got ${purchase.status}`,
+  );
+
+  // ---- payout-slice detection (read-only: empty payouts list on flag-on) ----
+  const detect = await request(baseOn, "/listings/northstar/alpha-chat/payouts");
+  const payoutPresent =
+    detect.status === 200 && detect.json !== null && Array.isArray(detect.json.payouts);
+
+  if (!payoutPresent) {
+    for (const [id, label] of PAYOUT_ROWS) {
+      skip(id, label, SKIP_REASON);
+    }
+  } else {
+    // The payout slice needs an accepted offer, which needs the seller slice.
+    const sellerDetect = await request(baseOn, "/listings/northstar/alpha-chat/offers");
+    const sellerPresent =
+      sellerDetect.status === 200 &&
+      sellerDetect.json !== null &&
+      Array.isArray(sellerDetect.json.offers);
+    if (!sellerPresent) {
+      for (const [id, label] of PAYOUT_ROWS) {
+        skip(id, label, "seller slice not present (payout needs an accepted offer)");
+      }
+    } else {
+      // ---- §2 R0: fresh state, then §1 P1 ----
+      check(
+        detect.json.listing === "northstar/alpha-chat" && detect.json.payouts.length === 0,
+        "R0",
+        "payouts list starts empty for a fresh listing",
+        `got ${detect.status} ${detect.text.slice(0, 120)}`,
+      );
+      check(
+        detail.status === 200 &&
+          detail.text.includes('aria-label="Payout"') &&
+          detail.text.includes("No payouts yet"),
+        "P1",
+        "fresh detail shows the Payout section with No payouts yet",
+        "missing Payout section or empty copy",
+      );
+
+      // ---- drive offer → accept (seller contract) ----
+      const created = await postJson(baseOn, "/listings/northstar/alpha-chat/offers", {
+        buyer: "mia",
+        price: 12,
+      });
+      const offerOk =
+        created.status === 201 && created.json?.id === "offer-1" && created.json?.status === "open";
+      const accepted = await postEmpty(
+        baseOn,
+        "/listings/northstar/alpha-chat/offers/offer-1/accept",
+      );
+      const acceptOk =
+        accepted.status === 200 && accepted.json?.status === "accepted";
+      if (!offerOk || !acceptOk) {
+        for (const [id, label] of PAYOUT_ROWS.filter(
+          ([id]) => id !== "R0" && id !== "P1",
+        )) {
+          skip(id, label, `setup failed (offer ${created.status} / accept ${accepted.status})`);
+        }
+      } else {
+        // ---- §2 read rows ----
+        const listed = await request(baseOn, "/listings/northstar/alpha-chat/payouts");
+        check(
+          listed.status === 200 &&
+            Array.isArray(listed.json?.payouts) &&
+            listed.json.payouts.some(
+              (p) =>
+                p.id === "payout-1" &&
+                p.status === "pending" &&
+                p.buyer === "mia" &&
+                p.amount === 12,
+            ),
+          "R1",
+          "accepted offer yields one pending payout with buyer and amount",
+          `got ${listed.status} ${listed.text.slice(0, 160)}`,
+        );
+        const single = await request(baseOn, "/listings/northstar/alpha-chat/payouts/payout-1");
+        check(
+          single.status === 200 && single.json?.status === "pending",
+          "R2",
+          "single payout fetch returns the pending payout",
+          `got ${single.status}`,
+        );
+        const offerReread = await request(
+          baseOn,
+          "/listings/northstar/alpha-chat/offers/offer-1",
+        );
+        check(
+          offerReread.status === 200 &&
+            offerReread.json?.payout?.id === "payout-1" &&
+            offerReread.json?.payout?.status === "pending",
+          "R3",
+          "accepted offer carries a payout pointer; open offers carry null",
+          `got ${offerReread.status} ${offerReread.text.slice(0, 160)}`,
+        );
+
+        // ---- §1 P2: pending row on the detail page ----
+        const detailPending = await request(baseOn, "/listings/northstar/alpha-chat");
+        check(
+          detailPending.status === 200 &&
+            detailPending.text.includes("payout-1") &&
+            detailPending.text.includes("$12") &&
+            detailPending.text.includes("mia") &&
+            detailPending.text.includes("Pending") &&
+            detailPending.text.includes("badge-unknown") &&
+            detailPending.text.toLowerCase().includes("synthetic"),
+          "P2",
+          "accepted offer renders a Pending payout row with amount, buyer, disclaimer",
+          `got ${detailPending.status}`,
+        );
+
+        // ---- §2 second open offer yields no payout (R12) ----
+        const open2 = await postJson(baseOn, "/listings/northstar/alpha-chat/offers", {
+          buyer: "sam",
+          price: 5,
+        });
+        const open2Reread = await request(
+          baseOn,
+          "/listings/northstar/alpha-chat/offers/offer-2",
+        );
+        const phantom = await request(baseOn, "/listings/northstar/alpha-chat/payouts/payout-2");
+        check(
+          open2.status === 201 &&
+            open2Reread.status === 200 &&
+            open2Reread.json?.payout === null &&
+            phantom.status === 404,
+          "R12",
+          "open offers yield no payout (404 before a second accept)",
+          `got offer ${open2.status} / payout ${phantom.status}`,
+        );
+
+        // ---- §2 release rows ----
+        const released = await postEmpty(
+          baseOn,
+          "/listings/northstar/alpha-chat/payouts/payout-1/release",
+        );
+        check(
+          released.status === 200 &&
+            released.json?.id === "payout-1" &&
+            released.json?.status === "released",
+          "R4",
+          "releasing a pending payout returns 200 released",
+          `got ${released.status} ${released.text.slice(0, 160)}`,
+        );
+        const reread = await request(baseOn, "/listings/northstar/alpha-chat/payouts/payout-1");
+        const offerAfter = await request(
+          baseOn,
+          "/listings/northstar/alpha-chat/offers/offer-1",
+        );
+        check(
+          reread.status === 200 &&
+            reread.json?.status === "released" &&
+            offerAfter.json?.payout?.status === "released",
+          "R5",
+          "payout and offer pointers both read released after release",
+          `got ${reread.status}/${offerAfter.status}`,
+        );
+
+        // ---- §1 P3: released row on the detail page ----
+        const detailReleased = await request(baseOn, "/listings/northstar/alpha-chat");
+        check(
+          detailReleased.status === 200 &&
+            detailReleased.text.includes("payout-1") &&
+            detailReleased.text.includes("$12") &&
+            detailReleased.text.includes("mia") &&
+            detailReleased.text.includes("Released") &&
+            detailReleased.text.includes("badge-granted"),
+          "P3",
+          "released payout renders Released with amount and buyer unchanged",
+          `got ${detailReleased.status}`,
+        );
+
+        const double = await postEmpty(
+          baseOn,
+          "/listings/northstar/alpha-chat/payouts/payout-1/release",
+        );
+        check(
+          double.status === 409 && double.json?.error === "payout_conflict",
+          "R6",
+          "double-release is a 409 payout_conflict",
+          `got ${double.status}`,
+        );
+        const missing = await postEmpty(
+          baseOn,
+          "/listings/northstar/alpha-chat/payouts/payout-999/release",
+        );
+        check(
+          missing.status === 404 && missing.json?.error === "not_found",
+          "R7",
+          "releasing an unknown payout is a 404 not_found",
+          `got ${missing.status}`,
+        );
+        const unknownList = await request(baseOn, "/listings/northstar/nope/payouts");
+        const unknownRelease = await postEmpty(
+          baseOn,
+          "/listings/northstar/nope/payouts/payout-1/release",
+        );
+        check(
+          unknownList.status === 404 &&
+            unknownList.json?.error === "not_found" &&
+            unknownRelease.status === 404 &&
+            unknownRelease.json?.error === "not_found",
+          "R8",
+          "payout routes on an unknown listing are 404 not_found",
+          `got ${unknownList.status}/${unknownRelease.status}`,
+        );
+        const releaseGet = await request(
+          baseOn,
+          "/listings/northstar/alpha-chat/payouts/payout-1/release",
+        );
+        check(
+          releaseGet.status === 405 && releaseGet.json?.error === "method_not_allowed",
+          "R9",
+          "GET on the release route is a 405",
+          `got ${releaseGet.status}`,
+        );
+        const malformed = await request(
+          baseOn,
+          "/listings/northstar/alpha-chat/payouts/payout-1/release",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{not-json",
+          },
+        );
+        const wrongType = await request(
+          baseOn,
+          "/listings/northstar/alpha-chat/payouts/payout-1/release",
+          {
+            method: "POST",
+            headers: { "content-type": "text/plain" },
+            body: "release=true",
+          },
+        );
+        const nonEmpty = await postJson(
+          baseOn,
+          "/listings/northstar/alpha-chat/payouts/payout-1/release",
+          { confirm: true },
+        );
+        check(
+          malformed.status === 400 &&
+            malformed.json?.error === "invalid_payout" &&
+            wrongType.status === 400 &&
+            wrongType.json?.error === "invalid_payout" &&
+            nonEmpty.status === 400 &&
+            nonEmpty.json?.error === "invalid_payout",
+          "R10",
+          "malformed / mistyped / non-empty release body is a 400 invalid_payout",
+          `got ${malformed.status}/${wrongType.status}/${nonEmpty.status}`,
+        );
+        const purchaseAfter = await postEmpty(
+          baseOn,
+          "/listings/northstar/alpha-chat/purchase",
+        );
+        check(
+          purchaseAfter.status === 403 && purchaseAfter.json?.error === "preview_only",
+          "R11",
+          "purchase stub still refuses 403 after release",
+          `got ${purchaseAfter.status}`,
+        );
+
+        // ---- §1 P4: evil buyer name is escaped on the page, raw in JSON ----
+        const evilBuyer = "<script>alert(1)</script>";
+        const evilOffer = await postJson(baseOn, "/listings/northstar/alpha-chat/offers", {
+          buyer: evilBuyer,
+          price: 7,
+        });
+        const evilAccept = await postEmpty(
+          baseOn,
+          `/listings/northstar/alpha-chat/offers/${evilOffer.json?.id ?? "offer-3"}/accept`,
+        );
+        const evilId = evilOffer.json?.id ?? "offer-3";
+        const evilPayoutId = evilAccept.json?.payout?.id ?? "payout-2";
+        const evilDetail = await request(baseOn, "/listings/northstar/alpha-chat");
+        const evilPayout = await request(
+          baseOn,
+          `/listings/northstar/alpha-chat/payouts/${evilPayoutId}`,
+        );
+        check(
+          evilOffer.status === 201 &&
+            evilAccept.status === 200 &&
+            evilDetail.status === 200 &&
+            !evilDetail.text.includes("<script>alert(1)</script>") &&
+            evilDetail.text.includes("&lt;script&gt;") &&
+            evilPayout.json?.buyer === evilBuyer &&
+            evilPayout.contentType.includes("application/json"),
+          "P4",
+          "evil buyer name is HTML-escaped on the page, raw in JSON",
+          `got offer ${evilOffer.status} / accept ${evilAccept.status} / payout ${evilPayout.status}`,
+        );
+        void evilId;
+
+        // ---- §1 P5 + §3 flag-off gating for payout routes ----
+        const offDetail = await request(baseOff, "/listings/northstar/alpha-chat");
+        check(
+          offDetail.status === 404 && offDetail.text.includes("Preview unavailable"),
+          "P5",
+          "flag off keeps the detail page behind preview-disabled",
+          `got ${offDetail.status}`,
+        );
+        const offList = await request(baseOff, "/listings/northstar/alpha-chat/payouts");
+        check(
+          previewDisabled(offList),
+          "OFF1",
+          "flag off hides the payouts list behind preview-disabled",
+          `got ${offList.status}`,
+        );
+        const offSingle = await request(
+          baseOff,
+          "/listings/northstar/alpha-chat/payouts/payout-1",
+        );
+        check(
+          previewDisabled(offSingle),
+          "OFF2",
+          "flag off hides single payouts behind preview-disabled",
+          `got ${offSingle.status}`,
+        );
+        const offRelease = await postEmpty(
+          baseOff,
+          "/listings/northstar/alpha-chat/payouts/payout-1/release",
+        );
+        check(
+          previewDisabled(offRelease),
+          "OFF3",
+          "flag off refuses releases behind preview-disabled",
+          `got ${offRelease.status}`,
+        );
+      }
+    }
+  }
+} finally {
+  await Promise.all([close(on), close(off)]);
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const skipped = results.filter((r) => r.status === "skip").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(
+  `SUMMARY: ${pass} pass, ${fail} fail, ${skipped} skip — ${elapsedS}s (budget 15m)\n`,
+);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;

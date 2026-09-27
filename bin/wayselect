@@ -1,0 +1,681 @@
+#!/usr/bin/env node
+
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  FakeTransport,
+  applySupportConfiguration,
+  normalizeCatalog,
+  selectRoute,
+} from "../src/index.js";
+import {
+  formatCliFailure,
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
+
+// ---------------------------------------------------------------------------
+// Legacy demo path: bare `bin/wayselect [flags]` (no subcommand).
+//
+// Preserved verbatim so the fixture demo, the catalog-gate tests, the
+// exact-byte failure-copy tests, and the QA acceptance scripts keep their
+// pinned surface: JSON `{earlyDevelopment, mode, selection, transport,
+// provenance}` on stdout, `<Name>: <message>\n` on stderr with exit code 1.
+// ---------------------------------------------------------------------------
+
+function parseArguments(argv) {
+  const values = {
+    catalog: "fixtures/catalog.synthetic.json",
+    configuration: "fixtures/configuration.synthetic.json",
+    request: "fixtures/request.synthetic.json",
+    maxCatalogAgeHours: null,
+  };
+
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index];
+    const value = argv[index + 1];
+    if (!value) {
+      throw new Error(missingValueMessage(flag));
+    }
+    if (flag === "--catalog") {
+      values.catalog = value;
+    } else if (flag === "--configuration") {
+      values.configuration = value;
+    } else if (flag === "--request") {
+      values.request = value;
+    } else if (flag === "--max-catalog-age-hours") {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(invalidMaxCatalogAgeMessage());
+      }
+      values.maxCatalogAgeHours = parsed;
+    } else {
+      throw new Error(unknownArgumentMessage(flag));
+    }
+  }
+
+  return values;
+}
+
+async function readJson(path) {
+  return JSON.parse(await readFile(resolve(path), "utf8"));
+}
+
+async function runLegacyDemo(argv) {
+  const paths = parseArguments(argv);
+  const [catalogFixture, configuration, demoRequest] = await Promise.all([
+    readJson(paths.catalog),
+    readJson(paths.configuration),
+    readJson(paths.request),
+  ]);
+
+  const catalog = normalizeCatalog(catalogFixture.catalog, catalogFixture.provenance);
+  const candidates = applySupportConfiguration(catalog, configuration);
+  // TOG-5117: explicit --max-catalog-age-hours wins; otherwise honor the
+  // request field; fall back to 24h. Expired snapshots fail closed in
+  // evaluateEligibility (stale-catalog/future-catalog, no transport).
+  const maxCatalogAgeHours =
+    paths.maxCatalogAgeHours ?? demoRequest.maxCatalogAgeHours ?? 24;
+  const result = selectRoute(candidates, demoRequest.selection, {
+    now: new Date(demoRequest.evaluationTime),
+    maxEvidenceAgeMs: demoRequest.maxEvidenceAgeHours * 60 * 60 * 1000,
+    catalog,
+    maxCatalogAgeMs: maxCatalogAgeHours * 60 * 60 * 1000,
+  });
+
+  let transport = null;
+  if (result.selected) {
+    const fake = new FakeTransport();
+    transport = await fake.send({
+      route: result.selected,
+      payload: demoRequest.syntheticPayload,
+    });
+  }
+
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        earlyDevelopment: true,
+        mode: "dry-run-only",
+        provenance: catalog.provenance,
+        selection: result,
+        transport,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// select/explain UX (TOG-4797): subcommands with human and --json output,
+// requirement flags or a request file, and exit codes 0/1/2/3.
+// The catalog freshness gate is wired exactly like the legacy path:
+// explicit --max-catalog-age-hours wins, otherwise the request field,
+// otherwise 24h. Stale/future catalogs yield no-eligible-route (exit 3),
+// never a selection.
+// ---------------------------------------------------------------------------
+
+const EXIT_OK = 0;
+const EXIT_INVALID_INPUT = 1;
+const EXIT_USAGE = 2;
+const EXIT_NO_ELIGIBLE_ROUTE = 3;
+
+const DRY_RUN_LABEL =
+  "dry-run / synthetic estimate — no live model calls, credentials, or network use";
+
+const DEFAULT_PATHS = Object.freeze({
+  catalog: "fixtures/catalog.synthetic.json",
+  configuration: "fixtures/configuration.synthetic.json",
+  request: "fixtures/request.synthetic.json",
+});
+
+const DEFAULT_MAX_EVIDENCE_AGE_HOURS = 72;
+const DEFAULT_MAX_CATALOG_AGE_HOURS = 24;
+
+class UsageError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "UsageError";
+  }
+}
+
+class InputError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "InputError";
+  }
+}
+
+const VALUE_FLAGS = new Set([
+  "--catalog",
+  "--configuration",
+  "--request",
+  "--operation",
+  "--evaluation-time",
+  "--max-evidence-age-hours",
+  "--max-catalog-age-hours",
+]);
+
+const LIST_FLAGS = new Set(["--require", "--allow"]);
+
+function usageError(message) {
+  return new UsageError(`${message}\nRun "wayselect --help" for usage.`);
+}
+
+function splitListFlag(value, flag) {
+  const items = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
+  if (items.length === 0) {
+    throw usageError(`${flag} must list at least one value`);
+  }
+  return [...new Set(items)];
+}
+
+function parseCommandArgs(tokens, command) {
+  const options = {
+    catalog: DEFAULT_PATHS.catalog,
+    configuration: DEFAULT_PATHS.configuration,
+    request: null,
+    operation: undefined,
+    require: [],
+    allow: [],
+    evaluationTime: undefined,
+    maxEvidenceAgeHours: undefined,
+    maxCatalogAgeHours: undefined,
+    json: false,
+    help: false,
+  };
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === "--json") {
+      options.json = true;
+      continue;
+    }
+    if (token === "--help") {
+      options.help = true;
+      continue;
+    }
+    if (LIST_FLAGS.has(token)) {
+      const value = tokens[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw usageError(`Missing value for ${token}`);
+      }
+      options[token === "--require" ? "require" : "allow"].push(
+        ...splitListFlag(value, token),
+      );
+      index += 1;
+      continue;
+    }
+    if (VALUE_FLAGS.has(token)) {
+      const value = tokens[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw usageError(`Missing value for ${token}`);
+      }
+      if (token === "--catalog") {
+        options.catalog = value;
+      } else if (token === "--configuration") {
+        options.configuration = value;
+      } else if (token === "--request") {
+        options.request = value;
+      } else if (token === "--operation") {
+        options.operation = value;
+      } else if (token === "--evaluation-time") {
+        options.evaluationTime = value;
+      } else if (token === "--max-evidence-age-hours") {
+        options.maxEvidenceAgeHours = value;
+      } else if (token === "--max-catalog-age-hours") {
+        options.maxCatalogAgeHours = value;
+      }
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--")) {
+      throw usageError(`Unknown flag for ${command}: ${token}`);
+    }
+    throw usageError(`Unexpected argument for ${command}: ${token}`);
+  }
+
+  return options;
+}
+
+async function readJsonFile(path) {
+  let text;
+  try {
+    text = await readFile(resolve(path), "utf8");
+  } catch (error) {
+    throw new InputError(`Cannot read ${path}: ${error.message}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new InputError(`Cannot parse ${path} as JSON: ${error.message}`);
+  }
+}
+
+function parseMaxEvidenceAgeMs(raw, source) {
+  const hours = raw === undefined ? DEFAULT_MAX_EVIDENCE_AGE_HOURS : Number(raw);
+  if (!Number.isFinite(hours) || hours < 0) {
+    throw new InputError(
+      `${source} must be a non-negative number of hours, got: ${raw}`,
+    );
+  }
+  return hours * 60 * 60 * 1000;
+}
+
+function parseMaxCatalogAgeMs(raw, source) {
+  const hours = raw === undefined ? DEFAULT_MAX_CATALOG_AGE_HOURS : Number(raw);
+  if (!Number.isFinite(hours) || hours < 0) {
+    throw new InputError(invalidMaxCatalogAgeMessage());
+  }
+  return { maxCatalogAgeMs: hours * 60 * 60 * 1000, maxCatalogAgeHours: hours };
+}
+
+function parseEvaluationTime(raw) {
+  if (raw === undefined || raw === null) {
+    return new Date();
+  }
+  const time = raw instanceof Date ? raw : new Date(raw);
+  if (!Number.isFinite(time.getTime())) {
+    throw new InputError(`evaluation time must be an ISO timestamp, got: ${raw}`);
+  }
+  return time;
+}
+
+async function resolveSelectionInput(options) {
+  let fileSelection = null;
+  let fileEvaluationTime;
+  let fileMaxEvidenceAgeHours;
+  let fileMaxCatalogAgeHours;
+
+  const wantsFileDefault =
+    options.request === null &&
+    options.operation === undefined &&
+    options.require.length === 0 &&
+    options.allow.length === 0 &&
+    options.evaluationTime === undefined &&
+    options.maxEvidenceAgeHours === undefined &&
+    options.maxCatalogAgeHours === undefined;
+
+  const requestPath = options.request ?? (wantsFileDefault ? DEFAULT_PATHS.request : null);
+  if (requestPath !== null) {
+    const raw = await readJsonFile(requestPath);
+    if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && "selection" in raw) {
+      fileSelection = raw.selection ?? null;
+      fileEvaluationTime = raw.evaluationTime;
+      fileMaxEvidenceAgeHours = raw.maxEvidenceAgeHours;
+      fileMaxCatalogAgeHours = raw.maxCatalogAgeHours;
+    } else {
+      fileSelection = raw;
+    }
+  }
+
+  const selection = {
+    operation: options.operation ?? fileSelection?.operation,
+    requiredCapabilities:
+      options.require.length > 0
+        ? [...new Set(options.require)].sort()
+        : (fileSelection?.requiredCapabilities ?? []),
+    providerAllowlist:
+      options.allow.length > 0
+        ? [...new Set(options.allow)].sort()
+        : fileSelection?.providerAllowlist,
+  };
+
+  if (selection.operation === undefined) {
+    throw new InputError(
+      "a request operation is required: pass --operation <name> or --request <path>",
+    );
+  }
+  if (selection.providerAllowlist === undefined) {
+    throw new InputError(
+      "a provider allowlist is required: pass --allow <provider,...> or --request <path>",
+    );
+  }
+
+  const evaluationTime = parseEvaluationTime(
+    options.evaluationTime ?? fileEvaluationTime,
+  );
+  const maxEvidenceAgeMs = parseMaxEvidenceAgeMs(
+    options.maxEvidenceAgeHours ?? fileMaxEvidenceAgeHours,
+    options.maxEvidenceAgeHours !== undefined
+      ? "--max-evidence-age-hours"
+      : "request maxEvidenceAgeHours",
+  );
+  const maxEvidenceAgeHours = maxEvidenceAgeMs / (60 * 60 * 1000);
+  const { maxCatalogAgeMs, maxCatalogAgeHours } = parseMaxCatalogAgeMs(
+    options.maxCatalogAgeHours ?? fileMaxCatalogAgeHours,
+    options.maxCatalogAgeHours !== undefined
+      ? "--max-catalog-age-hours"
+      : "request maxCatalogAgeHours",
+  );
+
+  return {
+    selection,
+    evaluationTime,
+    maxEvidenceAgeMs,
+    maxEvidenceAgeHours,
+    maxCatalogAgeMs,
+    maxCatalogAgeHours,
+  };
+}
+
+function estimatedRatePerMillion(candidate) {
+  if (!candidate.rates) {
+    return null;
+  }
+  return candidate.rates.inputPerMillion + candidate.rates.outputPerMillion;
+}
+
+function rankCandidates(evaluations) {
+  const eligible = evaluations
+    .filter((candidate) => candidate.eligible)
+    .sort((left, right) => {
+      const leftRate = estimatedRatePerMillion(left);
+      const rightRate = estimatedRatePerMillion(right);
+      if (leftRate !== null && rightRate !== null && leftRate !== rightRate) {
+        return leftRate - rightRate;
+      }
+      if (leftRate !== null && rightRate === null) {
+        return -1;
+      }
+      if (leftRate === null && rightRate !== null) {
+        return 1;
+      }
+      return left.routeId.localeCompare(right.routeId);
+    });
+  const excluded = evaluations.filter((candidate) => !candidate.eligible);
+  return [...eligible, ...excluded];
+}
+
+function formatRate(candidate) {
+  const rate = estimatedRatePerMillion(candidate);
+  return rate === null ? "no rate data" : `est. ${rate} / million tokens`;
+}
+
+function formatSelectHuman({ result, ranked, provenance }) {
+  const eligibleCount = ranked.filter((candidate) => candidate.eligible).length;
+  const lines = [
+    `dry-run select — ${DRY_RUN_LABEL}`,
+    result.status === "selected"
+      ? `Selected route: ${result.selected.routeId}`
+      : "No eligible route.",
+    `Policy: ${result.policy}`,
+    "Rates are synthetic/list-price estimates only; not actual cost or savings.",
+    "",
+    `Ranked candidates (${eligibleCount} eligible, ${ranked.length - eligibleCount} excluded):`,
+  ];
+  ranked.forEach((candidate, index) => {
+    if (candidate.eligible) {
+      lines.push(`  ${index + 1}. ${candidate.routeId} — eligible, ${formatRate(candidate)}`);
+    } else {
+      lines.push(
+        `  ${index + 1}. ${candidate.routeId} — excluded (${candidate.reasons.join(", ")})`,
+      );
+    }
+  });
+  lines.push(
+    "",
+    `Provenance: ${provenance.source} @ ${provenance.snapshotTimestamp}`,
+  );
+  return lines.join("\n");
+}
+
+function formatExplainHuman({ result, ranked, provenance, requestSummary }) {
+  const lines = [
+    `dry-run explain — ${DRY_RUN_LABEL}`,
+    `Request: ${requestSummary}`,
+    `Evaluation time: ${result.evaluationTime}, max evidence age: ${result.maxEvidenceAgeHours}h`,
+    "",
+  ];
+  for (const candidate of ranked) {
+    const detail =
+      `provider ${candidate.providerId}, support ${candidate.supportState}, ` +
+      formatRate(candidate);
+    if (candidate.eligible) {
+      lines.push(`${candidate.routeId}: eligible (${detail})`);
+    } else {
+      lines.push(`${candidate.routeId}: excluded (${detail})`);
+      for (const reason of candidate.reasons) {
+        lines.push(`  - ${reason}`);
+      }
+    }
+  }
+  lines.push(
+    "",
+    result.status === "selected"
+      ? `verdict: selected ${result.selected.routeId}`
+      : "verdict: no-eligible-route",
+    `Provenance: ${provenance.source} @ ${provenance.snapshotTimestamp}`,
+  );
+  return lines.join("\n");
+}
+
+function formatMachineJson({ command, result, ranked, provenance, evaluationTimeISO, maxEvidenceAgeHours }) {
+  return JSON.stringify(
+    {
+      command,
+      dryRun: true,
+      dryRunLabel: DRY_RUN_LABEL,
+      status: result.status,
+      selectedRouteId: result.selected?.routeId ?? null,
+      policy: result.policy,
+      rateDisclaimer: result.rateDisclaimer,
+      provenance,
+      request: result.request,
+      evaluationTime: evaluationTimeISO,
+      maxEvidenceAgeHours,
+      rankedCandidates: ranked.map((candidate, index) => ({
+        rank: index + 1,
+        routeId: candidate.routeId,
+        providerId: candidate.providerId,
+        modelId: candidate.modelId,
+        supportState: candidate.supportState,
+        eligible: candidate.eligible,
+        estimatedRatePerMillion: estimatedRatePerMillion(candidate),
+        reasons: [...candidate.reasons],
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+function formatRequestSummary(selection) {
+  const required = selection.requiredCapabilities ?? [];
+  const allowlist = selection.providerAllowlist ?? [];
+  return (
+    `operation=${selection.operation}, ` +
+    `require=[${[...required].join(", ")}], ` +
+    `allow=[${[...allowlist].join(", ")}]`
+  );
+}
+
+async function runSelectCommand(command, tokens) {
+  const options = parseCommandArgs(tokens, command);
+  if (options.help) {
+    printCommandHelp(command);
+    return;
+  }
+  const {
+    selection,
+    evaluationTime,
+    maxEvidenceAgeMs,
+    maxEvidenceAgeHours,
+    maxCatalogAgeMs,
+  } = await resolveSelectionInput(options);
+  const [catalogFixture, configuration] = await Promise.all([
+    readJsonFile(options.catalog),
+    readJsonFile(options.configuration),
+  ]);
+
+  const catalog = normalizeCatalog(catalogFixture.catalog, catalogFixture.provenance);
+  const candidates = applySupportConfiguration(catalog, configuration);
+  const selectionResult = selectRoute(candidates, selection, {
+    now: evaluationTime,
+    maxEvidenceAgeMs,
+    catalog,
+    maxCatalogAgeMs,
+  });
+  const ranked = rankCandidates(selectionResult.candidates);
+  const evaluationTimeISO = evaluationTime.toISOString();
+
+  const view = {
+    result: {
+      ...selectionResult,
+      evaluationTime: evaluationTimeISO,
+      maxEvidenceAgeHours,
+    },
+    ranked,
+    provenance: catalog.provenance,
+    requestSummary: formatRequestSummary(selectionResult.request),
+    evaluationTimeISO,
+    maxEvidenceAgeHours,
+  };
+
+  if (options.json) {
+    process.stdout.write(`${formatMachineJson({ command, ...view })}\n`);
+  } else if (command === "select") {
+    process.stdout.write(`${formatSelectHuman(view)}\n`);
+  } else {
+    process.stdout.write(`${formatExplainHuman(view)}\n`);
+  }
+
+  process.exitCode =
+    selectionResult.status === "selected" ? EXIT_OK : EXIT_NO_ELIGIBLE_ROUTE;
+}
+
+async function readVersion() {
+  try {
+    const pkg = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function printGlobalHelp() {
+  process.stdout.write(
+    `wayselect — fixture-only dry-run model selection (${DRY_RUN_LABEL})
+
+Usage:
+  wayselect select [options]    Select a route and show ranked candidates
+  wayselect explain [options]   Explain per-candidate eligibility in detail
+  wayselect --help              Show this help
+  wayselect --version           Show the version
+
+Without a subcommand, wayselect runs the legacy fixture demo (JSON with
+provenance, selection, and fake transport) for backward compatibility:
+
+  wayselect [--catalog <path>] [--configuration <path>] [--request <path>]
+      [--max-catalog-age-hours <n>]
+
+Options for select and explain:
+  --catalog <path>               Catalog fixture (default: ${DEFAULT_PATHS.catalog})
+  --configuration <path>         Support configuration (default: ${DEFAULT_PATHS.configuration})
+  --request <path>               Request JSON: a full demo request or a bare
+                                 selection {operation, requiredCapabilities,
+                                 providerAllowlist} (default: ${DEFAULT_PATHS.request}
+                                 when no requirement flags are given)
+  --operation <name>             Override the requested operation
+  --require <cap,...>            Override required capabilities (repeatable,
+                                 comma-separated)
+  --allow <provider,...>         Override the provider allowlist (repeatable,
+                                 comma-separated)
+  --evaluation-time <iso>        Override the evaluation timestamp
+  --max-evidence-age-hours <n>   Override the evidence freshness limit
+                                 (default: ${DEFAULT_MAX_EVIDENCE_AGE_HOURS})
+  --max-catalog-age-hours <n>    Override the catalog freshness limit
+                                 (default: ${DEFAULT_MAX_CATALOG_AGE_HOURS};
+                                 stale/future catalogs fail closed)
+  --json                         Machine-readable JSON output
+  --help                         Show command help
+
+Exit codes:
+  0  a route was selected (or help/version shown)
+  1  invalid input (unreadable file, bad JSON, failed validation)
+  2  usage error (unknown subcommand or flag, missing value)
+  3  no eligible route (output is still printed)
+
+Examples:
+  wayselect select
+  wayselect select --operation chat --require toolUse --allow northstar,orbit
+  wayselect explain --json
+  wayselect select --request fixtures/request.synthetic.json --json
+
+See docs/cli.md for copy-pasteable examples.
+`,
+  );
+}
+
+function printCommandHelp(command) {
+  const verb = command === "select" ? "Select" : "Explain";
+  process.stdout.write(
+    `wayselect ${command} — ${verb.toLowerCase()} a route, dry-run only (${DRY_RUN_LABEL})
+
+Usage:
+  wayselect ${command} [--catalog <path>] [--configuration <path>] [--request <path>]
+      [--operation <name>] [--require <cap,...>] [--allow <provider,...>]
+      [--evaluation-time <iso>] [--max-evidence-age-hours <n>]
+      [--max-catalog-age-hours <n>] [--json]
+
+Requirements come from --request or from flags; flags override the file.
+Stale/future catalogs fail closed (no eligible route, exit 3).
+Exit codes: 0 selected, 1 invalid input, 2 usage error, 3 no eligible route.
+`,
+  );
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const [first] = argv;
+
+  if (first === "select" || first === "explain") {
+    try {
+      await runSelectCommand(first, argv.slice(1));
+    } catch (error) {
+      if (error instanceof UsageError) {
+        process.stderr.write(`usage error: ${error.message}\n`);
+        process.exitCode = EXIT_USAGE;
+        return;
+      }
+      process.stderr.write(`error: ${error.message}\n`);
+      process.exitCode = EXIT_INVALID_INPUT;
+    }
+    return;
+  }
+
+  if (first === "--help") {
+    printGlobalHelp();
+    return;
+  }
+  if (first === "--version") {
+    process.stdout.write(`wayselect ${await readVersion()}\n`);
+    return;
+  }
+
+  // A bare word is neither a subcommand nor a legacy flag: usage error.
+  // Legacy `--flag` invocations (and no args) keep the exact demo surface.
+  if (first !== undefined && !first.startsWith("--")) {
+    process.stderr.write(
+      `usage error: Unknown subcommand: ${first}\nRun "wayselect --help" for usage.\n`,
+    );
+    process.exitCode = EXIT_USAGE;
+    return;
+  }
+
+  try {
+    await runLegacyDemo(argv);
+  } catch (error) {
+    process.stderr.write(formatCliFailure(error));
+    process.exitCode = 1;
+  }
+}
+
+main();
