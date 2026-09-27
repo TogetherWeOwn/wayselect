@@ -82,6 +82,17 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 .cta button { font-size: 1rem; padding: 0.6rem 1.2rem; cursor: not-allowed; }
 .cta p { font-size: 0.9rem; margin-bottom: 0; }
 .back { display: inline-block; margin-top: 2rem; }
+.site-header { max-width: 44rem; margin: 0 auto; padding: 1rem 1rem 0; }
+.site-header nav { display: flex; align-items: baseline; gap: 0.75rem; }
+.site-title { font-weight: 700; }
+.site-tag { font-size: 0.8rem; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.6rem; }
+.site-footer { max-width: 44rem; margin: 0 auto; padding: 0 1rem 2rem; font-size: 0.85rem; opacity: 0.85; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip-link { position: absolute; left: 0.75rem; top: -4rem; z-index: 10; background: #fff; color: #000; padding: 0.5rem 1rem; border-radius: 0.375rem; transition: top 0.15s ease-in-out; }
+.skip-link:focus-visible { top: 0.75rem; }
+main:focus { outline: none; }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
+@media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } }
 .skeleton { border-radius: 0.375rem; background: linear-gradient(90deg, rgba(128, 128, 128, 0.28) 25%, rgba(128, 128, 128, 0.12) 50%, rgba(128, 128, 128, 0.28) 75%); background-size: 200% 100%; animation: skeleton-pulse 1.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
 @keyframes skeleton-pulse { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -94,9 +105,12 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 </style>
 </head>
 <body>
-<main>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<header class="site-header"><nav aria-label="Primary"><span class="site-title">Wayselect</span> <span class="site-tag">Preview</span></nav></header>
+<main id="main-content" tabindex="-1">
 ${body}
 </main>
+<footer class="site-footer"><p>Preview build: stub data only. No purchase is processed.</p></footer>
 </body>
 </html>
 `;
@@ -209,8 +223,9 @@ export function renderListingDetailShell(listing, evaluationOverride) {
   const routePath = `/listings/${encodeURIComponent(listing.providerId)}/${encodeURIComponent(listing.modelId)}`;
   const noscriptBody = listingDetailBody(listing, evaluationOverride);
   const body = `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
-<div id="listing-detail" aria-busy="true" aria-live="polite">
-<p class="loading-note">Loading listing details…</p>
+<p id="listing-detail-status" class="visually-hidden" role="status">Loading listing details…</p>
+<div id="listing-detail" aria-busy="true">
+<p class="loading-note" aria-hidden="true">Loading listing details…</p>
 <div class="skeleton skeleton-title" aria-hidden="true"></div>
 <div class="skeleton skeleton-line" aria-hidden="true"></div>
 <div class="skeleton skeleton-line short" aria-hidden="true"></div>
@@ -226,12 +241,19 @@ export function renderListingDetailShell(listing, evaluationOverride) {
 <script>
 (function () {
   var mount = document.getElementById("listing-detail");
+  var status = document.getElementById("listing-detail-status");
   var errorPanel = document.getElementById("listing-detail-error");
   var retryButton = document.getElementById("listing-detail-retry");
+  function announce(message) {
+    if (status) {
+      status.textContent = message;
+    }
+  }
   function load() {
     if (errorPanel) {
       errorPanel.hidden = true;
     }
+    announce("Loading listing details…");
     fetch(${JSON.stringify(routePath)}, { headers: { accept: "application/json" } })
       .then(function (res) {
         if (!res.ok) {
@@ -247,11 +269,17 @@ export function renderListingDetailShell(listing, evaluationOverride) {
         var content = document.createElement("template");
         content.innerHTML = payload.html;
         mount.replaceChildren(content.content.cloneNode(true));
+        announce("Listing details loaded.");
       })
       .catch(function () {
         mount.setAttribute("aria-busy", "false");
+        announce("Couldn’t load listing details. Check your connection and retry.");
         if (errorPanel) {
           errorPanel.hidden = false;
+          var retry = document.getElementById("listing-detail-retry");
+          if (retry) {
+            retry.focus();
+          }
         }
       });
   }
@@ -260,8 +288,7 @@ export function renderListingDetailShell(listing, evaluationOverride) {
   }
   load();
 })();
-</script>
-<noscript><a class="back" href="/listings">Back to listings</a></noscript>`;
+</script>`;
 
   return layout({ title, body });
 }
@@ -347,17 +374,19 @@ export function renderInvalidFilter({ kind, value, valid }) {
 
 export function renderListingIndex(listings, evaluationsOverride, filters) {
   const evaluations = resolveIndexEvaluations(listings, evaluationsOverride);
+  const countCopy =
+    listings.length === 1 ? "1 listing" : `${listings.length} listings`;
   const results =
     listings.length === 0
-      ? `<p>No listings match these filters.</p>\n<a href="/listings">Clear filters</a>`
-      : `<ul>\n${listings
+      ? `<section aria-label="Results">\n<p role="status">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`
+      : `<section aria-label="Results">\n<p role="status">${escapeHtml(countCopy)} found.</p>\n<ul>\n${listings
           .map((listing) => {
             const described = describeEligibility(
               evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
             );
             return `<li><a href="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
           })
-          .join("\n")}\n</ul>`;
+          .join("\n")}\n</ul>\n</section>`;
   const body = `<div class="preview-banner" role="note">Preview build: stub data only.</div>
 <h1>Listings</h1>
 ${filterForm(filters)}
