@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { normalizeCatalog } from "./catalog.js";
-import { checkCatalogFreshness } from "./freshness.js";
+import { CatalogFreshnessError, checkCatalogFreshness } from "./freshness.js";
 
 export const DEFAULT_STAGING_SOURCE_PREFIX = "synthetic://";
 
@@ -140,7 +140,17 @@ export function buildSnapshot(catalogInput, provenanceInput, options = {}) {
     );
   }
 
-  const catalog = normalizeCatalog(catalogInput, provenanceInput);
+  // TOG-5725: validate the snapshot clock up front so an invalid --now
+  // keeps its legacy CatalogFreshnessError (exact-bytes CLI contract) instead
+  // of surfacing from the fetchedAt default first, then forward it so a
+  // pinned --now yields byte-identical output instead of a wall-clock stamp.
+  if (options.now !== undefined) {
+    const parsed = options.now instanceof Date ? options.now : new Date(options.now);
+    if (!Number.isFinite(parsed.getTime())) {
+      throw new CatalogFreshnessError("options.now must be a valid date");
+    }
+  }
+  const catalog = normalizeCatalog(catalogInput, provenanceInput, { now: options.now });
   const entries = Object.freeze(
     catalog.entries.map((entry) => Object.freeze(canonicalEntry(entry))),
   );

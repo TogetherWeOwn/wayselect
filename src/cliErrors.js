@@ -5,6 +5,10 @@
 // stderr with exit code 1. No model calls, no network, no guessing: the same
 // input always yields the same bytes.
 //
+// bin/wayselect-snapshot-prune (TOG-5740) uses the same builders for its
+// usage errors; it exits 2 on usage errors (with the usage copy appended)
+// and 1 on runtime failures, matching bin/check-provenance-drift.
+//
 // Success paths are out of scope here: they print JSON to stdout with empty
 // stderr. Stale/future catalogs on bin/wayselect are also NOT failures — they
 // yield a `no-eligible-route` JSON decision with null transport.
@@ -31,6 +35,18 @@ export function futureSnapshotMessage(ageMs, maxCatalogAgeMs) {
 
 export function failOnGapsMessage(gapCount) {
   return `snapshot reports ${gapCount} provenance gap(s); failing on --fail-on-gaps`;
+}
+
+export function invalidKeepLastMessage() {
+  return "--keep-last must be a positive integer";
+}
+
+export function invalidPruneMaxAgeDaysMessage() {
+  return "--max-age-days must be a non-negative number";
+}
+
+export function invalidPruneNowMessage() {
+  return "--now must be a valid ISO timestamp";
 }
 
 export function formatCliFailure(error) {

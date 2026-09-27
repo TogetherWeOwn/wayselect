@@ -1,0 +1,59 @@
+{
+  "issue": "TOG-6387",
+  "ranAt": "2026-09-27T11:06:25.000Z",
+  "repoHead": "ca727d93a1d17a690e4aeecf2a47efece38ae71b",
+  "method": "git archive origin/main | tar -x to scratch + npm ci + npm audit --audit-level=low (same pristine-tree method as the TOG-6037 one-shot, so worktree changes cannot pollute the result)",
+  "baseline": {
+    "issue": "TOG-6037",
+    "head": "472e7b51c4a22be1f02e7d75006161630dc552c3",
+    "result": "found 0 vulnerabilities",
+    "lockfileSha256": "sha256:a40e56653740c12d0da44defe700305b2dddf0bb058b7d9ba5d57df2c8dd6be4"
+  },
+  "pins": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "escape-html": "1.0.3"
+  },
+  "lockfileSha256": "sha256:a40e56653740c12d0da44defe700305b2dddf0bb058b7d9ba5d57df2c8dd6be4",
+  "audit": {
+    "level": "low",
+    "exit": 0,
+    "output": "found 0 vulnerabilities",
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "packagesInstalled": 7
+  },
+  "delta": "No dependency changes since the TOG-6037 baseline: package.json diff baseline..HEAD touches only bin/scripts entries (no deps, versions, or ranges); package-lock.json is byte-identical (sha256 match). Pins remain exact, policy-conformant, no ranges.",
+  "policyDisposition": "No-op assessment per docs/dependency-update-policy.md Security-advisory handling step 3: no advisory affects the pinned tree, so no code or fix churn. This evidence file is the recorded delta.",
+  "checks": [
+    {
+      "name": "audit: pristine origin/main tree reports 0 vulnerabilities at --audit-level=low",
+      "status": "pass",
+      "detail": "git archive ca727d9 + npm ci (7 packages) + npm audit exit 0, found 0 vulnerabilities (re-verified after rebase; lockfile still byte-identical to baseline)"
+    },
+    {
+      "name": "audit: pins exact and unchanged since baseline",
+      "status": "pass",
+      "detail": "ajv 8.20.0, ajv-formats 3.0.1, escape-html 1.0.3 at baseline, origin/main, and HEAD"
+    },
+    {
+      "name": "audit: lockfile byte-identical to baseline",
+      "status": "pass",
+      "detail": "sha256:a40e5665...dd6be4 at both 472e7b5 and origin/main tip"
+    },
+    {
+      "name": "audit: main CI green at the audited tip",
+      "status": "pass",
+      "detail": "ci + CodeQL success on the latest main runs at audit time"
+    }
+  ],
+  "reviewerRerun": "git archive origin/main | tar -x -C /tmp/x && cd /tmp/x && npm ci && npm audit — expect found 0 vulnerabilities",
+  "notVerified": "Registry-side advisories published after this run.",
+  "verdict": "PASS"
+}

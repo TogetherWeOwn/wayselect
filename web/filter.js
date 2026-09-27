@@ -14,8 +14,35 @@ export const VALID_CAPABILITIES = Object.freeze([
 // Mirrors the catalog-entry v1 modality enum (schema/catalog-entry/v1.json).
 export const VALID_MODALITIES = Object.freeze(["audio", "image", "pdf", "text", "video"]);
 
+// Paging bounds for the listing index (TOG-6028): the index renders HTML, so
+// an unbounded catalog means an unbounded page. `limit`/`offset` keep every
+// render bounded; over-max and malformed values fail closed (400 upstream).
+export const LISTINGS_DEFAULT_LIMIT = 20;
+export const LISTINGS_MAX_LIMIT = 100;
+export const LISTINGS_DEFAULT_OFFSET = 0;
+
+// Text-query bound (TOG-6370, P2/G9): `q` arrives from the URL bar and
+// `normalizeFilters` below previously accepted it unbounded — an
+// attacker-sized value flows into matching, the reflected form value, and
+// logs. Over-long values fail closed (400 upstream) naming this bound; the
+// echoed value is truncated so the error page itself stays bounded. 200 is
+// ~10x headroom over realistic listing-search terms, same order as the
+// intake free-string caps (buyer ≤120, etag ≤256 in src/intakeLimits.js).
+export const LISTINGS_MAX_QUERY_LENGTH = 200;
+
+// Known /listings query keys (TOG-6365): anything else is a typo failing
+// silently, so unknown keys fail closed (400 upstream) naming this list.
+export const VALID_LISTINGS_QUERY_PARAMS = Object.freeze([
+  "q",
+  "capability",
+  "modality",
+  "limit",
+  "offset",
+]);
+
 const CAPABILITY_SET = new Set(VALID_CAPABILITIES);
 const MODALITY_SET = new Set(VALID_MODALITIES);
+const QUERY_PARAM_SET = new Set(VALID_LISTINGS_QUERY_PARAMS);
 
 export function emptyFilters() {
   return { q: "", capabilities: [], modalities: [] };
@@ -29,14 +56,48 @@ function normalizeFilters(filters) {
   };
 }
 
-// Validate raw query params. Returns `{ ok: true, filters }` or
+// Parse one paging param: absent means the default; present must be an
+// ASCII digit string (no signs, decimals, or whitespace padding that hides
+// them) and a safe integer. Returns `{ ok: true, value }` or
+// `{ ok: false, raw }` for the 400 invalid-filter page (fail closed).
+function parsePagingParam(raw, fallback) {
+  if (raw === null) {
+    return { ok: true, value: fallback };
+  }
+  const text = raw.trim();
+  if (!/^\d+$/.test(text)) {
+    return { ok: false, raw };
+  }
+  const value = Number(text);
+  if (!Number.isSafeInteger(value)) {
+    return { ok: false, raw };
+  }
+  return { ok: true, value };
+}
+
+// Validate raw query params. Returns `{ ok: true, filters, paging }` or
 // `{ ok: false, kind, value, valid }` for the 400 invalid-filter page.
 export function parseListingsQuery(searchParams) {
+  for (const key of new Set(searchParams.keys())) {
+    if (!QUERY_PARAM_SET.has(key)) {
+      return { ok: false, kind: "query", value: key, valid: VALID_LISTINGS_QUERY_PARAMS };
+    }
+  }
   const filters = normalizeFilters({
     q: searchParams.get("q") ?? "",
     capabilities: searchParams.getAll("capability"),
     modalities: searchParams.getAll("modality"),
   });
+  // Fail closed on oversize q: the echoed value is truncated so the 400
+  // page itself stays bounded no matter how large the input is.
+  if (filters.q.length > LISTINGS_MAX_QUERY_LENGTH) {
+    return {
+      ok: false,
+      kind: "q",
+      value: filters.q.slice(0, 64),
+      valid: [`at most ${LISTINGS_MAX_QUERY_LENGTH} characters`],
+    };
+  }
   for (const name of filters.capabilities) {
     if (!CAPABILITY_SET.has(name)) {
       return { ok: false, kind: "capability", value: name, valid: VALID_CAPABILITIES };
@@ -47,7 +108,20 @@ export function parseListingsQuery(searchParams) {
       return { ok: false, kind: "modality", value: name, valid: VALID_MODALITIES };
     }
   }
-  return { ok: true, filters };
+  const limit = parsePagingParam(searchParams.get("limit"), LISTINGS_DEFAULT_LIMIT);
+  if (!limit.ok || limit.value < 1 || limit.value > LISTINGS_MAX_LIMIT) {
+    return {
+      ok: false,
+      kind: "limit",
+      value: limit.ok ? String(limit.value) : (limit.raw ?? ""),
+      valid: [`1-${LISTINGS_MAX_LIMIT}`],
+    };
+  }
+  const offset = parsePagingParam(searchParams.get("offset"), LISTINGS_DEFAULT_OFFSET);
+  if (!offset.ok) {
+    return { ok: false, kind: "offset", value: offset.raw ?? "", valid: ["0 or greater"] };
+  }
+  return { ok: true, filters, paging: { limit: limit.value, offset: offset.value } };
 }
 
 function matchesText(listing, needle) {
@@ -95,4 +169,19 @@ export function applyListingsFilters(listings, filters) {
       matchesCapabilities(listing, normalized.capabilities) &&
       matchesModalities(listing, normalized.modalities),
   );
+}
+
+// Slice a filtered result to the requested window (TOG-6028). Offset past
+// the end yields an empty page (never a 400); the total is kept so the
+// renderer can announce the full match count alongside the window.
+export function paginateListings(listings, paging) {
+  const total = listings.length;
+  const limit =
+    Number.isSafeInteger(paging?.limit) && paging.limit > 0 ? paging.limit : LISTINGS_DEFAULT_LIMIT;
+  const offset =
+    Number.isSafeInteger(paging?.offset) && paging.offset >= 0
+      ? paging.offset
+      : LISTINGS_DEFAULT_OFFSET;
+  const page = listings.slice(offset, offset + limit);
+  return { page, total, limit, offset };
 }

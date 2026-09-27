@@ -14,11 +14,32 @@ export {
 export {
   EligibilityRequestError,
   evaluateEligibility,
+  normalizeRequirements,
   normalizeSelectionRequest,
 } from "./eligibility.js";
+export {
+  DEFAULT_MODELS_DEV_SOURCE,
+  IngestError,
+  hashRawText,
+  hashSnapshot,
+  ingestModelsDev,
+} from "./ingest.js";
 export { selectRoute } from "./selection.js";
+export { validateCliJson } from "./validate-cli-json.js";
+export { compareRouteIds } from "./routeIds.js";
+export { handleChatCompletionsRequest } from "./gateway.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
 export { SellerSubmissionError, validateSellerSubmission } from "./sellerSubmission.js";
+export {
+  MAX_BUYER_ID_LENGTH,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_ETAG_LENGTH,
+  MAX_JSON_BODY_BYTES,
+  MAX_MODEL_ID_LENGTH,
+  MAX_PROVIDER_ID_LENGTH,
+  ROUTE_ID_PATTERN,
+  SYNTHETIC_SOURCE_PREFIX,
+} from "./intakeLimits.js";
 export { FakeTransport } from "./transport.js";
 export {
   CatalogFreshnessError,
@@ -63,11 +84,21 @@ export {
   failOnGapsMessage,
   formatCliFailure,
   futureSnapshotMessage,
+  invalidKeepLastMessage,
   invalidMaxCatalogAgeMessage,
+  invalidPruneMaxAgeDaysMessage,
+  invalidPruneNowMessage,
   missingValueMessage,
   staleSnapshotMessage,
   unknownArgumentMessage,
 } from "./cliErrors.js";
+export {
+  DEFAULT_KEEP_LAST,
+  DEFAULT_MAX_AGE_DAYS,
+  SNAPSHOT_FILE_PATTERN,
+  SnapshotPruneError,
+  planSnapshotPrune,
+} from "./snapshotPrune.js";
 export {
   compareProbeProvenance,
   diffProbedRoutes,

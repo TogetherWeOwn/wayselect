@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  DEFAULT_MODELS_DEV_SOURCE,
   FakeTransport,
+  IngestError,
   applySupportConfiguration,
+  compareRouteIds,
+  hashRawText,
+  ingestModelsDev,
   normalizeCatalog,
+  normalizeRequirements,
   selectRoute,
 } from "../src/index.js";
 import {
@@ -60,6 +66,203 @@ function parseArguments(argv) {
 
 async function readJson(path) {
   return JSON.parse(await readFile(resolve(path), "utf8"));
+}
+
+// TOG-4791: opt-in catalog ingestion. `catalog` is the only multi-word entry
+// point; every other argv shape keeps the surrounding select/explain and
+// legacy paths byte-identical so the cli-errors pins keep holding.
+function parseCatalogImportArgs(tokens) {
+  if (tokens.length === 0 || tokens[0] === "--help") {
+    return { help: true };
+  }
+  if (tokens[0] !== "import") {
+    throw new Error(unknownArgumentMessage(tokens[0]));
+  }
+  const options = {
+    file: null,
+    fetch: false,
+    fetchUrl: DEFAULT_MODELS_DEV_SOURCE,
+    source: undefined,
+    snapshotTimestamp: undefined,
+    snapshotHash: undefined,
+    out: null,
+    json: false,
+    help: false,
+  };
+  const valueFlags = new Set([
+    "--fetch-url",
+    "--source",
+    "--snapshot-timestamp",
+    "--snapshot-hash",
+    "--out",
+  ]);
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === "--fetch") {
+      options.fetch = true;
+      continue;
+    }
+    if (token === "--json") {
+      options.json = true;
+      continue;
+    }
+    if (token === "--help") {
+      options.help = true;
+      continue;
+    }
+    if (valueFlags.has(token)) {
+      const value = tokens[index + 1];
+      if (value === undefined || value.startsWith("--")) {
+        throw new Error(missingValueMessage(token));
+      }
+      if (token === "--fetch-url") {
+        options.fetchUrl = value;
+      } else if (token === "--source") {
+        options.source = value;
+      } else if (token === "--snapshot-timestamp") {
+        options.snapshotTimestamp = value;
+      } else if (token === "--snapshot-hash") {
+        options.snapshotHash = value;
+      } else {
+        options.out = value;
+      }
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--")) {
+      throw new Error(unknownArgumentMessage(token));
+    }
+    if (options.file !== null) {
+      throw new Error("catalog import takes a single input file");
+    }
+    options.file = token;
+  }
+  if (options.file !== null && options.fetch) {
+    throw new Error("catalog import takes either a file or --fetch, not both");
+  }
+  if (!options.help && options.file === null && !options.fetch) {
+    throw new Error("catalog import needs an input file or --fetch");
+  }
+  return { subcommand: "import", ...options };
+}
+
+async function fetchModelsDevText(url) {
+  // The ONLY networked path in this CLI: explicit opt-in via --fetch, never
+  // exercised in tests.
+  let response;
+  try {
+    response = await globalThis.fetch(url);
+  } catch (error) {
+    throw new IngestError(`Cannot fetch ${url}: ${error.message}`);
+  }
+  if (!response.ok) {
+    throw new IngestError(`Cannot fetch ${url}: HTTP ${response.status}`);
+  }
+  return response.text();
+}
+
+async function runCatalogImport(options) {
+  const rawText = options.fetch
+    ? await fetchModelsDevText(options.fetchUrl)
+    : await readFile(resolve(options.file), "utf8").catch((error) => {
+        throw new IngestError(`Cannot read ${options.file}: ${error.message}`);
+      });
+  let input;
+  try {
+    input = JSON.parse(rawText);
+  } catch (error) {
+    throw new IngestError(
+      `Cannot parse ${options.fetch ? options.fetchUrl : options.file} as JSON: ${error.message}`,
+    );
+  }
+
+  const source =
+    options.source ?? (options.fetch ? options.fetchUrl : `file://${resolve(options.file)}`);
+  const ingested = ingestModelsDev(input, {
+    source,
+    snapshotTimestamp: options.snapshotTimestamp,
+    snapshotHash: options.snapshotHash,
+  });
+
+  const catalog = normalizeCatalog(ingested.catalog, ingested.provenance);
+  if (catalog.entries.length === 0) {
+    const reasons = ingested.quarantined.map((entry) => `${entry.routeId}: ${entry.reason}`);
+    throw new IngestError(
+      `No entries survived ingestion${reasons.length > 0 ? `: ${reasons.join("; ")}` : ""}`,
+    );
+  }
+
+  const document = { provenance: ingested.provenance, catalog: ingested.catalog };
+  let outPath = null;
+  if (options.out !== null) {
+    outPath = resolve(options.out);
+    await writeFile(outPath, `${JSON.stringify(document, null, 2)}\n`).catch((error) => {
+      throw new IngestError(`Cannot write ${options.out}: ${error.message}`);
+    });
+  }
+
+  const summary = {
+    command: "catalog import",
+    dryRun: true,
+    networkUsed: options.fetch,
+    source: ingested.provenance.source,
+    snapshotTimestamp: ingested.provenance.snapshotTimestamp,
+    snapshotHash: ingested.provenance.snapshotHash,
+    rawHash: hashRawText(rawText),
+    providerCount: Object.keys(ingested.catalog).length,
+    entryCount: catalog.entries.length,
+    quarantined: ingested.quarantined.map((entry) => ({ ...entry })),
+    outPath,
+  };
+  if (options.json) {
+    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    return;
+  }
+  const lines = [
+    "catalog import — dry-run only (support state: catalogued only)",
+    `Source: ${summary.source} @ ${summary.snapshotTimestamp}`,
+    `Snapshot hash: ${summary.snapshotHash}`,
+    `Raw input hash: ${summary.rawHash}`,
+    `Ingested ${summary.entryCount} entr${summary.entryCount === 1 ? "y" : "ies"} ` +
+      `from ${summary.providerCount} provider${summary.providerCount === 1 ? "" : "s"} ` +
+      `(support state: catalogued only).`,
+  ];
+  if (summary.quarantined.length > 0) {
+    lines.push(`Quarantined ${summary.quarantined.length}:`);
+    for (const entry of summary.quarantined) {
+      lines.push(`  - ${entry.routeId}: ${entry.reason}`);
+    }
+  }
+  if (outPath !== null) {
+    lines.push(`Wrote catalog document: ${outPath}`);
+  } else {
+    lines.push("No --out path given; catalog document not written.");
+  }
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function printCatalogImportHelp() {
+  process.stdout.write(
+    `wayselect catalog import — ingest models.dev-shaped JSON into a catalog document (dry-run only)
+
+Usage:
+  wayselect catalog import <file> [options]   Read a local models.dev-shaped JSON file
+  wayselect catalog import --fetch [options]  Fetch ${DEFAULT_MODELS_DEV_SOURCE} (only networked path)
+
+Options:
+  --fetch-url <url>              Override the fetch URL (only with --fetch)
+  --source <label>               Override the provenance source label
+  --snapshot-timestamp <iso>     Override the provenance snapshot timestamp
+  --snapshot-hash <sha256:...>   Override the provenance snapshot hash (must match the ingested body)
+  --out <path>                   Write the ingested catalog document to <path>
+  --json                         Machine-readable JSON summary
+  --help                         Show this help
+
+Every ingested entry lands as support state catalogued only — ingestion never
+configures, enables, or produces executable URLs. Unknown or malformed fields
+are quarantined with reasons; missing capabilities are never guessed.
+`,
+  );
 }
 
 async function runLegacyDemo(argv) {
@@ -156,9 +359,24 @@ const VALUE_FLAGS = new Set([
   "--evaluation-time",
   "--max-evidence-age-hours",
   "--max-catalog-age-hours",
+  "--min-context-window",
+  "--max-output-tokens",
 ]);
 
-const LIST_FLAGS = new Set(["--require", "--allow"]);
+const LIST_FLAGS = new Set([
+  "--require",
+  "--allow",
+  "--input-modalities",
+  "--output-modalities",
+]);
+
+// TOG-5857 (S1): typed-requirement boolean flags. Opt-in only — absent means
+// "no constraint", matching the library's `false means no constraint` rule.
+const REQUIREMENT_BOOLEAN_FLAGS = new Set([
+  "--require-tools",
+  "--require-structured-output",
+  "--require-reasoning",
+]);
 
 function usageError(message) {
   return new UsageError(`${message}\nRun "wayselect --help" for usage.`);
@@ -183,6 +401,13 @@ function parseCommandArgs(tokens, command) {
     operation: undefined,
     require: [],
     allow: [],
+    inputModalities: [],
+    outputModalities: [],
+    minContextWindow: undefined,
+    maxOutputTokens: undefined,
+    requireTools: undefined,
+    requireStructuredOutput: undefined,
+    requireReasoning: undefined,
     evaluationTime: undefined,
     maxEvidenceAgeHours: undefined,
     maxCatalogAgeHours: undefined,
@@ -200,14 +425,31 @@ function parseCommandArgs(tokens, command) {
       options.help = true;
       continue;
     }
+    if (REQUIREMENT_BOOLEAN_FLAGS.has(token)) {
+      if (token === "--require-tools") {
+        options.requireTools = true;
+      } else if (token === "--require-structured-output") {
+        options.requireStructuredOutput = true;
+      } else {
+        options.requireReasoning = true;
+      }
+      continue;
+    }
     if (LIST_FLAGS.has(token)) {
       const value = tokens[index + 1];
       if (!value || value.startsWith("--")) {
         throw usageError(`Missing value for ${token}`);
       }
-      options[token === "--require" ? "require" : "allow"].push(
-        ...splitListFlag(value, token),
-      );
+      const items = splitListFlag(value, token);
+      if (token === "--require") {
+        options.require.push(...items);
+      } else if (token === "--allow") {
+        options.allow.push(...items);
+      } else if (token === "--input-modalities") {
+        options.inputModalities.push(...items);
+      } else {
+        options.outputModalities.push(...items);
+      }
       index += 1;
       continue;
     }
@@ -230,6 +472,10 @@ function parseCommandArgs(tokens, command) {
         options.maxEvidenceAgeHours = value;
       } else if (token === "--max-catalog-age-hours") {
         options.maxCatalogAgeHours = value;
+      } else if (token === "--min-context-window") {
+        options.minContextWindow = value;
+      } else if (token === "--max-output-tokens") {
+        options.maxOutputTokens = value;
       }
       index += 1;
       continue;
@@ -286,17 +532,41 @@ function parseEvaluationTime(raw) {
   return time;
 }
 
+// TOG-5857 (S1): typed-requirement token thresholds. Fail-closed at the CLI
+// boundary (exit 1) so a typo never silently becomes "no constraint"; the
+// library's own boundary rejects malformed file values the same way.
+function parseTokenThreshold(raw, flag) {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new InputError(`${flag} must be a non-negative integer, got: ${raw}`);
+  }
+  return value;
+}
+
 async function resolveSelectionInput(options) {
   let fileSelection = null;
   let fileEvaluationTime;
   let fileMaxEvidenceAgeHours;
   let fileMaxCatalogAgeHours;
 
+  const wantsRequirementsFromFlags =
+    options.inputModalities.length > 0 ||
+    options.outputModalities.length > 0 ||
+    options.minContextWindow !== undefined ||
+    options.maxOutputTokens !== undefined ||
+    options.requireTools !== undefined ||
+    options.requireStructuredOutput !== undefined ||
+    options.requireReasoning !== undefined;
+
   const wantsFileDefault =
     options.request === null &&
     options.operation === undefined &&
     options.require.length === 0 &&
     options.allow.length === 0 &&
+    !wantsRequirementsFromFlags &&
     options.evaluationTime === undefined &&
     options.maxEvidenceAgeHours === undefined &&
     options.maxCatalogAgeHours === undefined;
@@ -314,6 +584,49 @@ async function resolveSelectionInput(options) {
     }
   }
 
+  // TOG-5857 (S1): typed requirements ride along only when the file or
+  // flags actually provide one — legacy file/flag combinations keep the
+  // exact pre-S1 selection shape, so legacy behavior is untouched.
+  const fileRequirements =
+    fileSelection?.requirements !== undefined ? fileSelection.requirements : undefined;
+  // TOG-5946 Blocking 1: validate the raw file requirements BEFORE merging
+  // with flags. The per-dimension `?.`/`??` reads below would otherwise
+  // silently drop an unknown key or a non-object value whenever any typed
+  // flag is present (fail open). The library is the single source of truth
+  // for the shape; rethrow as InputError so the CLI exits 1.
+  if (fileRequirements !== undefined) {
+    try {
+      normalizeRequirements(fileRequirements);
+    } catch (error) {
+      throw new InputError(error.message);
+    }
+  }
+  let requirements;
+  if (wantsRequirementsFromFlags) {
+    requirements = {
+      inputModalities:
+        options.inputModalities.length > 0
+          ? [...new Set(options.inputModalities)].sort()
+          : (fileRequirements?.inputModalities ?? []),
+      outputModalities:
+        options.outputModalities.length > 0
+          ? [...new Set(options.outputModalities)].sort()
+          : (fileRequirements?.outputModalities ?? []),
+      minContextWindow:
+        parseTokenThreshold(options.minContextWindow, "--min-context-window") ??
+        (fileRequirements?.minContextWindow ?? undefined),
+      maxOutputTokens:
+        parseTokenThreshold(options.maxOutputTokens, "--max-output-tokens") ??
+        (fileRequirements?.maxOutputTokens ?? undefined),
+      toolCalling: options.requireTools ?? fileRequirements?.toolCalling ?? false,
+      structuredOutput:
+        options.requireStructuredOutput ?? fileRequirements?.structuredOutput ?? false,
+      reasoning: options.requireReasoning ?? fileRequirements?.reasoning ?? false,
+    };
+  } else {
+    requirements = fileRequirements;
+  }
+
   const selection = {
     operation: options.operation ?? fileSelection?.operation,
     requiredCapabilities:
@@ -324,6 +637,7 @@ async function resolveSelectionInput(options) {
       options.allow.length > 0
         ? [...new Set(options.allow)].sort()
         : fileSelection?.providerAllowlist,
+    ...(requirements === undefined ? {} : { requirements }),
   };
 
   if (selection.operation === undefined) {
@@ -386,7 +700,7 @@ function rankCandidates(evaluations) {
       if (leftRate === null && rightRate !== null) {
         return 1;
       }
-      return left.routeId.localeCompare(right.routeId);
+      return compareRouteIds(left.routeId, right.routeId);
     });
   const excluded = evaluations.filter((candidate) => !candidate.eligible);
   return [...eligible, ...excluded];
@@ -485,13 +799,44 @@ function formatMachineJson({ command, result, ranked, provenance, evaluationTime
   );
 }
 
+// TOG-5857 (S1): typed requirements render on the explain Request line
+// only when actually set — legacy boolean-only requests keep the exact
+// pre-S1 line the cli tests pin.
+function formatTypedRequirementsSummary(requirements) {
+  if (!requirements || Object.keys(requirements).length === 0) {
+    return null;
+  }
+  const parts = [];
+  for (const [key, values] of [
+    ["inputModalities", requirements.inputModalities],
+    ["outputModalities", requirements.outputModalities],
+  ]) {
+    if (Array.isArray(values) && values.length > 0) {
+      parts.push(`${key}=[${[...values].join(", ")}]`);
+    }
+  }
+  for (const key of ["minContextWindow", "maxOutputTokens"]) {
+    if (requirements[key] !== null && requirements[key] !== undefined) {
+      parts.push(`${key}=${requirements[key]}`);
+    }
+  }
+  for (const key of ["toolCalling", "structuredOutput", "reasoning"]) {
+    if (requirements[key] === true) {
+      parts.push(key);
+    }
+  }
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
 function formatRequestSummary(selection) {
   const required = selection.requiredCapabilities ?? [];
   const allowlist = selection.providerAllowlist ?? [];
+  const typed = formatTypedRequirementsSummary(selection.requirements);
   return (
     `operation=${selection.operation}, ` +
     `require=[${[...required].join(", ")}], ` +
-    `allow=[${[...allowlist].join(", ")}]`
+    `allow=[${[...allowlist].join(", ")}]` +
+    (typed === null ? "" : `, typed=[${typed}]`)
   );
 }
 
@@ -567,6 +912,7 @@ function printGlobalHelp() {
 Usage:
   wayselect select [options]    Select a route and show ranked candidates
   wayselect explain [options]   Explain per-candidate eligibility in detail
+  wayselect catalog import ...  Ingest models.dev-shaped JSON into a catalog document
   wayselect --help              Show this help
   wayselect --version           Show the version
 
@@ -581,13 +927,25 @@ Options for select and explain:
   --configuration <path>         Support configuration (default: ${DEFAULT_PATHS.configuration})
   --request <path>               Request JSON: a full demo request or a bare
                                  selection {operation, requiredCapabilities,
-                                 providerAllowlist} (default: ${DEFAULT_PATHS.request}
-                                 when no requirement flags are given)
+                                 providerAllowlist, requirements} (default:
+                                 ${DEFAULT_PATHS.request} when no requirement
+                                 flags are given)
   --operation <name>             Override the requested operation
   --require <cap,...>            Override required capabilities (repeatable,
                                  comma-separated)
   --allow <provider,...>         Override the provider allowlist (repeatable,
                                  comma-separated)
+  --input-modalities <m,...>     Require input modalities (repeatable,
+                                 comma-separated; e.g. text,image)
+  --output-modalities <m,...>    Require output modalities (repeatable,
+                                 comma-separated; e.g. text)
+  --min-context-window <n>       Require at least <n> context-window tokens
+                                 (unknown limits fail closed)
+  --max-output-tokens <n>        Require at least <n> max-output tokens
+                                 (unknown limits fail closed)
+  --require-tools                Require tool calling (unknown data fails closed)
+  --require-structured-output    Require structured output (unknown data fails closed)
+  --require-reasoning            Require reasoning (unknown data fails closed)
   --evaluation-time <iso>        Override the evaluation timestamp
   --max-evidence-age-hours <n>   Override the evidence freshness limit
                                  (default: ${DEFAULT_MAX_EVIDENCE_AGE_HOURS})
@@ -608,6 +966,7 @@ Examples:
   wayselect select --operation chat --require toolUse --allow northstar,orbit
   wayselect explain --json
   wayselect select --request fixtures/request.synthetic.json --json
+  wayselect catalog import models.json --out catalog.json
 
 See docs/cli.md for copy-pasteable examples.
 `,
@@ -622,10 +981,15 @@ function printCommandHelp(command) {
 Usage:
   wayselect ${command} [--catalog <path>] [--configuration <path>] [--request <path>]
       [--operation <name>] [--require <cap,...>] [--allow <provider,...>]
+      [--input-modalities <m,...>] [--output-modalities <m,...>]
+      [--min-context-window <n>] [--max-output-tokens <n>]
+      [--require-tools] [--require-structured-output] [--require-reasoning]
       [--evaluation-time <iso>] [--max-evidence-age-hours <n>]
       [--max-catalog-age-hours <n>] [--json]
 
 Requirements come from --request or from flags; flags override the file.
+Typed requirements filter catalog entries; unknown or missing capability
+data fails closed (excluded, never silently included).
 Stale/future catalogs fail closed (no eligible route, exit 3).
 Exit codes: 0 selected, 1 invalid input, 2 usage error, 3 no eligible route.
 `,
@@ -647,6 +1011,21 @@ async function main() {
       }
       process.stderr.write(`error: ${error.message}\n`);
       process.exitCode = EXIT_INVALID_INPUT;
+    }
+    return;
+  }
+
+  if (first === "catalog") {
+    try {
+      const options = parseCatalogImportArgs(argv.slice(1));
+      if (options.help) {
+        printCatalogImportHelp();
+        return;
+      }
+      await runCatalogImport(options);
+    } catch (error) {
+      process.stderr.write(formatCliFailure(error));
+      process.exitCode = 1;
     }
     return;
   }
