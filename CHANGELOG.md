@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #128 (2026-09-27) TOG-6730: corrupt search-index `--previous` behavior
+  pin — CLI fails closed (exit 1, empty stdout, no output written) on
+  non-JSON/truncated/wrong-tool/empty-entries/missing files, exact
+  `SearchIndexError` strings pinned, rebuild-from-fixture recovery covered
+  (`test/search-index-corrupt-previous.test.js`, test-only).
 - #122 (2026-09-27) TOG-6369: serve `GET /favicon.ico` as 204 (ungated,
   rate-limit-exempt like `/healthz`; non-GET 405s with `Allow: GET`)
   (`web/server.js`, `test/favicon-route.test.js`,
