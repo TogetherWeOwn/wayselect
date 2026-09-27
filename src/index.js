@@ -17,6 +17,7 @@ export {
   normalizeSelectionRequest,
 } from "./eligibility.js";
 export { selectRoute } from "./selection.js";
+export { validateCliJson } from "./validate-cli-json.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
 export { SellerSubmissionError, validateSellerSubmission } from "./sellerSubmission.js";
 export { FakeTransport } from "./transport.js";
