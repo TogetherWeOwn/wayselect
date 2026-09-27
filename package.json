@@ -27,7 +27,8 @@
     "check:provenance": "node bin/check-ingestion-provenance",
     "smoke": "node bin/smoke-wayselect-ingestion",
     "refresh": "node bin/refresh-catalog-fixtures",
-    "refresh:check": "node bin/refresh-catalog-fixtures --check"
+    "refresh:check": "node bin/refresh-catalog-fixtures --check",
+    "accept:fixture-refresh": "node bin/accept-fixture-refresh"
   },
   "dependencies": {
     "ajv": "^8.17.1",
