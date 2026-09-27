@@ -133,7 +133,16 @@ function sendHtml(res, status, html, nonce) {
 }
 
 function sendJson(res, status, payload) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
+  // TOG-6367: error JSON is dynamic (per-request 403/404/405/400/413
+  // bodies, never cacheable content), so error statuses carry
+  // `Cache-Control: no-store` — shared caches must not store them.
+  // Success JSON keeps default cache semantics: cacheable GETs (ETag,
+  // validators, 304) belong to TOG-6050, which decides per route there.
+  const headers = { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS };
+  if (status >= 400) {
+    headers["cache-control"] = "no-store";
+  }
+  res.writeHead(status, headers);
   res.end(JSON.stringify(payload));
 }
 
@@ -141,10 +150,12 @@ function sendJson(res, status, payload) {
 // to carry an `Allow` header naming the methods the target supports. Every
 // known route shape funnels through here so OPTIONS/PUT/DELETE behave the
 // same on every route; unknown paths stay 404 (no resource, no `Allow`).
+// Always an error, so always `Cache-Control: no-store` (TOG-6367).
 function sendMethodNotAllowed(res, allow) {
   res.writeHead(405, {
     "content-type": "application/json; charset=utf-8",
     ...SECURITY_HEADERS,
+    "cache-control": "no-store",
     allow,
   });
   res.end(JSON.stringify({ error: "method_not_allowed" }));
@@ -247,9 +258,12 @@ export function createApp(env = process.env, options = {}) {
     if (!verdict.allowed) {
       // TOG-5732 audit: the 429 path previously bypassed sendJson and so
       // missed SECURITY_HEADERS — every response carries them now.
+      // TOG-6367: the refusal body is dynamic, so `no-store` like every
+      // other JSON error.
       res.writeHead(429, {
         "content-type": "application/json; charset=utf-8",
         ...SECURITY_HEADERS,
+        "cache-control": "no-store",
         "retry-after": String(verdict.retryAfterSec),
       });
       res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));

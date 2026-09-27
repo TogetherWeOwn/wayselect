@@ -31,6 +31,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   flag-off detail requests negotiating `Accept: application/json` 404
   with `{error: "preview_disabled"}` (HTML default and HTML-only index
   unchanged) (`web/server.js`, `test/preview-disabled-json.test.js`).
+- #114 (2026-09-27) TOG-6367: `Cache-Control: no-store` on dynamic JSON
+  errors (`sendJson` for status >= 400, `sendMethodNotAllowed`, 429
+  refusal); success JSON and HTML untouched (`web/server.js`,
+  `test/json-error-no-store.test.js`).
 - #107 (2026-09-27) TOG-6370: `q` length cap (200, fail-closed 400 naming
   the bound) + form `maxlength` hint (`web/filter.js`,
   `web/listing-detail.js`, `test/listing-filter.test.js`,
