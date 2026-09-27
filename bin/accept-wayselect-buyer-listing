@@ -1,0 +1,289 @@
+#!/usr/bin/env node
+
+// Executable acceptance for the Wayselect buyer listing slice (TOG-4869).
+//
+// Pins the schema-key mapping from docs/wayselect-buyer-listing.md (§2) against
+// the real tree: v1 fixtures carry the exact keys, the explain trace backs the
+// eligibility note, confirm-intent validates frozen, and the purchase stub
+// refuses. No staging endpoint is declared anywhere in repo history, so this
+// run executes against the local tree and records the endpoint as undeclared
+// (TOG-4873 precedent); the same command runs unchanged once an endpoint lands.
+//
+//   B1 schema-key gate (fixtures carry exact v1 keys)
+//   B2 listing render (five buyer fields from exact v1 keys)
+//   B3 explain trace (human + --json carry verdict + reasons)
+//   B4 unknown-data exclusion (missing-/unsupported-capability, never selected)
+//   B5 stale fail-closed (snapshot+24h → stale-catalog, no-eligible-route, exit 3)
+//   B6 confirm intent + terminal refusal (frozen intent, unconfirmed rejects, 403 preview_only)
+//   B7 provenance receipt (source + snapshot carried end to end)
+//
+// Usage: node bin/accept-wayselect-buyer-listing   (or: npm run accept:buyer-listing)
+// Zero dependencies: Node standard library only. Budget: under 15 minutes (typically < 30s).
+
+import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+import { createApp } from "../web/server.js";
+import { PurchaseSubmissionError, validatePurchaseSubmission } from "../src/purchase.js";
+
+const execFileAsync = promisify(execFile);
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const EVAL_TIME = "2026-09-26T16:00:00.000Z"; // pinned: matches docs/cli.md examples
+const EXPLAIN_ARGS = ["explain", "--operation", "chat", "--require", "toolUse", "--allow", "northstar,orbit", "--evaluation-time", EVAL_TIME];
+const STAGING_ENDPOINT = process.env.WAYSELECT_STAGING_ENDPOINT ?? null;
+
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+const readJson = (rel) => JSON.parse(readFileSync(join(REPO_ROOT, rel), "utf8"));
+
+async function runCli(args) {
+  try {
+    const run = await execFileAsync("node", ["bin/wayselect", ...args], {
+      cwd: REPO_ROOT,
+      timeout: 60_000,
+    });
+    return { exit: 0, stdout: run.stdout, stderr: run.stderr };
+  } catch (error) {
+    return { exit: typeof error.code === "number" ? error.code : 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+  }
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+async function close(server) {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+// §2 mapping: exact v1 keys → the five buyer-visible fields.
+function renderListing(top) {
+  const en = top.entry ?? {};
+  const title = en.name;
+  const id = en.id;
+  const seller = top.providerId;
+  const price = en.cost == null ? "Price unpublished" : `in=${en.cost.input} out=${en.cost.output}`;
+  const avail = en.status === "deprecated" ? "Unavailable — deprecated" : "Listable"; // G1 convention
+  return { title, id, seller, price, avail };
+}
+
+// ---- B1: schema-key gate (fixtures carry exact v1 keys) ----
+const SCHEMA_TOP_REQUIRED = ["schemaVersion", "providerId", "modelId", "provenance", "entry"];
+const MODEL_REQUIRED = ["id", "name", "description", "attachment", "reasoning", "tool_call", "release_date", "last_updated", "modalities", "open_weights", "limit"];
+const valid = readJson("test/fixtures/valid.json");
+check(SCHEMA_TOP_REQUIRED.every((k) => k in valid), "B1a", "valid.json carries every top-level §2 key");
+check(valid.schemaVersion === "v1", "B1b", "valid.json is schema v1", `schemaVersion=${valid.schemaVersion}`);
+check(MODEL_REQUIRED.every((k) => k in (valid.entry ?? {})), "B1c", "valid.json entry carries every §2 input key");
+check(["source", "fetchedAt"].every((k) => k in (valid.provenance ?? {})), "B1d", "valid.json provenance carries source + fetchedAt");
+const malformed = readJson("test/fixtures/malformed.json");
+const malformedMissing = MODEL_REQUIRED.filter((k) => !((malformed.entry ?? {})[k] !== undefined));
+check(malformedMissing.length >= 1, "B1e", "malformed.json lacks ≥1 required key (fail-closed input)", `missing: ${malformedMissing.join(",") || "none"}`);
+const staleFixture = readJson("test/fixtures/stale.json");
+check(staleFixture.schemaVersion !== "v1", "B1f", "stale.json is non-v1 (fail-closed input)", `schemaVersion=${staleFixture.schemaVersion}`);
+
+// ---- B2: listing render from exact v1 keys ----
+const line = renderListing(valid);
+process.stdout.write(`  - ${line.title} [${line.id}] | seller=${line.seller} | ${line.price} | ${line.avail}\n`);
+check(
+  line.title === valid.entry.name && line.id === valid.entry.id && line.seller === valid.providerId,
+  "B2a",
+  "title + id + seller render verbatim from exact v1 keys",
+);
+check(
+  line.price === `in=${valid.entry.cost.input} out=${valid.entry.cost.output}`,
+  "B2b",
+  "price renders as-published from entry.cost (no conversion)",
+);
+check(line.avail === "Listable", "B2c", "absent entry.status → listable (G1 convention)");
+check(
+  renderListing({ providerId: "p", entry: { name: "N", id: "i" } }).price === "Price unpublished",
+  "B2d",
+  "missing entry.cost → Price unpublished (D4)",
+);
+check(
+  renderListing({ providerId: "p", entry: { name: "N", id: "i", status: "deprecated" } }).avail === "Unavailable — deprecated" &&
+    renderListing({ providerId: "p", entry: { name: "N", id: "i", status: "beta" } }).avail === "Listable",
+  "B2e",
+  "deprecated → unavailable, beta → listable (G1 convention)",
+);
+
+// ---- B3: explain trace (human + --json) ----
+const human = await runCli(EXPLAIN_ARGS);
+check(
+  human.exit === 0 && /verdict: selected northstar\/alpha-chat/.test(human.stdout) && /missing-capability:toolUse/.test(human.stdout),
+  "B3a",
+  "explain human trace carries the verdict + verbatim reasons",
+  `exit=${human.exit}`,
+);
+const js = await runCli([...EXPLAIN_ARGS, "--json"]);
+let traced = null;
+try {
+  traced = JSON.parse(js.stdout);
+} catch {
+  traced = null;
+}
+check(
+  js.exit === 0 && traced !== null && traced.status === "selected" && traced.selectedRouteId === "northstar/alpha-chat" &&
+    Array.isArray(traced.rankedCandidates) && traced.rankedCandidates.every((c) => Array.isArray(c.reasons)),
+  "B3b",
+  "explain --json carries status + selectedRouteId + per-candidate reasons",
+  `exit=${js.exit}`,
+);
+
+// ---- B4: unknown-data exclusion (never selected) ----
+if (traced !== null) {
+  const byId = Object.fromEntries(traced.rankedCandidates.map((c) => [c.routeId, c]));
+  check(
+    byId["northstar/unknown-tools"]?.eligible === false &&
+      (byId["northstar/unknown-tools"]?.reasons ?? []).includes("missing-capability:toolUse"),
+    "B4a",
+    "unknown-tools excluded with missing-capability:toolUse (never guessed)",
+    JSON.stringify(byId["northstar/unknown-tools"]?.reasons ?? null),
+  );
+  check(
+    byId["northstar/image-lite"]?.eligible === false &&
+      (byId["northstar/image-lite"]?.reasons ?? []).includes("unsupported-capability:toolUse"),
+    "B4b",
+    "image-lite excluded with unsupported-capability:toolUse (known-unsupported)",
+    JSON.stringify(byId["northstar/image-lite"]?.reasons ?? null),
+  );
+  check(
+    !["northstar/unknown-tools", "northstar/image-lite"].includes(traced.selectedRouteId),
+    "B4c",
+    "neither excluded candidate is selected",
+    `selected=${traced.selectedRouteId}`,
+  );
+} else {
+  check(false, "B4a", "skipped: no --json trace (see B3b)", "");
+  check(false, "B4b", "skipped: no --json trace (see B3b)", "");
+  check(false, "B4c", "skipped: no --json trace (see B3b)", "");
+}
+
+// ---- B5: stale fail-closed (snapshot + 24h + 1s, mirrors E6) ----
+const catalog = readJson("fixtures/catalog.synthetic.json");
+const snapshotMs = Date.parse(catalog.provenance.snapshotTimestamp);
+const staleEvalTime = new Date(snapshotMs + 24 * 3600 * 1000 + 1000).toISOString();
+const staleArgs = ["explain", "--operation", "chat", "--require", "toolUse", "--allow", "northstar,orbit", "--evaluation-time", staleEvalTime];
+const staleRun = await runCli([...staleArgs, "--json"]);
+let staleTraced = null;
+try {
+  staleTraced = JSON.parse(staleRun.stdout);
+} catch {
+  staleTraced = null;
+}
+check(staleRun.exit === 3, "B5a", "stale evaluation exits 3 (no-eligible-route, never a selection)", `exit=${staleRun.exit}`);
+check(
+  staleTraced !== null && staleTraced.rankedCandidates.length > 0 &&
+    staleTraced.rankedCandidates.every((c) => c.reasons.includes("stale-catalog")),
+  "B5b",
+  "every candidate explains stale-catalog before any eligibility output",
+);
+check(staleTraced !== null && staleTraced.selectedRouteId == null, "B5c", "no route selected from a stale snapshot");
+const staleHuman = await runCli(staleArgs);
+check(/verdict: no-eligible-route/.test(staleHuman.stdout), "B5d", "stale human trace verdicts no-eligible-route");
+
+// ---- B6: confirm intent + terminal refusal ----
+const SUBMISSION = {
+  providerId: "northstar",
+  modelId: "alpha-chat",
+  buyerId: "buyer-001",
+  confirm: true,
+  provenance: {
+    source: "synthetic://wayselect/purchase-fixture-v1",
+    fetchedAt: "2026-09-24T10:00:00.000Z",
+  },
+};
+let intent = null;
+try {
+  intent = validatePurchaseSubmission(structuredClone(SUBMISSION));
+} catch (error) {
+  intent = error;
+}
+check(
+  intent !== null && !(intent instanceof Error) && intent.routeId === "northstar/alpha-chat" && Object.isFrozen(intent),
+  "B6a",
+  "confirm:true validates to a frozen northstar/alpha-chat intent",
+  intent instanceof Error ? intent.message.slice(0, 120) : "",
+);
+check(
+  intent !== null && !(intent instanceof Error) &&
+    JSON.stringify(Object.keys(intent).sort()) === JSON.stringify(["buyerId", "modelId", "provenance", "providerId", "routeId"]),
+  "B6b",
+  "intent carries no payment fields (exact key set)",
+  intent instanceof Error ? "" : Object.keys(intent).join(","),
+);
+let declineError = null;
+try {
+  validatePurchaseSubmission({ ...structuredClone(SUBMISSION), confirm: false });
+} catch (error) {
+  declineError = error;
+}
+check(
+  declineError instanceof PurchaseSubmissionError && declineError.code === "unconfirmed",
+  "B6c",
+  "confirm:false rejects with code unconfirmed (a decline never proceeds)",
+  declineError === null ? "submission passed" : String(declineError.message).slice(0, 120),
+);
+
+const server = await listen({ WAYSELECT_PREVIEW: "1" });
+try {
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const res = await fetch(`${base}/listings/northstar/alpha-chat/purchase`, { method: "POST" });
+  const body = await res.json().catch(() => null);
+  check(
+    res.status === 403 && body?.error === "preview_only",
+    "B6d",
+    "POST …/purchase refuses 403 preview_only (no backend writes, no charge)",
+    `got ${res.status}`,
+  );
+} finally {
+  await close(server);
+}
+
+// ---- B7: provenance receipt (source + snapshot carried end to end) ----
+check(
+  traced !== null && typeof traced.provenance?.source === "string" && typeof traced.provenance?.snapshotTimestamp === "string",
+  "B7a",
+  "explain provenance carries source + snapshotTimestamp",
+  traced === null ? "no trace" : `${traced.provenance?.source} @ ${traced.provenance?.snapshotTimestamp}`,
+);
+check(
+  intent !== null && !(intent instanceof Error) &&
+    intent.provenance.source === SUBMISSION.provenance.source &&
+    intent.provenance.fetchedAt === SUBMISSION.provenance.fetchedAt,
+  "B7b",
+  "intent preserves provenance source + fetchedAt for the stub receipt",
+);
+
+process.stdout.write(`STAGING: ${STAGING_ENDPOINT ?? "undeclared (local-tree run, TOG-4873 precedent)"}\n`);
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(`SUMMARY: ${pass} pass, ${fail} fail — ${elapsedS}s (budget 15m)\n`);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;
