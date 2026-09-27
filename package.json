@@ -18,6 +18,7 @@
     "accept:web": "node bin/accept-wayselect-web",
     "accept:search-filter": "node bin/accept-wayselect-search-filter",
     "accept:seller": "node bin/accept-wayselect-seller",
+    "accept:seller-payout": "node bin/accept-wayselect-seller-payout",
     "accept:buyer": "node bin/accept-wayselect-buyer",
     "accept:eligibility": "node bin/accept-wayselect-eligibility",
     "accept:dryrun-explain": "node bin/accept-wayselect-dryrun-explain",

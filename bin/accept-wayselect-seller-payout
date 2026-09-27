@@ -1,0 +1,403 @@
+#!/usr/bin/env node
+
+// Executable acceptance script for the Wayselect seller payout-eligibility
+// checklist (TOG-5490, part 4).
+//
+// Spec: docs/wayselect-seller-payout-eligibility.md (PE1–PE6; P-probes run
+// today, F-probes auto-skip until the offers/payout slices land).
+//
+// Usage: node bin/accept-wayselect-seller-payout   (or: npm run accept:seller-payout)
+// Zero dependencies: Node standard library only, plus the real product
+// boundaries (src/sellerSubmission.js, web/server.js, web/stub-listing.js,
+// web/eligibility.js) — no new product code. Starts the real server on
+// ephemeral ports, probes it, exits 0 when there are zero failures (skips
+// allowed), 1 otherwise. Budget: under 15 minutes.
+
+import { readFile } from "node:fs/promises";
+import { createApp } from "../web/server.js";
+import { getStubListing } from "../web/stub-listing.js";
+import {
+  ELIGIBILITY_STATE,
+  describeEligibility,
+  evaluateListingEligibility,
+} from "../web/eligibility.js";
+import {
+  SellerSubmissionError,
+  validateSellerSubmission,
+} from "../src/sellerSubmission.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function skip(id, label, reason) {
+  record("skip", id, label, reason);
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+function baseOf(server) {
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function close(server) {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+async function request(base, path, options = {}) {
+  const res = await fetch(`${base}${path}`, options);
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status: res.status, text, json };
+}
+
+function postJson(base, path, body) {
+  return request(base, path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function collectKeys(value, out = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectKeys(item, out);
+    }
+  } else if (value !== null && typeof value === "object") {
+    for (const [key, nested] of Object.entries(value)) {
+      out.push(key);
+      collectKeys(nested, out);
+    }
+  }
+  return out;
+}
+
+const fixtures = JSON.parse(
+  await readFile(
+    new URL("../fixtures/seller-submission.synthetic.json", import.meta.url),
+    "utf8",
+  ),
+);
+const SOURCE = "synthetic://wayselect/seller-fixture-v1";
+
+const on = await listen({ WAYSELECT_PREVIEW: "1" });
+const off = await listen({});
+const baseOn = baseOf(on);
+const baseOff = baseOf(off);
+
+const PAYOUT_SKIP = "payout slice not present";
+const OFFERS_SKIP = "offers slice not present";
+
+try {
+  // ---- PE1: valid seller submission (runnable today) ----
+  let validResult = null;
+  try {
+    validResult = validateSellerSubmission(structuredClone(fixtures.valid));
+  } catch (error) {
+    validResult = error;
+  }
+  check(
+    validResult !== null &&
+      !(validResult instanceof Error) &&
+      validResult.routeId === "northstar/seller-chat" &&
+      validResult.entry.name === "Seller Chat" &&
+      validResult.provenance.source === SOURCE &&
+      Object.isFrozen(validResult) &&
+      Object.isFrozen(validResult.entry) &&
+      Object.isFrozen(validResult.provenance),
+    "P1a",
+    "valid seller submission passes frozen with routeId + provenance",
+    validResult instanceof Error ? validResult.message.slice(0, 120) : "",
+  );
+
+  let minimalResult = null;
+  try {
+    minimalResult = validateSellerSubmission(structuredClone(fixtures.minimal));
+  } catch (error) {
+    minimalResult = error;
+  }
+  check(
+    minimalResult !== null &&
+      !(minimalResult instanceof Error) &&
+      minimalResult.routeId === "northstar/price-unpublished" &&
+      minimalResult.entry.cost === null &&
+      minimalResult.entry.status === null,
+    "P1b",
+    "minimal submission passes: unpublished price, absent status",
+    minimalResult instanceof Error ? minimalResult.message.slice(0, 120) : "",
+  );
+
+  const malformed = [];
+  const noProvenance = structuredClone(fixtures.valid);
+  delete noProvenance.provenance;
+  malformed.push([noProvenance, "missing-provenance", "provenance", null]);
+  const withUrl = structuredClone(fixtures.valid);
+  withUrl.url = "https://example.invalid/x";
+  malformed.push([withUrl, "forbidden-field", "submission.url", SOURCE]);
+  const mismatched = structuredClone(fixtures.valid);
+  mismatched.modelId = "other-id";
+  malformed.push([mismatched, "id-mismatch", "modelId", SOURCE]);
+  const badCost = structuredClone(fixtures.valid);
+  badCost.entry.cost.input = -0.5;
+  malformed.push([badCost, "invalid-value", "entry.cost.input", SOURCE]);
+  const malformedOk = malformed.every(([submission, code, key, source]) => {
+    try {
+      validateSellerSubmission(submission);
+      return false;
+    } catch (error) {
+      return (
+        error instanceof SellerSubmissionError &&
+        error.code === code &&
+        error.key === key &&
+        error.source === source &&
+        error.message.includes(source ?? "provenance missing")
+      );
+    }
+  });
+  check(
+    malformedOk,
+    "P1c",
+    "malformed submissions rejected with code + key + provenance source",
+    malformedOk ? "" : "a malformed variant passed or mis-reported",
+  );
+
+  // ---- PE2: listed (runnable today) ----
+  const listed = getStubListing("northstar", "alpha-chat");
+  check(
+    listed !== null && listed.entry.name === "Alpha Chat",
+    "P2a",
+    "submitted route resolves in the preview catalog",
+    listed === null ? "getStubListing returned null" : "",
+  );
+  const unlisted = getStubListing("northstar", "seller-chat");
+  check(
+    unlisted === null &&
+      validResult !== null &&
+      !(validResult instanceof Error) &&
+      validResult.routeId === "northstar/seller-chat",
+    "P2b",
+    "valid-but-unlisted submission is not-eligible:unlisted (gap G1)",
+    unlisted !== null ? "seller-chat unexpectedly listed" : "",
+  );
+
+  // ---- PE3: capability-eligible (runnable today) ----
+  const grantedEval = evaluateListingEligibility(
+    getStubListing("northstar", "alpha-chat"),
+  );
+  const grantedDescribed = describeEligibility(grantedEval);
+  check(
+    grantedEval.eligible === true &&
+      grantedEval.reasons.length === 0 &&
+      grantedDescribed.state === ELIGIBILITY_STATE.GRANTED,
+    "P3a",
+    "alpha-chat evaluates eligible with no reasons (Granted)",
+    JSON.stringify(grantedEval.reasons),
+  );
+  const blockedEval = evaluateListingEligibility(
+    getStubListing("northstar", "image-lite"),
+  );
+  const blockedDescribed = describeEligibility(blockedEval);
+  check(
+    blockedEval.eligible === false &&
+      blockedEval.reasons.includes("unsupported-capability:toolUse") &&
+      blockedDescribed.state === ELIGIBILITY_STATE.BLOCKED,
+    "P3b",
+    "image-lite evaluates ineligible with a known-exclusion reason (Blocked)",
+    JSON.stringify(blockedEval.reasons),
+  );
+  const unknownEval = evaluateListingEligibility(
+    getStubListing("northstar", "unknown-tools"),
+  );
+  const unknownDescribed = describeEligibility(unknownEval);
+  check(
+    unknownEval.eligible === false &&
+      unknownEval.reasons.includes("missing-capability:toolUse") &&
+      unknownDescribed.state === ELIGIBILITY_STATE.UNKNOWN &&
+      unknownDescribed.headline.includes("not selectable"),
+    "P3c",
+    "unknown-tools fails closed to Unknown with not-selectable copy",
+    JSON.stringify(unknownEval.reasons),
+  );
+
+  // ---- PE5: never pays (runnable today) ----
+  const purchaseOn = await request(baseOn, "/listings/northstar/alpha-chat/purchase", {
+    method: "POST",
+  });
+  check(
+    purchaseOn.status === 403 && purchaseOn.json?.error === "preview_only",
+    "P5a",
+    "flag on: purchase stub still refuses 403 preview_only",
+    `got ${purchaseOn.status}`,
+  );
+  const purchaseOff = await request(baseOff, "/listings/northstar/alpha-chat/purchase", {
+    method: "POST",
+  });
+  check(
+    purchaseOff.status === 403 && purchaseOff.json?.error === "preview_only",
+    "P5b",
+    "flag off: purchase stub still refuses 403 preview_only (ungated)",
+    `got ${purchaseOff.status}`,
+  );
+
+  // ---- PE6: flag gating (runnable today) ----
+  const offIndex = await request(baseOff, "/listings");
+  const offDetail = await request(baseOff, "/listings/northstar/alpha-chat");
+  check(
+    offIndex.status === 404 &&
+      offIndex.text.includes("WAYSELECT_PREVIEW") &&
+      offDetail.status === 404 &&
+      offDetail.text.includes("WAYSELECT_PREVIEW"),
+    "P6a",
+    "flag off hides index and detail behind the preview-disabled page",
+    `got ${offIndex.status}/${offDetail.status}`,
+  );
+  process.env.WAYSELECT_PREVIEW = "1";
+  const verdictOn = validateSellerSubmission(structuredClone(fixtures.valid));
+  delete process.env.WAYSELECT_PREVIEW;
+  const verdictOff = validateSellerSubmission(structuredClone(fixtures.valid));
+  check(
+    verdictOn.routeId === verdictOff.routeId &&
+      verdictOn.routeId === "northstar/seller-chat",
+    "P6b",
+    "pure validators are flag-independent: identical verdicts either way",
+    `${verdictOn.routeId}/${verdictOff.routeId}`,
+  );
+
+  // ---- PE4: offer/payout forward contract (skip until the slices land) ----
+  const offersDetect = await request(baseOn, "/listings/northstar/alpha-chat/offers");
+  const offersPresent =
+    offersDetect.status === 200 &&
+    offersDetect.json !== null &&
+    Array.isArray(offersDetect.json.offers);
+  const payoutDetect = await request(
+    baseOn,
+    "/listings/northstar/alpha-chat/payout-eligibility",
+  );
+  const payoutPresent =
+    payoutDetect.status === 200 &&
+    payoutDetect.json !== null &&
+    typeof payoutDetect.json.eligible === "boolean";
+
+  if (!payoutPresent) {
+    for (const [id, label] of [
+      ["F1", "payout-eligibility route reports the checklist with no payment fields"],
+      ["F2", "route eligibility never exceeds the checklist conjunction"],
+      ["F3", "flag off gates the payout route behind preview-disabled"],
+    ]) {
+      skip(id, label, PAYOUT_SKIP);
+    }
+  } else {
+    const payout = payoutDetect.json;
+    const checklist = payout.checklist ?? {};
+    const noPaymentFields = !collectKeys(payout).some((key) =>
+      ["amount", "charge", "paymentUrl", "url", "endpoint", "baseUrl", "apiUrl"].includes(key),
+    );
+    check(
+      payoutDetect.status === 200 &&
+        payout.listing === "northstar/alpha-chat" &&
+        typeof payout.eligible === "boolean" &&
+        typeof checklist.submission === "boolean" &&
+        typeof checklist.listed === "boolean" &&
+        typeof checklist.capability === "boolean" &&
+        typeof checklist.offer === "boolean" &&
+        Array.isArray(payout.reasons) &&
+        noPaymentFields,
+      "F1",
+      "payout-eligibility route reports the checklist with no payment fields",
+      `got ${payoutDetect.status} ${payoutDetect.text.slice(0, 160)}`,
+    );
+    check(
+      payout.eligible ===
+        (checklist.submission && checklist.listed && checklist.capability && checklist.offer),
+      "F2",
+      "route eligibility never exceeds the checklist conjunction",
+      JSON.stringify(checklist),
+    );
+    const payoutOff = await request(
+      baseOff,
+      "/listings/northstar/alpha-chat/payout-eligibility",
+    );
+    check(
+      payoutOff.status === 404 &&
+        (payoutOff.json?.error === "preview_disabled" ||
+          payoutOff.text.includes("WAYSELECT_PREVIEW")),
+      "F3",
+      "flag off gates the payout route behind preview-disabled",
+      `got ${payoutOff.status}`,
+    );
+  }
+
+  if (!offersPresent) {
+    skip("F4", "at most one accepted offer per listing (siblings supersede)", OFFERS_SKIP);
+  } else {
+    const first = await postJson(baseOn, "/listings/northstar/alpha-chat/offers", {
+      buyer: "mia",
+      price: 12,
+    });
+    const second = await postJson(baseOn, "/listings/northstar/alpha-chat/offers", {
+      buyer: "leo",
+      price: 9,
+    });
+    const accepted = await request(
+      baseOn,
+      "/listings/northstar/alpha-chat/offers/offer-1/accept",
+      { method: "POST" },
+    );
+    const sibling = await request(baseOn, "/listings/northstar/alpha-chat/offers/offer-2");
+    const listedOffers = await request(baseOn, "/listings/northstar/alpha-chat/offers");
+    const acceptedCount = (listedOffers.json?.offers ?? []).filter(
+      (offer) => offer.status === "accepted",
+    ).length;
+    check(
+      first.status === 201 &&
+        second.status === 201 &&
+        accepted.status === 200 &&
+        accepted.json?.status === "accepted" &&
+        sibling.json?.status === "superseded" &&
+        acceptedCount === 1,
+      "F4",
+      "at most one accepted offer per listing (siblings supersede)",
+      `got ${first.status}/${second.status}/${accepted.status} accepted=${acceptedCount}`,
+    );
+  }
+} finally {
+  await Promise.all([close(on), close(off)]);
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const skipped = results.filter((r) => r.status === "skip").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(
+  `SUMMARY: ${pass} pass, ${fail} fail, ${skipped} skip — ${elapsedS}s (budget 15m)\n`,
+);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;
