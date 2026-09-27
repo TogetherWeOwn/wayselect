@@ -1,0 +1,265 @@
+#!/usr/bin/env node
+
+// Executable acceptance probe for the Wayselect checkout flow (TOG-5462).
+//
+// Covers the preview checkout click-path listing -> eligibility check ->
+// confirm-intent -> stub refusal, end to end against the real preview server
+// from web/server.js plus the fail-closed purchase-intake validator from
+// src/purchase.js (buyer spec: TOG-4869 click-path listing -> eligibility
+// check -> confirm -> receipt; confirm+receipt build spec TOG-5123, whose
+// R1-R9 web surfaces are not yet built — the terminal stub still refuses).
+//
+// Happy path (granted checkout, northstar/alpha-chat):
+//   H1 index lists the listing with a Granted badge
+//   H2 detail renders title, Granted eligibility, disabled purchase CTA
+//   H3 eligibility evaluator returns eligible=true, display granted
+//   H4 purchase intake accepts a confirm:true submission (frozen, routeId set)
+//   H5 POST .../purchase refuses 403 preview_only (no backend writes, no charge)
+//
+// Decline path (blocked checkout, northstar/image-lite):
+//   D1 detail renders the Blocked badge with fail-closed reason codes
+//   D2 evaluator returns eligible=false with blocked (known-exclusion) reasons
+//   D3 purchase intake rejects confirm:false with code unconfirmed
+//   D4 POST .../purchase still refuses 403 preview_only (a decline never writes)
+//
+// Usage: node bin/accept-wayselect-checkout   (or: npm run accept:checkout)
+// Zero dependencies: Node standard library only. Starts the real server on
+// ephemeral ports, probes it, exits 0 when there are zero failures, 1
+// otherwise. Budget: under 15 minutes (typically < 5s).
+
+import { createApp } from "../web/server.js";
+import {
+  ELIGIBILITY_STATE,
+  describeEligibility,
+  evaluateListingEligibility,
+} from "../web/eligibility.js";
+import { getStubListing } from "../web/stub-listing.js";
+import { PurchaseSubmissionError, validatePurchaseSubmission } from "../src/purchase.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+function baseOf(server) {
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function close(server) {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+async function request(base, path, options) {
+  const res = await fetch(`${base}${path}`, options);
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status: res.status, text, json };
+}
+
+const HAPPY_SUBMISSION = {
+  providerId: "northstar",
+  modelId: "alpha-chat",
+  buyerId: "buyer-001",
+  confirm: true,
+  provenance: {
+    source: "synthetic://wayselect/purchase-fixture-v1",
+    fetchedAt: "2026-09-24T10:00:00.000Z",
+  },
+};
+
+const on = await listen({ WAYSELECT_PREVIEW: "1" });
+const off = await listen({});
+const baseOn = baseOf(on);
+const baseOff = baseOf(off);
+
+try {
+  // ---- Happy path: granted checkout (northstar/alpha-chat) ----
+  const index = await request(baseOn, "/listings");
+  check(
+    index.status === 200 &&
+      index.text.includes("Alpha Chat") &&
+      index.text.includes("Image Lite") &&
+      index.text.includes("badge-granted"),
+    "H1",
+    "index lists stub listings with a Granted badge",
+    `got ${index.status}`,
+  );
+
+  const detail = await request(baseOn, "/listings/northstar/alpha-chat");
+  check(detail.status === 200, "H2", "granted listing detail returns 200", `got ${detail.status}`);
+  check(
+    detail.text.includes("<h1>Alpha Chat</h1>") &&
+      detail.text.includes("Granted") &&
+      detail.text.includes("Eligible for the preview capability check"),
+    "H2b",
+    "detail shows Granted eligibility with the preview-check headline",
+  );
+  const forms = detail.text.match(/<form[\s\S]*?<\/form>/g) ?? [];
+  check(
+    detail.text.includes("Purchase (stub") &&
+      detail.text.includes("disabled") &&
+      detail.text.includes('aria-disabled="true"') &&
+      forms.length === 1 &&
+      forms[0].includes("/listings/northstar/alpha-chat/purchase"),
+    "H2c",
+    "purchase CTA disabled, single form posting to the stub route",
+  );
+
+  const happyEvaluation = evaluateListingEligibility(getStubListing("northstar", "alpha-chat"));
+  const happyDescribed = describeEligibility(happyEvaluation);
+  check(
+    happyEvaluation.eligible === true &&
+      happyEvaluation.reasons.length === 0 &&
+      happyDescribed.state === ELIGIBILITY_STATE.GRANTED,
+    "H3",
+    "granted listing evaluates eligible with no exclusion reasons",
+    JSON.stringify(happyEvaluation.reasons),
+  );
+
+  let happyPurchase = null;
+  try {
+    happyPurchase = validatePurchaseSubmission(structuredClone(HAPPY_SUBMISSION));
+  } catch (error) {
+    happyPurchase = error;
+  }
+  check(
+    happyPurchase !== null &&
+      !(happyPurchase instanceof Error) &&
+      happyPurchase.routeId === "northstar/alpha-chat" &&
+      happyPurchase.buyerId === "buyer-001" &&
+      Object.isFrozen(happyPurchase),
+    "H4",
+    "confirm:true purchase intent validates to a frozen northstar/alpha-chat purchase",
+    happyPurchase instanceof Error ? happyPurchase.message.slice(0, 120) : "",
+  );
+
+  const happyPost = await request(baseOn, "/listings/northstar/alpha-chat/purchase", {
+    method: "POST",
+  });
+  check(
+    happyPost.status === 403 &&
+      happyPost.json?.error === "preview_only" &&
+      (happyPost.json?.message ?? "").includes("No backend writes"),
+    "H5",
+    "granted checkout ends at the stub: 403 preview_only, no backend writes",
+    `got ${happyPost.status}`,
+  );
+
+  // ---- Decline path: blocked checkout (northstar/image-lite) ----
+  const blockedDetail = await request(baseOn, "/listings/northstar/image-lite");
+  check(
+    blockedDetail.status === 200 &&
+      blockedDetail.text.includes("Blocked") &&
+      blockedDetail.text.includes("badge-blocked") &&
+      blockedDetail.text.includes("Not eligible for the preview capability check"),
+    "D1",
+    "blocked listing detail renders the Blocked badge with fail-closed copy",
+    `got ${blockedDetail.status}`,
+  );
+  check(
+    blockedDetail.text.includes("unsupported-capability:toolUse") ||
+      blockedDetail.text.includes("operation-not-configured"),
+    "D1b",
+    "blocked detail names the exclusion reason verbatim",
+  );
+
+  const blockedEvaluation = evaluateListingEligibility(
+    getStubListing("northstar", "image-lite"),
+  );
+  const blockedDescribed = describeEligibility(blockedEvaluation);
+  check(
+    blockedEvaluation.eligible === false &&
+      blockedEvaluation.reasons.includes("unsupported-capability:toolUse") &&
+      blockedDescribed.state === ELIGIBILITY_STATE.BLOCKED,
+    "D2",
+    "blocked listing evaluates ineligible with a known-exclusion reason",
+    JSON.stringify(blockedEvaluation.reasons),
+  );
+
+  const declined = structuredClone(HAPPY_SUBMISSION);
+  declined.modelId = "image-lite";
+  declined.confirm = false;
+  let declineError = null;
+  try {
+    validatePurchaseSubmission(declined);
+  } catch (error) {
+    declineError = error;
+  }
+  check(
+    declineError instanceof PurchaseSubmissionError &&
+      declineError.code === "unconfirmed" &&
+      declineError.key === "confirm" &&
+      declineError.source === "synthetic://wayselect/purchase-fixture-v1" &&
+      declineError.message.includes("synthetic://wayselect/purchase-fixture-v1"),
+    "D3",
+    "unconfirmed purchase never proceeds: rejected with code unconfirmed naming provenance",
+    declineError === null ? "submission passed" : declineError.message.slice(0, 120),
+  );
+
+  const blockedPost = await request(baseOn, "/listings/northstar/image-lite/purchase", {
+    method: "POST",
+  });
+  check(
+    blockedPost.status === 403 && blockedPost.json?.error === "preview_only",
+    "D4",
+    "blocked checkout still ends at the stub: 403 preview_only, never a write",
+    `got ${blockedPost.status}`,
+  );
+
+  // ---- Preview-flag gating (checkout surfaces stay gated) ----
+  const offDetail = await request(baseOff, "/listings/northstar/alpha-chat");
+  check(
+    offDetail.status === 404 &&
+      offDetail.text.includes("Preview unavailable") &&
+      offDetail.text.includes("WAYSELECT_PREVIEW"),
+    "G1",
+    "flag off hides checkout detail behind the preview-disabled page",
+    `got ${offDetail.status}`,
+  );
+  const offPost = await request(baseOff, "/listings/northstar/alpha-chat/purchase", {
+    method: "POST",
+  });
+  check(
+    offPost.status === 403 && offPost.json?.error === "preview_only",
+    "G2",
+    "purchase stub refuses 403 preview_only with the flag off (ungated by design)",
+    `got ${offPost.status}`,
+  );
+} finally {
+  await Promise.all([close(on), close(off)]);
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(`SUMMARY: ${pass} pass, ${fail} fail — ${elapsedS}s (budget 15m)\n`);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;
