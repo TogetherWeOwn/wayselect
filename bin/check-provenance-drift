@@ -1,0 +1,287 @@
+#!/usr/bin/env node
+// Provenance-drift detector probe for the Wayselect catalog refresh (TOG-5542).
+//
+// Independent leaf beside TOG-5116: where bin/accept-fixture-refresh re-runs
+// the refresh on scratch copies (stamps, no-op check, golden demo, full
+// suite), this probe is read-only and checks the COMMITTED state — it never
+// writes fixtures, never refreshes, never runs the suite. It answers one
+// question: does the live fixture body still match its recorded provenance?
+//
+// Three fail-loud checks, exit non-zero on any failure (an alert):
+//   D1 self-hash:    recomputed canonical SHA-256 of the live catalog body
+//                    equals the fixture's own recorded snapshotHash
+//                    (catches hand-edits and bad merges; the library
+//                    boundary also rejects unknown fields fail-closed).
+//   D2 evidence pin: the same recomputed hash equals the provenanceHash in
+//                    fixture-refresh-evidence.json from the last green
+//                    TOG-5116 harness run, and that run's verdict is PASS
+//                    (catches body changes made outside a re-pinned refresh).
+//   D3 freshness:    the recorded snapshotTimestamp is within the freshness
+//                    window at --now (catches a refresh scheduler that went
+//                    quiet; stale or future-dated snapshots FAIL).
+//
+// Zero dependencies: Node standard library only, plus the real src/index.js
+// boundary primitives. No network access, no credentials.
+//
+// Usage:
+//   node bin/check-provenance-drift
+//   node bin/check-provenance-drift --catalog fixtures/catalog.synthetic.json
+//     --evidence fixture-refresh-evidence.json --out drift-report.json
+//   node bin/check-provenance-drift --now 2026-09-26T16:00:00.000Z
+//     --max-catalog-age-hours 24
+//   npm run check:drift
+//
+// Exit codes: 0 when every check passes, 1 on any drift/failure, 2 on usage
+// errors. Success prints the JSON report to stdout; failures print per-check
+// FAIL lines plus a ProvenanceDriftError line on stderr.
+
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  checkCatalogFreshness,
+  computeCatalogSnapshotHash,
+  normalizeCatalog,
+} from "../src/index.js";
+import {
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const DEFAULT_CATALOG = join(REPO_ROOT, "fixtures", "catalog.synthetic.json");
+const DEFAULT_EVIDENCE = join(REPO_ROOT, "fixture-refresh-evidence.json");
+const DEFAULT_MAX_AGE_HOURS = 24;
+const HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
+function parseArguments(argv) {
+  const values = {
+    catalog: DEFAULT_CATALOG,
+    evidence: DEFAULT_EVIDENCE,
+    now: null,
+    maxCatalogAgeHours: String(DEFAULT_MAX_AGE_HOURS),
+    out: null,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--help" || flag === "-h") {
+      values.help = true;
+      continue;
+    }
+    if (flag === "--out" || flag === "--catalog" || flag === "--evidence" ||
+        flag === "--now" || flag === "--max-catalog-age-hours") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error(missingValueMessage(flag));
+      }
+      if (flag === "--out") values.out = resolve(value);
+      else if (flag === "--catalog") values.catalog = resolve(value);
+      else if (flag === "--evidence") values.evidence = resolve(value);
+      else if (flag === "--now") values.now = value;
+      else values.maxCatalogAgeHours = value;
+      index += 1;
+      continue;
+    }
+    throw new Error(unknownArgumentMessage(flag));
+  }
+  return values;
+}
+
+function usage() {
+  return (
+    "Usage: node bin/check-provenance-drift [--catalog <path>] [--evidence <path>]\n" +
+    "    [--now <ISO>] [--max-catalog-age-hours <n>] [--out <path>]\n"
+  );
+}
+
+const checks = [];
+
+function record(name, fn) {
+  try {
+    const detail = fn();
+    checks.push({ name, status: "pass", detail });
+    process.stdout.write(`PASS  ${name} — ${detail}\n`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    checks.push({ name, status: "fail", detail });
+    process.stdout.write(`FAIL  ${name}: ${detail}\n`);
+  }
+}
+
+function assertEqual(actual, expected, label) {
+  if (actual !== expected) {
+    throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  }
+}
+
+async function readJson(path, label) {
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    throw new Error(`cannot read ${label} at ${path}: ${error.message}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label} at ${path} is not valid JSON`);
+  }
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(usage());
+    return;
+  }
+
+  const maxCatalogAgeMs = Number(args.maxCatalogAgeHours) * 60 * 60 * 1000;
+  if (!Number.isFinite(maxCatalogAgeMs) || maxCatalogAgeMs < 0) {
+    throw new Error(invalidMaxCatalogAgeMessage());
+  }
+  const nowIso = args.now ?? new Date().toISOString();
+  if (!Number.isFinite(Date.parse(nowIso))) {
+    throw new Error("--now must be a valid ISO timestamp");
+  }
+
+  const fixture = await readJson(args.catalog, "fixture catalog");
+  if (fixture === null || typeof fixture !== "object" || Array.isArray(fixture)) {
+    throw new Error(`fixture catalog at ${args.catalog} must be an object`);
+  }
+  const evidence = await readJson(args.evidence, "refresh evidence");
+
+  // Fail closed through the same library boundary the CLI uses before
+  // trusting any recorded field: malformed bodies and unknown fields throw.
+  // A boundary rejection is recorded as a D1 FAIL (not a pre-report throw)
+  // so the run still emits the full check table and the JSON report.
+  let normalized = null;
+  let boundaryError = null;
+  try {
+    normalized = normalizeCatalog(fixture.catalog, fixture.provenance);
+  } catch (error) {
+    boundaryError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  }
+  const recordedHash = normalized?.provenance.snapshotHash
+    ?? (typeof fixture?.provenance?.snapshotHash === "string" ? fixture.provenance.snapshotHash : null);
+  let recomputedHash = null;
+  try {
+    recomputedHash = computeCatalogSnapshotHash(fixture.catalog);
+  } catch {
+    recomputedHash = null;
+  }
+  const snapshotTimestamp = normalized?.provenance.snapshotTimestamp
+    ?? (typeof fixture?.provenance?.snapshotTimestamp === "string" ? fixture.provenance.snapshotTimestamp : null);
+
+  record("D1 self-hash: live body matches its recorded snapshotHash", () => {
+    if (boundaryError !== null) {
+      throw new Error(`catalog boundary rejected the live fixture (${boundaryError})`);
+    }
+    assertEqual(recomputedHash, recordedHash, "provenance.snapshotHash");
+    return `recorded ${recordedHash.slice(0, 20)}… recomputed identically`;
+  });
+
+  record("D2 evidence pin: live body matches the last green harness run", () => {
+    if (evidence === null || typeof evidence !== "object" || Array.isArray(evidence)) {
+      throw new Error(
+        `refresh evidence at ${args.evidence} must be an object; ` +
+          `re-run npm run accept:fixture-refresh to re-pin`,
+      );
+    }
+    if (evidence.verdict !== "PASS") {
+      throw new Error(
+        `last harness run verdict is ${JSON.stringify(evidence.verdict ?? null)} ` +
+          `(expected "PASS"); re-run npm run accept:fixture-refresh to re-pin`,
+      );
+    }
+    if (typeof evidence.provenanceHash !== "string" || !HASH_PATTERN.test(evidence.provenanceHash)) {
+      throw new Error(
+        `evidence provenanceHash is malformed (${JSON.stringify(evidence.provenanceHash ?? null)}); ` +
+          `re-run npm run accept:fixture-refresh to re-pin`,
+      );
+    }
+    if (evidence.provenanceHash !== recomputedHash) {
+      throw new Error(
+        `provenance drift: live body recomputes to ${recomputedHash} but the ` +
+          `recorded green run pinned ${evidence.provenanceHash}; the fixture body ` +
+          `changed outside a re-pinned refresh (hand-edit or bad merge) — ` +
+          `re-run npm run accept:fixture-refresh to re-pin`,
+      );
+    }
+    return `pinned ${evidence.provenanceHash.slice(0, 20)}… matches live body`;
+  });
+
+  let freshness = null;
+  record("D3 freshness: recorded snapshot is within the freshness window", () => {
+    freshness = checkCatalogFreshness(
+      { provenance: { snapshotTimestamp } },
+      { now: nowIso, maxCatalogAgeMs },
+    );
+    if (!freshness.fresh) {
+      throw new Error(
+        freshness.ageMs < 0
+          ? `snapshot ${snapshotTimestamp} is ${(0 - freshness.ageMs) / 1000}s in the future ` +
+            `relative to ${nowIso}; refusing future-dated provenance`
+          : `snapshot ${snapshotTimestamp} is stale (age ${(freshness.ageMs / 3_600_000).toFixed(2)}h, ` +
+            `limit ${(maxCatalogAgeMs / 3_600_000).toFixed(2)}h); the refresh scheduler may be quiet`,
+      );
+    }
+    return `snapshot ${snapshotTimestamp}, age ${(freshness.ageMs / 3_600_000).toFixed(2)}h ` +
+      `(limit ${(maxCatalogAgeMs / 3_600_000).toFixed(2)}h)`;
+  });
+
+  const failed = checks.filter((c) => c.status === "fail");
+  const report = {
+    ok: failed.length === 0,
+    mode: "provenance-drift-probe",
+    issue: "TOG-5542",
+    ranAt: new Date().toISOString(),
+    catalog: args.catalog,
+    evidence: args.evidence,
+    snapshotTimestamp,
+    recordedHash,
+    recomputedHash,
+    evidenceHash: typeof evidence?.provenanceHash === "string" ? evidence.provenanceHash : null,
+    evidenceVerdict: evidence?.verdict ?? null,
+    now: nowIso,
+    maxCatalogAgeMs,
+    freshness: freshness === null ? null : {
+      fresh: freshness.fresh,
+      ageMs: freshness.ageMs,
+      snapshotTimestamp: freshness.snapshotTimestamp,
+      maxCatalogAgeMs: freshness.maxCatalogAgeMs,
+    },
+    checks,
+  };
+  if (args.out) {
+    await writeFile(args.out, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+    process.stdout.write(`Report: ${args.out}\n`);
+  }
+  if (failed.length === 0) {
+    process.stdout.write(`${JSON.stringify({ ok: true, snapshotHash: recomputedHash })}\n`);
+    return;
+  }
+  process.stdout.write(`SUMMARY: ${checks.length - failed.length} pass, ${failed.length} fail\n`);
+  throw new Error(
+    `provenance drift detected (${failed.map((c) => c.name.split(":")[0]).join(", ")}); ` +
+      `see FAIL lines above`,
+  );
+}
+
+main().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  const isUsage =
+    error instanceof Error &&
+    (/^Missing value for /.test(message) ||
+      /^Unknown argument: /.test(message) ||
+      /must be a non-negative number/.test(message) ||
+      /must be a valid ISO timestamp/.test(message));
+  if (isUsage) {
+    process.stderr.write(`${error.name}: ${message}\n${usage()}`);
+    process.exitCode = 2;
+    return;
+  }
+  const name = /^provenance drift detected/.test(message) ? "ProvenanceDriftError" : error?.name ?? "Error";
+  process.stderr.write(`${name}: ${message}\n`);
+  process.exitCode = 1;
+});

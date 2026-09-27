@@ -31,6 +31,7 @@
     "preview:health": "node bin/check-preview-health",
     "refresh": "node bin/refresh-catalog-fixtures",
     "refresh:check": "node bin/refresh-catalog-fixtures --check",
+    "check:drift": "node bin/check-provenance-drift",
     "eval:search-prompts": "node bin/eval-wayselect-search-prompts --seed 5492",
     "accept:fixture-refresh": "node bin/accept-fixture-refresh",
     "refresh:search-index": "node bin/wayselect-search-index-refresh",
