@@ -1,0 +1,223 @@
+#!/usr/bin/env node
+
+// Executable QA acceptance for the Phase-1 OpenAI chat-completions skeleton
+// (TOG-5951, gateway spec TOG-5939 §1.1/§1.3/§1.6).
+//
+// Usage: node bin/accept-wayselect-gateway-phase1   (or: npm run accept:gateway-phase1)
+// Zero dependencies: Node standard library only. Runs the in-process
+// gateway handler (`src/gateway.js`) against fixture candidates and the
+// FakeTransport, asserts the spec §4 acceptance rows (auto-route,
+// pinned-eligible, pinned-ineligible 400, no-eligible-route 400, 401
+// cases), plus the README synthetic-only labels. Exits 0 when there are
+// zero failures, 1 otherwise. Budget: under 15 minutes (typically < 10s).
+//
+// Offline by construction: globalThis.fetch throws for the whole run, and
+// the handler is in-process (no sockets, no network, no credentials).
+
+import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  FakeTransport,
+  applySupportConfiguration,
+  handleChatCompletionsRequest,
+  normalizeCatalog,
+} from "../src/index.js";
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const BUDGET_MS = 15 * 60 * 1000;
+const GATEWAY_KEY = "accept-gateway-phase1-key";
+const startedAt = Date.now();
+const results = [];
+
+globalThis.fetch = () => {
+  throw new Error("network access is forbidden in gateway acceptance");
+};
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+async function loadFixtureCandidates() {
+  const [catalogFixture, configuration] = await Promise.all([
+    readFile(join(REPO_ROOT, "fixtures/catalog.synthetic.json"), "utf8").then(JSON.parse),
+    readFile(join(REPO_ROOT, "fixtures/configuration.synthetic.json"), "utf8").then(JSON.parse),
+  ]);
+  const catalog = normalizeCatalog(catalogFixture.catalog, catalogFixture.provenance);
+  return applySupportConfiguration(catalog, configuration);
+}
+
+// Refresh-proof clock: evaluation sits two hours after the live snapshot so
+// provenance refreshes never break the accept run (same pattern as
+// support/helpers.js evaluationNow).
+function fixtureNow() {
+  const fixture = JSON.parse(
+    readFileSync(join(REPO_ROOT, "fixtures/catalog.synthetic.json"), "utf8"),
+  );
+  return new Date(Date.parse(fixture.provenance.snapshotTimestamp) + 2 * 60 * 60 * 1000);
+}
+
+const candidates = await loadFixtureCandidates();
+const eligibilityOptions = {
+  now: fixtureNow(),
+  maxEvidenceAgeMs: 72 * 60 * 60 * 1000,
+  skipCatalogCheck: true,
+};
+
+function request(body, overrides = {}) {
+  return {
+    headers: { authorization: `Bearer ${GATEWAY_KEY}` },
+    body: {
+      model: "auto",
+      messages: [{ role: "user", content: "Say hello." }],
+      ...body,
+    },
+    gatewayKey: GATEWAY_KEY,
+    candidates,
+    eligibilityOptions,
+    ...overrides,
+  };
+}
+
+// ---- A1: auto-route serves a synthetic, dry-run chat completion ----
+{
+  const transport = new FakeTransport();
+  const result = await handleChatCompletionsRequest(request({}, { transport }));
+  check(result.httpStatus === 200, "A1", "auto-route returns 200", `http=${result.httpStatus}`);
+  check(result.body?.object === "chat.completion", "A1b", "ChatCompletion envelope");
+  check(
+    typeof result.body?.choices?.[0]?.message?.content === "string" &&
+      /Synthetic response from/.test(result.body.choices[0].message.content),
+    "A1c",
+    "completion text is labeled synthetic",
+  );
+  check(
+    result.body?.wayselect?.dryRun === true && result.body?.wayselect?.synthetic === true,
+    "A1d",
+    "wayselect extension marks dryRun + synthetic",
+  );
+  check(
+    transport.calls.length === 1,
+    "A1e",
+    "exactly one fake-transport call (networkUsed:false)",
+    JSON.stringify(transport.calls.map((call) => call.routeId)),
+  );
+}
+
+// ---- A2: pinned-eligible serves the pinned route ----
+{
+  const result = await handleChatCompletionsRequest(request({ model: "orbit/orbit-chat" }));
+  check(
+    result.httpStatus === 200 && result.body?.model === "orbit/orbit-chat",
+    "A2",
+    "pinned-eligible serves orbit/orbit-chat",
+    `http=${result.httpStatus} model=${result.body?.model}`,
+  );
+}
+
+// ---- A3: pinned-ineligible returns 400 model_not_eligible (never substituted) ----
+{
+  const transport = new FakeTransport();
+  const result = await handleChatCompletionsRequest(
+    request({ model: "orbit/retired-chat" }, { transport }),
+  );
+  check(result.httpStatus === 400, "A3", "pinned-ineligible returns 400", `http=${result.httpStatus}`);
+  check(
+    result.body?.error?.type === "invalid_request_error" &&
+      result.body?.error?.code === "model_not_eligible",
+    "A3b",
+    "error is invalid_request_error/model_not_eligible",
+    JSON.stringify(result.body?.error),
+  );
+  check(transport.calls.length === 0, "A3c", "no transport call on the 400 path");
+}
+
+// ---- A4: no-eligible-route returns 400 ----
+{
+  const result = await handleChatCompletionsRequest(
+    request({ response_format: { type: "json_object" }, max_tokens: 50 }),
+  );
+  check(result.httpStatus === 400, "A4", "unsatisfiable requirements return 400", `http=${result.httpStatus}`);
+  check(
+    result.body?.error?.type === "invalid_request_error" &&
+      result.body?.error?.code === "no_eligible_route",
+    "A4b",
+    "error is invalid_request_error/no_eligible_route",
+    JSON.stringify(result.body?.error),
+  );
+}
+
+// ---- A5: 401 cases (missing + wrong key) ----
+{
+  const missing = await handleChatCompletionsRequest(request({}, { headers: {} }));
+  check(
+    missing.httpStatus === 401 && missing.body?.error?.type === "authentication_error",
+    "A5",
+    "missing key returns 401 authentication_error",
+    `http=${missing.httpStatus}`,
+  );
+  const wrong = await handleChatCompletionsRequest(
+    request({}, { headers: { authorization: "Bearer wrong-key" } }),
+  );
+  check(
+    wrong.httpStatus === 401 && wrong.body?.error?.type === "authentication_error",
+    "A5b",
+    "wrong key returns 401 authentication_error",
+    `http=${wrong.httpStatus}`,
+  );
+}
+
+// ---- A6: image parts and stream:true fail closed with 400 ----
+{
+  const image = await handleChatCompletionsRequest(
+    request({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe this." },
+            { type: "image_url", image_url: { url: "https://example.invalid/x.png" } },
+          ],
+        },
+      ],
+    }),
+  );
+  check(
+    image.httpStatus === 400 && image.body?.error?.code === "unsupported_modality",
+    "A6",
+    "image part returns 400 unsupported_modality",
+    `http=${image.httpStatus}`,
+  );
+  const stream = await handleChatCompletionsRequest(request({ stream: true }));
+  check(stream.httpStatus === 400, "A6b", "stream:true returns 400 (non-streaming only)", `http=${stream.httpStatus}`);
+}
+
+// ---- A7: README states synthetic-only ----
+{
+  const readme = await readFile(join(REPO_ROOT, "README.md"), "utf8");
+  check(/synthetic-only/i.test(readme), "A7", "README states synthetic-only");
+  check(
+    /FakeTransport|fake-backed/i.test(readme),
+    "A7b",
+    "README names the fake-backed transport",
+  );
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(`SUMMARY: ${pass} pass, ${fail} fail — ${elapsedS}s (budget 15m)\n`);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;

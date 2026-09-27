@@ -254,8 +254,10 @@ ingested body fails closed instead of writing an unverifiable document.
 - `src/selection.js` produces a dry-run decision and full candidate explanations.
 - `src/transport.js` exposes only `FakeTransport`; executable location fields are rejected.
 - `src/canonical.js` provides the canonical-JSON form the provenance hash is computed over.
+- `src/gateway.js` exposes the Phase-1 OpenAI chat-completions skeleton as a pure in-process handler (`handleChatCompletionsRequest`): `POST /v1/chat/completions` non-streaming only, `model` auto-route + pinned semantics, the spec error table, FakeTransport-backed with `dryRun:true` and synthetic text labeled synthetic. **Synthetic-only:** every completion in this slice is fake-backed (`networkUsed:false` enforced); no live calls, no credentials, no spend.
 - `bin/wayselect` is the thin CLI: `select`/`explain` subcommands plus the opt-in `catalog import` ingestion path (`--fetch` is the only networked path; `--help`, `--version`, exit codes 0/1/2/3; see `docs/cli.md`) with the bare-invocation fixture demo kept for backward compatibility.
 - `bin/refresh-catalog-fixtures` stamps fixture provenance and verifies it (`--check`).
+- `bin/accept-wayselect-gateway-phase1` is the Phase-1 gateway conformance script (auto-route, pinned-eligible, pinned-ineligible 400, no-eligible-route 400, 401 cases; README synthetic-only check). Offline: in-process handler plus a fetch stub that throws.
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.
 
@@ -286,6 +288,8 @@ unknown, malformed means rejected); normalized entries expose frozen
 ## Explicit non-goals
 
 This slice does not include live provider calls, endpoint discovery, credentials, HTTP servers, paid inference, real usage or billing data, third-party catalog redistribution, production deployment, universal compatibility, or a savings claim. Future transport or live-conformance work requires separate provenance, security, access, and review decisions.
+
+The gateway surface (`src/gateway.js`, Phase 1) is synthetic-only: completions are FakeTransport-backed (`networkUsed:false` is enforced on every result), carry `dryRun:true` + `synthetic:true`, and can never spend or touch the network. Streaming/SSE, the Anthropic surface, and live transport are later phases.
 
 ## Contributing
 

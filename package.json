@@ -26,6 +26,7 @@
     "accept:eligibility": "node bin/accept-wayselect-eligibility",
     "accept:dryrun-explain": "node bin/accept-wayselect-dryrun-explain",
     "accept:checkout": "node bin/accept-wayselect-checkout",
+    "accept:gateway-phase1": "node bin/accept-wayselect-gateway-phase1",
     "snapshot": "node bin/wayselect-snapshot",
     "check:provenance": "node bin/check-ingestion-provenance",
     "smoke": "node bin/smoke-wayselect-ingestion",
