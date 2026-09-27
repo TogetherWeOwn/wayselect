@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
+  read deadline (`MAX_JSON_BODY_READ_MS`) that fails closed with
+  `body_timeout` (408 at the seller route, retryable; drains the stream
+  for socket reuse) instead of hanging on a short/stalling body
+  (`web/jsonBody.js`, `web/server.js`, `src/intakeLimits.js`,
+  `test/json-body-read-timeout.test.js`).
 - #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
 - #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
   invalid `--now` exits 1 with empty stdout, exact

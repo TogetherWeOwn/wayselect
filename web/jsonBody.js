@@ -11,15 +11,23 @@
 //
 // Contract:
 //   const result = await readJsonBody(req);
-//   if (!result.ok) → respond 400 (or 413 for `body_too_large`) with the
-//     route's error name; `result.code` is one of `wrong_content_type`,
-//     `body_too_large`, `malformed_json`. Never log `result` detail beyond
-//     the code: the raw bytes stay out of logs.
+//   if (!result.ok) → respond 400 (413 for `body_too_large`, 408 for
+//     `body_timeout`) with the route's error name; `result.code` is one of
+//     `wrong_content_type`, `body_too_large`, `malformed_json`,
+//     `body_timeout`. Never log `result` detail beyond the code: the raw
+//     bytes stay out of logs.
 //   if (result.ok) → `result.value` is the parsed JSON value.
+//
+// The read is bounded: `options.readTimeoutMs` (default
+// `MAX_JSON_BODY_READ_MS`) is a total deadline from read start, not an idle
+// timer — a body that cannot complete within the bound fails closed with
+// `body_timeout` and the stream is drained so the socket stays reusable. A
+// declared `Content-Length` larger than the actual body therefore resolves
+// instead of hanging the socket (R4-06).
 //
 // Zero dependencies: Node built-in http request stream only.
 
-import { MAX_JSON_BODY_BYTES } from "../src/intakeLimits.js";
+import { MAX_JSON_BODY_BYTES, MAX_JSON_BODY_READ_MS } from "../src/intakeLimits.js";
 
 export const JSON_MEDIA_TYPE = "application/json";
 
@@ -43,6 +51,11 @@ export function readJsonBody(req, options = {}) {
     options.maxBytes === undefined ? MAX_JSON_BODY_BYTES : options.maxBytes;
   if (!Number.isFinite(maxBytes) || maxBytes < 0) {
     throw new TypeError("options.maxBytes must be a non-negative number when present");
+  }
+  const readTimeoutMs =
+    options.readTimeoutMs === undefined ? MAX_JSON_BODY_READ_MS : options.readTimeoutMs;
+  if (!Number.isFinite(readTimeoutMs) || readTimeoutMs <= 0) {
+    throw new TypeError("options.readTimeoutMs must be a positive number when present");
   }
 
   if (!isJsonContentType(req.headers?.["content-type"])) {
@@ -78,12 +91,29 @@ export function readJsonBody(req, options = {}) {
     const chunks = [];
     let received = 0;
     let settled = false;
+    const timers = options.timers ?? { setTimeout, clearTimeout };
     const settle = (result) => {
       if (!settled) {
         settled = true;
+        timers.clearTimeout(deadline);
         resolve(result);
       }
     };
+    // Total read deadline from read start (R4-06): covers both the
+    // trickling-body case and the declared-`Content-Length`-never-arrives
+    // case, where no `data` event ever fires. On expiry the stream is
+    // drained so the socket stays reusable, and the late `end` (if any) is
+    // ignored via `settled`. The timer is unref'd so a pending read never
+    // holds the process open on its own.
+    const deadline = timers.setTimeout(() => {
+      settle({
+        ok: false,
+        code: "body_timeout",
+        detail: `request body did not complete within ${readTimeoutMs} ms`,
+      });
+      req.resume?.();
+    }, readTimeoutMs);
+    deadline?.unref?.();
 
     req.on("data", (chunk) => {
       if (settled) {
