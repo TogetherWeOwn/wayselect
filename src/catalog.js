@@ -120,6 +120,20 @@ function normalizeCost(value, label) {
 
 const SNAPSHOT_HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
+// TOG-5725: default clock for provenance.fetchedAt when the input provenance
+// carries none. Accepts an explicit `now` so snapshot builds pinned to
+// --now serialize byte-identically; falls back to the wall clock otherwise.
+function normalizeFallbackFetchedAt(value) {
+  if (value === undefined) {
+    return new Date().toISOString();
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(parsed.getTime())) {
+    throw new CatalogValidationError("options.now must be a valid date when present");
+  }
+  return parsed.toISOString();
+}
+
 function normalizeProvenance(value) {
   const provenance = requireObject(value, "provenance");
   assertKnownKeys(
@@ -254,10 +268,14 @@ export function verifyCatalogSnapshotHash(catalogInput, provenanceInput) {
   return actual;
 }
 
-export function normalizeCatalog(input, provenanceInput) {
+export function normalizeCatalog(input, provenanceInput, options = {}) {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw new CatalogValidationError("options must be an object when present");
+  }
   const providers = requireObject(input, "catalog");
   const provenance = normalizeProvenance(provenanceInput);
   verifyCatalogSnapshotHash(input, provenanceInput);
+  const fallbackFetchedAt = normalizeFallbackFetchedAt(options.now);
   const entries = [];
 
   for (const providerKey of Object.keys(providers).sort()) {
@@ -280,7 +298,7 @@ export function normalizeCatalog(input, provenanceInput) {
   return Object.freeze({
     provenance: Object.freeze({
       ...provenance,
-      fetchedAt: provenance.fetchedAt ?? new Date().toISOString(),
+      fetchedAt: provenance.fetchedAt ?? fallbackFetchedAt,
     }),
     entries: Object.freeze(entries),
   });
