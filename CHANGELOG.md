@@ -18,6 +18,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-27) TOG-6378: pin `/healthz` version to the package
+  manifest — `SERVER_VERSION` and the probe body must equal
+  `package.json` version (`test/preview-server-ops.test.js`, test-only).
 - #110 (2026-09-27) TOG-6376: 429 body shape contract test — exact
   `{error: "rate_limited", retryAfterSec}` body pinned (keys, types,
   header agreement) via stubbed-verdict + live-limiter tests
