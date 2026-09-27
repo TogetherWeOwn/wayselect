@@ -295,9 +295,24 @@ test("wayselect-snapshot: --fail-on-gaps renders exact bytes", async () => {
   }
 });
 
-test("wayselect-snapshot: invalid --now renders exact bytes", async () => {
-  const outDir = join(await fs.mkdtemp(join(tmpdir(), "wayselect-cli-errors-")), "out");
+test("wayselect-snapshot: invalid --now renders exact bytes and writes nothing", async () => {
+  const base = await fs.mkdtemp(join(tmpdir(), "wayselect-cli-errors-"));
   try {
+    // Green run first for a valid --previous snapshot, mirroring the
+    // --fail-on-gaps test pattern; the bad---now run must fail before any IO.
+    const fresh = await freshNow();
+    const green = await runCli("bin/wayselect-snapshot", [
+      "--out",
+      join(base, "green"),
+      "--now",
+      fresh,
+      "--max-catalog-age-hours",
+      "24",
+    ]);
+    assert.equal(green.code, 0);
+    const previousPath = join(base, "green", JSON.parse(green.stdout).snapshotPath);
+    const outDir = join(base, "out");
+    const reportPath = join(base, "report.md");
     assertFailure(
       await runCli("bin/wayselect-snapshot", [
         "--out",
@@ -306,11 +321,18 @@ test("wayselect-snapshot: invalid --now renders exact bytes", async () => {
         "not-a-date",
         "--max-catalog-age-hours",
         "24",
+        "--previous",
+        previousPath,
+        "--report",
+        reportPath,
       ]),
       "CatalogFreshnessError: options.now must be a valid date\n",
     );
+    // Fail-before-any-IO: the out dir is never created and no report is written.
+    assert.deepEqual(await fs.readdir(outDir).catch(() => []), []);
+    await assert.rejects(fs.access(reportPath));
   } finally {
-    await fs.rm(join(outDir, ".."), { recursive: true, force: true });
+    await fs.rm(base, { recursive: true, force: true });
   }
 });
 
