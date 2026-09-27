@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #96 (2026-09-27) TOG-6382: adversarial search-prompt eval — 8 tests
+  over a 19-query corpus (override fail-closed, negation robustness,
+  KNOWN-GAP pins for n't/name/adjective limits)
+  (`test/search-prompt-adversarial.test.js`, test-only).
 - #97 (2026-09-27) TOG-6387: npm audit delta record — clean bill vs
   TOG-6037 baseline (0 vulns, lockfile byte-identical, pins unchanged)
   (`audit-delta-evidence.json`, evidence-only).
