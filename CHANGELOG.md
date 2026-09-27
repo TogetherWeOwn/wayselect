@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- #(pending) (2026-09-27) TOG-6381: multi-seed eval stability — 3 tests
+- #95 (2026-09-27) TOG-6381: multi-seed eval stability — 3 tests
   assert repeatability, v2/v3 shuffle-invariance, v3 goldens, and identical
   CLI SUMMARY across one seed per shuffle class incl. 5492
   (`test/search-prompt-multi-seed.test.js`, test-only, no prod change).
