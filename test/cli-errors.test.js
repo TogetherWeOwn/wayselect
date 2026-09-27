@@ -329,7 +329,9 @@ test("wayselect-snapshot: invalid --now renders exact bytes and writes nothing",
       "CatalogFreshnessError: options.now must be a valid date\n",
     );
     // Fail-before-any-IO: the out dir is never created and no report is written.
-    assert.deepEqual(await fs.readdir(outDir).catch(() => []), []);
+    // Assert absence explicitly (not readdir-or-empty): an empty-dir
+    // regression must fail this pin.
+    await assert.rejects(fs.access(outDir));
     await assert.rejects(fs.access(reportPath));
   } finally {
     await fs.rm(base, { recursive: true, force: true });
