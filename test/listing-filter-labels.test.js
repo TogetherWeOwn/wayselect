@@ -35,11 +35,16 @@ function attr(tag, name) {
   return tag.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? null;
 }
 
-// Every label's visible text: strip the nested control markup, keep text.
+// Every label's visible text: capture the text nodes around the nested
+// control directly (text may lead or trail the `<input>`) — pure extraction
+// via matchAll, no tag-stripping replacement, so the helper never resembles
+// a sanitizer (CodeQL js/incomplete-multi-character-sanitization).
 function labelEntries(form) {
-  return [...form.matchAll(/<label\b([^>]*)>([\s\S]*?)<\/label>/g)].map((match) => ({
-    forId: match[1].match(/for="([^"]*)"/)?.[1] ?? null,
-    text: match[2].replaceAll(/<[^>]+>/g, "").trim(),
+  return [
+    ...form.matchAll(/<label\b[^>]*for="([^"]*)">([^<]*)(?:<input\b[^>]*>([^<]*))?<\/label>/g),
+  ].map((match) => ({
+    forId: match[1],
+    text: `${match[2] ?? ""}${match[3] ?? ""}`.trim(),
   }));
 }
 
