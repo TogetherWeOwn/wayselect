@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #127 (2026-09-27) TOG-6720: filter text-match case behavior — mixed-case
+  `q` against mixed-case stub names pinned as case-insensitive (exact
+  match sets, case-variant equivalence, verbatim-at-parse/fold-at-match)
+  (`test/listing-filter-case.test.js`, test-only).
 - #117 (2026-09-27) TOG-6380: max-limit listing-index render budget —
   100-row index render under 500ms (300ms control delay) and 64KiB,
   plus `GET /listings?limit=100` live-route smoke
