@@ -205,6 +205,18 @@ describe("empty-state and error-state server routes (TOG-5720)", () => {
     ok(html.includes("image"), "valid modalities named");
   });
 
+  it("returns 400 HTML naming valid params for an unknown query key (TOG-6365)", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await fetch(`${base}/listings?capabilty=tool_call`);
+    strictEqual(res.status, 400);
+    ok(String(res.headers.get("content-type")).includes("text/html"), "HTML content type");
+    const html = await res.text();
+    ok(html.includes("<h1>Invalid filter</h1>"), "error heading");
+    ok(html.includes("capabilty"), "bad key named");
+    ok(html.includes("capability"), "valid keys named");
+    ok(html.includes('href="/listings"'), "back link");
+  });
+
   it("fails closed on mixed valid and invalid filter values", async () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
     const res = await fetch(`${base}/listings?capability=tool_call&capability=__bogus__`);
