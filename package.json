@@ -24,6 +24,7 @@
     "accept:checkout": "node bin/accept-wayselect-checkout",
     "snapshot": "node bin/wayselect-snapshot",
     "check:provenance": "node bin/check-ingestion-provenance",
+    "smoke": "node bin/smoke-wayselect-ingestion",
     "refresh": "node bin/refresh-catalog-fixtures",
     "refresh:check": "node bin/refresh-catalog-fixtures --check"
   },
