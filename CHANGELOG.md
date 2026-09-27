@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #121 (2026-09-27) TOG-6709: HEAD method contract — HEAD pinned as a
+  plain wrong method (405 + `Allow` on GET/purchase routes, 405 without
+  `Allow` on seller routes, 404 on unknown paths; empty body, method gate
+  precedes the preview flag) (`test/head-method-contract.test.js`,
+  test-only).
 - #119 (2026-09-27) TOG-6394: badge color-contrast guard — WCAG AA
   evidence for the five badge classes (on/granted 8.62, off 7.35,
   blocked 8.49, unknown 7.73), pinned as a failing-if-regressed test
