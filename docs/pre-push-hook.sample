@@ -1,0 +1,8 @@
+#!/bin/sh
+# Optional local pre-push hook (TOG-5049). Install per clone only:
+#   cp docs/pre-push-hook.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# Content only: runs the local gate, changes no workflow or permissions.
+node bin/pre-push-check || {
+  echo "pre-push-check failed — push aborted before anything left your machine." >&2
+  exit 1
+}
