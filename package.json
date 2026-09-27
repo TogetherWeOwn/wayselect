@@ -25,6 +25,7 @@
     "snapshot": "node bin/wayselect-snapshot",
     "check:provenance": "node bin/check-ingestion-provenance",
     "smoke": "node bin/smoke-wayselect-ingestion",
+    "preview:health": "node bin/check-preview-health",
     "refresh": "node bin/refresh-catalog-fixtures",
     "refresh:check": "node bin/refresh-catalog-fixtures --check"
   },
