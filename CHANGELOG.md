@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7305: search-q pathological-input perf audit pin — 20 max-bound
+  corpus values (long repeats, regex metacharacters, unicode classes)
+  through `parseListingsQuery` + `applyListingsFilters` (100 rows) +
+  `rankV3` complete within a 2000ms batch budget, plus a live-route smoke
+  (`test/search-q-pathological-budget.test.js`, test-only, no source
+  change: the `q` path is literal `includes`, no regex on user input).
 - TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
   Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
   output, no route redirects, links stay relative, and rotating Host/XFH
