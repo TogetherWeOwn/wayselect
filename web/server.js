@@ -29,10 +29,12 @@
 //     Effort was trivial: one `randomBytes` nonce per HTML response,
 //     stamped on the inline tags and allowlisted in the header.
 //
-// 404 content-type contract (TOG-5714):
+// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375):
 //   - Browser routes (index, detail incl. listing misses, flag-off pages):
 //     HTML by default; JSON only when the client explicitly negotiates
-//     `Accept: application/json` (the shell's fragment fetch).
+//     `Accept: application/json` (the shell's fragment fetch). Flag-off
+//     JSON is `{error: "preview_disabled"}` so the shell renders its
+//     alert panel instead of choking on an HTML page.
 //   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
 //     always JSON.
 //   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
@@ -285,6 +287,16 @@ export function createApp(env = process.env, options = {}) {
       const sendPage = (status, html) => sendHtml(res, status, html, nonce);
       const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
+        // TOG-6375: the shell's fragment fetch negotiates JSON, so a
+        // flag-off fragment request degrades to a JSON error the shell
+        // renders as its alert panel — never an HTML page that breaks
+        // `res.json()`. Flag check precedes listing lookup, so unknown
+        // listings gate identically. Index stays HTML-only: it has no
+        // fragment shape, flag-on or flag-off.
+        if (String(req.headers?.accept ?? "").includes("application/json")) {
+          sendJson(res, 404, { error: "preview_disabled" });
+          return;
+        }
         sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
