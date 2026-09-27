@@ -1,5 +1,6 @@
 import { SupportState } from "./support.js";
 import { checkCatalogFreshness } from "./freshness.js";
+import { compareRouteIds } from "./routeIds.js";
 
 const ELIGIBLE_STATES = new Set([
   SupportState.CONFIGURED,
@@ -322,7 +323,7 @@ export function evaluateEligibility(candidates, requestInput, optionsInput) {
 
   return Object.freeze(
     [...candidates]
-      .sort((left, right) => left.routeId.localeCompare(right.routeId))
+      .sort((left, right) => compareRouteIds(left.routeId, right.routeId))
       .map((candidate) => {
         if (catalogProbe !== null && !catalogProbe.fresh) {
           const catalogReason = catalogProbe.ageMs < 0 ? "future-catalog" : "stale-catalog";

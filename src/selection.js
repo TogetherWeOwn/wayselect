@@ -1,4 +1,5 @@
 import { evaluateEligibility, normalizeSelectionRequest } from "./eligibility.js";
+import { compareRouteIds } from "./routeIds.js";
 
 function estimatedRate(candidate) {
   if (!candidate.rates) {
@@ -18,7 +19,7 @@ function compareEligible(left, right) {
   if (!left.rates && right.rates) {
     return 1;
   }
-  return left.routeId.localeCompare(right.routeId);
+  return compareRouteIds(left.routeId, right.routeId);
 }
 
 export function selectRoute(candidates, requestInput, options) {
