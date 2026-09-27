@@ -381,7 +381,10 @@ export function createApp(env = process.env, options = {}) {
       }
       const body = await readJsonBody(req);
       if (!body.ok) {
-        const status = body.code === "body_too_large" ? 413 : 400;
+        // R4-06: a body that never completes within the read bound is a
+        // timeout (408), not a malformed payload (400) — the client may
+        // retry. `body_too_large` stays 413; everything else stays 400.
+        const status = body.code === "body_too_large" ? 413 : body.code === "body_timeout" ? 408 : 400;
         sendJson(res, status, {
           error: body.code,
           key: "submission",

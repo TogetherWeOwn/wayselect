@@ -28,6 +28,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`scripts/check-deploy-target.mjs`, `scripts/wait-for-host-mirror.mjs`,
   `scripts/wait-for-staging-health.mjs`, `test/check-deploy-target.test.js`,
   `test/deploy-helpers.test.js`).
+- #146 (2026-09-27) TOG-6371: IPv6-mapped IPv4 normalization pin —
+  `resolveClientIp` trusted-proxy matching and XFF client identity share
+  one bucket across plain/mapped/upper/translated/loopback spellings
+  (`test/ipv6-mapped-resolve-pin.test.js`, test-only, no source change).
+- TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
+  read deadline (`MAX_JSON_BODY_READ_MS`) that fails closed with
+  `body_timeout` (408 at the seller route, retryable; drains the stream
+  for socket reuse) instead of hanging on a short/stalling body
+  (`web/jsonBody.js`, `web/server.js`, `src/intakeLimits.js`,
+  `test/json-body-read-timeout.test.js`).
 - #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
 - #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
   invalid `--now` exits 1 with empty stdout, exact
