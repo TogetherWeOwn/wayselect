@@ -28,6 +28,8 @@ export class CatalogIntegrityError extends Error {
   }
 }
 
+export { stableStringify } from "./canonical.js";
+
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

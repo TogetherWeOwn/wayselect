@@ -10,6 +10,24 @@ import { readFixture } from "../support/helpers.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = new URL("..", import.meta.url);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Refresh-proof clocks: derived from the live fixture snapshot so provenance
+// refreshes never break these tests. Every offset below stays inside the 72h
+// evidence window (freshest observedAt is 22h behind the snapshot) so the gate
+// under test is the catalog freshness gate, not evidence staleness.
+async function snapshotMs() {
+  const catalog = await readFixture("catalog.synthetic.json");
+  return Date.parse(catalog.provenance.snapshotTimestamp);
+}
+
+async function staleEvaluationTime() {
+  return new Date((await snapshotMs()) + DAY_MS + 1000).toISOString();
+}
+
+async function futureEvaluationTime() {
+  return new Date((await snapshotMs()) - 1000).toISOString();
+}
 
 test("fixture CLI demonstrates catalog to explanation with fake transport", async () => {
   const { stdout, stderr } = await execFileAsync(
@@ -79,7 +97,10 @@ test("CLI fails closed with stale-catalog when the feed exceeds maxCatalogAgeHou
     readFile(new URL("../fixtures/request.synthetic.json", import.meta.url), "utf8"),
   ]);
   const staleRequest = JSON.parse(requestRaw);
-  staleRequest.evaluationTime = "2026-09-30T12:00:00.000Z";
+  const catalogFixture = JSON.parse(catalogRaw);
+  staleRequest.evaluationTime = new Date(
+    Date.parse(catalogFixture.provenance.snapshotTimestamp) + 4 * DAY_MS,
+  ).toISOString();
 
   const catalogPath = await writeTempJson(dir, "catalog.json", JSON.parse(catalogRaw));
   const configurationPath = await writeTempJson(dir, "configuration.json", JSON.parse(configuration));
@@ -118,9 +139,10 @@ test("CLI fails closed with stale-catalog when the feed exceeds maxCatalogAgeHou
 // future-dated catalog snapshot must yield no-eligible-route (never a
 // selection), while the default request's 24h override keeps the fresh fixture
 // green. Catalog provenance.snapshotTimestamp stays valid ISO throughout; only
-// evaluationTime moves, and every offset below stays inside the 72h evidence
-// window (evidence observedAt 2026-09-23T12Z) so the gate under test is the
-// catalog freshness gate, not evidence staleness.
+// evaluationTime moves, and every offset below (derived from the live
+// snapshot) stays inside the 72h evidence window (freshest observedAt is 22h
+// behind the snapshot) so the gate under test is the catalog freshness gate,
+// not evidence staleness.
 async function runDemoWithRequest(requestOverrides = {}, catalogOverrides = {}) {
   const workDir = await fs.mkdtemp(join(tmpdir(), "wayselect-cli-"));
   try {
@@ -160,9 +182,9 @@ async function runDemoWithRequest(requestOverrides = {}, catalogOverrides = {}) 
 }
 
 test("fixture CLI wires the catalog gate: stale snapshot selects no route", async () => {
-  // Catalog snapshot 2026-09-24T10Z + 24h limit => stale after 2026-09-25T10Z.
+  // Snapshot + 24h limit + 1s => stale; inside the 72h evidence window.
   const { stdout } = await runDemoWithRequest({
-    evaluationTime: "2026-09-25T10:00:01.000Z",
+    evaluationTime: await staleEvaluationTime(),
   });
   const result = JSON.parse(stdout);
 
@@ -178,7 +200,7 @@ test("fixture CLI wires the catalog gate: stale snapshot selects no route", asyn
 
 test("fixture CLI wires the catalog gate: future snapshot selects no route", async () => {
   const { stdout } = await runDemoWithRequest({
-    evaluationTime: "2026-09-24T09:59:59.000Z",
+    evaluationTime: await futureEvaluationTime(),
   });
   const result = JSON.parse(stdout);
 
@@ -193,9 +215,10 @@ test("fixture CLI wires the catalog gate: future snapshot selects no route", asy
 
 test("fixture CLI honors an explicit wider maxCatalogAgeHours override", async () => {
   // Same stale timestamp as above, but a 48h window keeps the snapshot fresh.
-  // Evidence: evaluationTime minus observedAt (2026-09-23T12Z) = 46h < 72h.
+  // Evidence: evaluationTime (snapshot + 24h1s) minus freshest observedAt
+  // (snapshot - 22h) = ~46h < 72h.
   const { stdout } = await runDemoWithRequest({
-    evaluationTime: "2026-09-25T10:00:01.000Z",
+    evaluationTime: await staleEvaluationTime(),
     maxCatalogAgeHours: 48,
   });
   const result = JSON.parse(stdout);

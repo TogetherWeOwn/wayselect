@@ -17,11 +17,15 @@
     "preview": "node web/server.js",
     "accept:web": "node bin/accept-wayselect-web",
     "accept:seller": "node bin/accept-wayselect-seller",
+    "accept:buyer": "node bin/accept-wayselect-buyer",
     "accept:eligibility": "node bin/accept-wayselect-eligibility",
     "accept:dryrun-explain": "node bin/accept-wayselect-dryrun-explain",
+    "accept:checkout": "node bin/accept-wayselect-checkout",
     "snapshot": "node bin/wayselect-snapshot",
     "check:provenance": "node bin/check-ingestion-provenance",
-    "smoke": "node bin/smoke-wayselect-ingestion"
+    "smoke": "node bin/smoke-wayselect-ingestion",
+    "refresh": "node bin/refresh-catalog-fixtures",
+    "refresh:check": "node bin/refresh-catalog-fixtures --check"
   },
   "dependencies": {
     "ajv": "^8.17.1",
