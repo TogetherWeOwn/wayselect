@@ -88,6 +88,17 @@ describe("preview security headers (TOG-5731)", () => {
     strictEqual(unknown.headers.get("x-content-type-options"), NOSNIFF);
     strictEqual(unknown.headers.get("x-frame-options"), null);
     strictEqual(unknown.headers.get("content-security-policy"), null);
+    // TOG-5714 browser fallback (explicit text/html navigation): HTML 404
+    // with its own fresh nonce, tags matching the header.
+    const browserMiss = await fetch(`${base}/nope`, { headers: { accept: "text/html" } });
+    strictEqual(browserMiss.status, 404);
+    strictEqual(browserMiss.headers.get("content-type"), "text/html; charset=utf-8");
+    strictEqual(browserMiss.headers.get("x-frame-options"), "DENY");
+    const fallbackNonce = nonceOfCsp(browserMiss.headers.get("content-security-policy"));
+    ok(
+      (await browserMiss.text()).includes(`<style nonce="${fallbackNonce}">`),
+      "fallback 404 style tag matches header",
+    );
   });
 
   it("sends nosniff without framing/CSP on the purchase stub", async () => {

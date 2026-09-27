@@ -7,6 +7,7 @@ import { after, describe, it } from "node:test";
 import {
   createRateLimiter,
   DEFAULT_RATE_LIMIT,
+  MAX_BUCKETS,
   normalizeClientIp,
   resolveClientIp,
 } from "../web/rate-limit.js";
@@ -64,6 +65,64 @@ describe("rate limiter", () => {
     const limiter = createRateLimiter({ windowMs: 60_000, max: 1 });
     strictEqual(limiter.check("127.0.0.1", "GET /listings", 0).allowed, true);
     strictEqual(limiter.check("::ffff:127.0.0.1", "GET /listings", 1).allowed, false);
+  });
+
+  it("stays bounded under synthetic scanner load (TOG-5741)", () => {
+    // 5x the cap of distinct IPs inside one window: live count never
+    // exceeds the cap, and the limiter keeps answering.
+    const cap = 200;
+    const limiter = createRateLimiter({ windowMs: 60_000, max: 1_000_000, maxBuckets: cap });
+    strictEqual(limiter.maxBuckets, cap);
+    let allowed = 0;
+    for (let i = 0; i < cap * 5; i += 1) {
+      if (limiter.check(`10.${(i >> 8) & 0xff}.${i & 0xff}.1`, "GET /listings", i).allowed) {
+        allowed += 1;
+      }
+    }
+    strictEqual(limiter.liveBucketCount(cap * 5), cap);
+    // Every distinct IP was served exactly once: inserting past the cap
+    // evicts a cold bucket instead of refusing the newcomer.
+    strictEqual(allowed, cap * 5);
+  });
+
+  it("evicts the least-recently-used live bucket past the cap (TOG-5741)", () => {
+    const limiter = createRateLimiter({ windowMs: 60_000, max: 10, maxBuckets: 3 });
+    strictEqual(limiter.check("10.0.0.1", "GET /listings", 0).allowed, true);
+    strictEqual(limiter.check("10.0.0.2", "GET /listings", 1).allowed, true);
+    strictEqual(limiter.check("10.0.0.3", "GET /listings", 2).allowed, true);
+    // Refresh 10.0.0.1 so 10.0.0.2 becomes the LRU victim.
+    strictEqual(limiter.check("10.0.0.1", "GET /listings", 3).allowed, true);
+    strictEqual(limiter.check("10.0.0.4", "GET /listings", 4).allowed, true);
+    strictEqual(limiter.liveBucketCount(4), 3);
+    // The victim's count reset on eviction: it is served again, while the
+    // refreshed hot key keeps its accumulated count.
+    strictEqual(limiter.check("10.0.0.2", "GET /listings", 5).allowed, true);
+    for (let i = 0; i < 8; i += 1) {
+      limiter.check("10.0.0.1", "GET /listings", 6 + i);
+    }
+    strictEqual(limiter.check("10.0.0.1", "GET /listings", 20).allowed, false);
+  });
+
+  it("prefers TTL eviction over LRU: expired buckets go first (TOG-5741)", () => {
+    const limiter = createRateLimiter({ windowMs: 100, max: 1, maxBuckets: 2 });
+    strictEqual(limiter.check("10.0.0.1", "GET /listings", 0).allowed, true);
+    strictEqual(limiter.check("10.0.0.2", "GET /listings", 50).allowed, true);
+    // At t=101 the 10.0.0.1 window (resetAt 100) is expired but 10.0.0.2
+    // (resetAt 150) is live. The newcomer must reap the expired bucket,
+    // not evict the live one.
+    strictEqual(limiter.check("10.0.0.3", "GET /listings", 101).allowed, true);
+    strictEqual(limiter.liveBucketCount(101), 2);
+    // Proof the live bucket survived: its count is intact, so with max=1
+    // it is refused. Had LRU evicted it, this would mint a fresh bucket
+    // and allow.
+    strictEqual(limiter.check("10.0.0.2", "GET /listings", 102).allowed, false);
+  });
+
+  it("exposes the default bucket cap (TOG-5741)", () => {
+    ok(MAX_BUCKETS > 0);
+    strictEqual(createRateLimiter().maxBuckets, MAX_BUCKETS);
+    strictEqual(createRateLimiter({ maxBuckets: 0 }).maxBuckets, MAX_BUCKETS);
+    strictEqual(createRateLimiter({ maxBuckets: 7 }).maxBuckets, 7);
   });
 
   it("characterizes burst behavior: exact retry-after and window-edge budget", () => {

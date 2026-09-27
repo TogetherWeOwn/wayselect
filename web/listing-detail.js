@@ -342,6 +342,19 @@ export function renderNotFound(providerId, modelId, options) {
   return layout({ title: "Not found", body, cspNonce: pageNonce(options) });
 }
 
+// TOG-5714: HTML 404 page for unknown (non-listing) paths, served only when
+// the client explicitly negotiates `Accept: text/html` (e.g. a browser
+// address-bar navigation). API-shaped callers get the JSON `{error:
+// "not_found"}` payload instead — see the 404 content-type contract in
+// web/server.js. Accepts the same optional `{ cspNonce }` as the other page
+// renderers (TOG-6049).
+export function renderRouteNotFound(path, options) {
+  const body = `<h1>Page not found</h1>
+<p>No preview page matches <code>${escapeHtml(path)}</code>.</p>
+<a class="back" href="/listings">Back to listings</a>`;
+  return layout({ title: "Not found", body, cspNonce: pageNonce(options) });
+}
+
 export function renderPreviewDisabled(options) {
   const body = `<h1>Preview unavailable</h1>
 <p>This page is behind the <code>WAYSELECT_PREVIEW</code> flag, which is currently off.</p>`;

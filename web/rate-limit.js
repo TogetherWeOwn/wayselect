@@ -29,8 +29,26 @@ export const DEFAULT_RATE_LIMIT = Object.freeze({
   max: 120,
 });
 
-// Safety valve so the counter map cannot grow without bound.
-const MAX_ENTRIES = 10_000;
+// Eviction cap + policy (TOG-5741): the bucket map never holds more than
+// MAX_BUCKETS entries (default 10_000; override per limiter via the
+// `maxBuckets` option). Memory is therefore O(cap) no matter how many
+// distinct IPs a scanner rotates through inside one window. On insert past
+// the cap:
+//   1. TTL first — sweep expired windows and drop them (freeing a bucket
+//      costs nothing: its owner gets no fresh budget, the window is over).
+//      The scan is bounded (see EVICT_SCAN_BUDGET) so a flood cannot turn
+//      every insert into a full-map scan; leftovers are reaped by later
+//      sweeps or overwritten on hit.
+//   2. LRU second — if the sweep freed nothing, drop the
+//      least-recently-used live bucket. Every live hit refreshes recency,
+//      so a hot legitimate client is not evicted by cold scanner keys
+//      while its window is live; evicting a live bucket resets its budget,
+//      which is why TTL is preferred whenever an expired bucket exists.
+export const MAX_BUCKETS = 10_000;
+
+// Bound on the per-insert TTL scan: eviction work per insert is O(1), so
+// sustained scanner floods cannot be amplified into full-map scans.
+const EVICT_SCAN_BUDGET = 64;
 
 // Canonicalize a client identity so one peer cannot hold several budgets
 // (TOG-5732 audit). Textual variants of the same address — IPv4-mapped
@@ -106,32 +124,73 @@ export function resolveClientIp(remoteAddress, xForwardedFor, trustedProxyIp = n
   return client === "unknown" ? peer : client;
 }
 
-export function createRateLimiter({ windowMs, max } = {}) {
+export function createRateLimiter({ windowMs, max, maxBuckets } = {}) {
   const window = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : DEFAULT_RATE_LIMIT.windowMs;
   const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : DEFAULT_RATE_LIMIT.max;
-  // key `${ip} ${bucket}` -> { count, resetAt }
+  const cap =
+    Number.isFinite(maxBuckets) && maxBuckets > 0 ? Math.floor(maxBuckets) : MAX_BUCKETS;
+  // key `${ip} ${bucket}` -> { count, resetAt }. Insertion order is LRU
+  // order: every live hit re-inserts its entry (delete + set), so the
+  // first key is always the least-recently-used candidate.
   const counts = new Map();
 
-  function prune(now) {
+  // TTL sweep on insert past the cap: drop up to EVICT_SCAN_BUDGET
+  // expired windows and report whether anything was freed. Scanning only
+  // a bounded prefix keeps per-insert eviction work O(1); entries beyond
+  // the budget are left for later sweeps (or overwritten on hit), and the
+  // LRU fallback below keeps memory bounded regardless.
+  function evictExpired(now) {
+    const before = counts.size;
+    let scanned = 0;
     for (const [key, entry] of counts) {
+      if (scanned >= EVICT_SCAN_BUDGET) {
+        break;
+      }
+      scanned += 1;
       if (now >= entry.resetAt) {
         counts.delete(key);
       }
     }
+    return counts.size < before;
   }
 
   return {
     windowMs: window,
     max: limit,
+    maxBuckets: cap,
+    // Introspection for tests/ops: live (unexpired) bucket count at `now`.
+    liveBucketCount(now = Date.now()) {
+      let live = 0;
+      for (const entry of counts.values()) {
+        if (now < entry.resetAt) {
+          live += 1;
+        }
+      }
+      return live;
+    },
     check(ip, bucket, now = Date.now()) {
       const key = `${normalizeClientIp(ip)} ${bucket}`;
       let entry = counts.get(key);
-      if (!entry || now >= entry.resetAt) {
-        entry = { count: 0, resetAt: now + window };
+      if (entry && now < entry.resetAt) {
+        // Live hit: refresh LRU recency, then apply the budget.
+        counts.delete(key);
         counts.set(key, entry);
-        if (counts.size > MAX_ENTRIES) {
-          prune(now);
+      } else {
+        // New or expired window: (re)create the bucket.
+        if (entry) {
+          counts.delete(key);
         }
+        entry = { count: 0, resetAt: now + window };
+        if (counts.size >= cap) {
+          if (!evictExpired(now) && counts.size >= cap) {
+            // No expired bucket freed by the bounded sweep: drop the LRU
+            // key (insertion-order head). `counts` is non-empty here, so
+            // oldestKey is always defined.
+            const oldestKey = counts.keys().next().value;
+            counts.delete(oldestKey);
+          }
+        }
+        counts.set(key, entry);
       }
       if (entry.count >= limit) {
         const retryAfterSec = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));

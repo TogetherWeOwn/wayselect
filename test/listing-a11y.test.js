@@ -7,6 +7,43 @@ import { describe, it } from "node:test";
 import { getStubListing } from "../web/stub-listing.js";
 import { renderListingDetailShell, renderListingIndex } from "../web/listing-detail.js";
 
+// Shell-chrome segments outside the <noscript>/<script> blocks (TOG-6049,
+// TOG-6028 CodeQL-safe precedent): CodeQL flags generic tag-strip
+// replaceAll as incomplete multi-character sanitization plus bad HTML
+// filtering regexp, even in tests. Locate the single <noscript> and
+// <script> blocks with indexOf and return the segments outside them —
+// pure extraction, no tag-stripping replacement. Sound here: the renderer
+// emits exactly one of each, lowercase, with escaped attrs (no raw `>`
+// can hide inside the opening tag).
+function chromeSegments(html) {
+  const segments = [];
+  let cursor = 0;
+  while (cursor < html.length) {
+    const nosOpen = html.indexOf("<noscript>", cursor);
+    const scriptOpen = html.indexOf("<script", cursor);
+    let open = -1;
+    let tag = null;
+    if (nosOpen !== -1 && (scriptOpen === -1 || nosOpen < scriptOpen)) {
+      open = nosOpen;
+      tag = "noscript";
+    } else if (scriptOpen !== -1) {
+      open = scriptOpen;
+      tag = "script";
+    } else {
+      segments.push(html.slice(cursor));
+      break;
+    }
+    segments.push(html.slice(cursor, open));
+    const closeTag = `</${tag}>`;
+    const close = html.indexOf(closeTag, open);
+    if (close === -1) {
+      break;
+    }
+    cursor = close + closeTag.length;
+  }
+  return segments;
+}
+
 describe("listing a11y shell (TOG-5717)", () => {
   it("announces loading state via a dedicated role=status live region", () => {
     const html = renderListingDetailShell(getStubListing("northstar", "alpha-chat"));
@@ -14,10 +51,10 @@ describe("listing a11y shell (TOG-5717)", () => {
     ok(html.includes('role="status"'), "status role announces politely");
     ok(html.includes("Listing details loaded."), "loaded announcement scripted");
     // The skeleton chrome stays silent so SR users hear one announcement.
-    const chrome = html
-      .replaceAll(/<noscript>[\s\S]*?<\/noscript>/gi, "")
-      .replaceAll(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
-    ok(!chrome.includes('aria-live="polite"'), "no duplicate live region in chrome");
+    ok(
+      chromeSegments(html).every((seg) => !seg.includes('aria-live="polite"')),
+      "no duplicate live region in chrome",
+    );
   });
 
   it("moves focus to retry when the fragment fetch fails", () => {

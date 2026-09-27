@@ -14,6 +14,43 @@ import {
 import { createApp } from "../web/server.js";
 
 describe("listing-detail shell", () => {
+  // Shell-chrome segments outside the <noscript>/<script> blocks (TOG-6049,
+  // TOG-6028 CodeQL-safe precedent): CodeQL flags generic tag-strip
+  // replaceAll as incomplete multi-character sanitization plus bad HTML
+  // filtering regexp, even in tests. Locate the single <noscript> and
+  // <script> blocks with indexOf and return the segments outside them —
+  // pure extraction, no tag-stripping replacement. Sound here: the renderer
+  // emits exactly one of each, lowercase, with escaped attrs (no raw `>`
+  // can hide inside the opening tag).
+  function chromeSegments(html) {
+    const segments = [];
+    let cursor = 0;
+    while (cursor < html.length) {
+      const nosOpen = html.indexOf("<noscript>", cursor);
+      const scriptOpen = html.indexOf("<script", cursor);
+      let open = -1;
+      let tag = null;
+      if (nosOpen !== -1 && (scriptOpen === -1 || nosOpen < scriptOpen)) {
+        open = nosOpen;
+        tag = "noscript";
+      } else if (scriptOpen !== -1) {
+        open = scriptOpen;
+        tag = "script";
+      } else {
+        segments.push(html.slice(cursor));
+        break;
+      }
+      segments.push(html.slice(cursor, open));
+      const closeTag = `</${tag}>`;
+      const close = html.indexOf(closeTag, open);
+      if (close === -1) {
+        break;
+      }
+      cursor = close + closeTag.length;
+    }
+    return segments;
+  }
+
   it("paints the skeleton first with busy state, retry, and noscript content", () => {
     const html = renderListingDetailShell(getStubListing("northstar", "alpha-chat"));
     ok(html.includes('aria-busy="true"'), "busy region");
@@ -24,13 +61,17 @@ describe("listing-detail shell", () => {
     // No-JS fallback: the noscript branch carries the full render.
     ok(html.includes("<noscript>"), "noscript branch");
     ok(html.includes("&lt;") || html.includes("Alpha Chat"), "noscript content");
-    // No live action in the shell chrome: strip noscript/script blocks and
-    // assert no form survives; the only form (disabled purchase stub) lives
-    // in the noscript/fragment render.
-    const chrome = html
-      .replaceAll(/<noscript>[\s\S]*?<\/noscript>/gi, "")
-      .replaceAll(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
-    ok(!chrome.includes("<form"), "no live form in shell chrome");
+    // No live action in the shell chrome: the only form (disabled purchase
+    // stub) lives in the noscript/fragment render. Segments outside the
+    // <noscript>/<script> blocks are extracted with indexOf — no tag-strip
+    // replace (TOG-6049, TOG-6028 CodeQL-safe precedent: CodeQL flags
+    // generic strip-sanitizers as incomplete sanitization plus bad HTML
+    // filtering regexp). Sound: the renderer emits exactly one of each
+    // block, lowercase, with escaped attrs.
+    ok(
+      chromeSegments(html).every((seg) => !seg.includes("<form")),
+      "no live form in shell chrome",
+    );
     ok(html.includes("disabled"), "noscript purchase stub stays disabled");
   });
 
