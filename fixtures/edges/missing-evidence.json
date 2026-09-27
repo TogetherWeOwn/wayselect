@@ -1,0 +1,34 @@
+{
+  "description": "Missing evidence: alpha-chat is configured with no evidence record, so it fails closed with missing-evidence instead of being guessed eligible.",
+  "configuration": {
+    "candidates": [
+      {
+        "routeId": "northstar/alpha-chat",
+        "supportState": "configured",
+        "operations": [
+          "chat"
+        ]
+      }
+    ]
+  },
+  "selection": {
+    "operation": "chat",
+    "requiredCapabilities": [
+      "toolUse"
+    ],
+    "providerAllowlist": [
+      "northstar"
+    ]
+  },
+  "evaluationTime": "2026-09-26T16:00:00.000Z",
+  "maxEvidenceAgeHours": 72,
+  "expect": {
+    "status": "no-eligible-route",
+    "selectedRouteId": null,
+    "reasonIncludes": {
+      "northstar/alpha-chat": [
+        "missing-evidence"
+      ]
+    }
+  }
+}

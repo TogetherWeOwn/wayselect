@@ -6,6 +6,11 @@
 //                                            `{status:"ok",version}` JSON,
 //                                            ungated by WAYSELECT_PREVIEW
 //                                            and exempt from rate limiting
+//   GET /favicon.ico                         — 204 No Content (TOG-6369):
+//                                            ungated by WAYSELECT_PREVIEW;
+//                                            pins the browser-requested icon
+//                                            path so page loads stop emitting
+//                                            404 log noise
 //   GET /listings                          — stub listing index (flag-gated)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
@@ -165,6 +170,8 @@ function sendMethodNotAllowed(res, allow) {
 // index, route templates for detail/purchase, and a fallback for 404s so
 // scanners cannot burn the budget of real routes (or vice versa).
 function routeBucket(method, pathname) {
+  // NOTE: /favicon.ico and /healthz answer before the limiter (see the
+  // handler), so they never reach a bucket — do not add entries for them.
   if (method === "GET" && (pathname === "/listings" || pathname === "/listings/")) {
     return "GET /listings";
   }
@@ -233,6 +240,21 @@ export function createApp(env = process.env, options = {}) {
     }
     if (probePathname === "/healthz") {
       sendMethodNotAllowed(res, "GET");
+      return;
+    }
+
+    // TOG-6369: the favicon path answers before rate limiting (every page
+    // load requests it, so it must never read as a dead route under a
+    // saturated limiter) and regardless of WAYSELECT_PREVIEW: 204 No
+    // Content by design — there is no icon asset to serve. Non-GET methods
+    // are 405 with `Allow: GET` per the TOG-6364 convention.
+    if (probePathname === "/favicon.ico") {
+      if (req.method !== "GET") {
+        sendMethodNotAllowed(res, "GET");
+        return;
+      }
+      res.writeHead(204, { ...SECURITY_HEADERS });
+      res.end();
       return;
     }
 
@@ -526,6 +548,15 @@ export function createApp(env = process.env, options = {}) {
       // TOG-5499: the shell's inline fetch negotiates this fragment.
       // Test/dev slow-network knob: delays the fragment only, never the
       // shell first paint. Unset or non-positive means no delay.
+      // TOG-6714: the delay must not outlive the client — an aborted
+      // stream otherwise leaves a pending timer whose send writes to a
+      // dead socket. `req` 'close' fires on client abort (it also fires
+      // on normal completion, so the fired-timer path removes its own
+      // listener — a completed fragment leaves zero pending timers and
+      // zero stray listeners behind). The fired path additionally skips
+      // the send when the socket is already gone: the abort can win the
+      // race after the delay elapses, and a dropped fragment sends
+      // nothing rather than writing to a destroyed socket.
       if (String(req.headers?.accept ?? "").includes("application/json")) {
         const sendFragment = () => {
           try {
@@ -545,7 +576,25 @@ export function createApp(env = process.env, options = {}) {
           10,
         );
         if (Number.isFinite(fragmentDelayMs) && fragmentDelayMs > 0) {
-          setTimeout(sendFragment, fragmentDelayMs);
+          const onFragmentAbort = () => clearTimeout(fragmentTimer);
+          const fragmentTimer = setTimeout(() => {
+            req.removeListener("close", onFragmentAbort);
+            // The abort may win the race after the delay elapses: writing
+            // to a destroyed socket throws, and the throw inside sendJson
+            // would escape through the timer (the inner catch's sendHtml
+            // throws again). A dropped fragment sends nothing — skip it.
+            if (!res.destroyed && !res.writableEnded) {
+              sendFragment();
+            }
+          }, fragmentDelayMs);
+          if (req.destroyed || req.closed) {
+            // The client was already gone before the timer was armed —
+            // 'close' already fired, so the listener below would never run
+            // and the timer would leak. Drop it immediately.
+            clearTimeout(fragmentTimer);
+          } else {
+            req.once("close", onFragmentAbort);
+          }
         } else {
           sendFragment();
         }

@@ -12,15 +12,27 @@ on:
   # until TOG-6905 says Wayselect may go live.
   workflow_dispatch:
 
+# Least privilege (CodeQL js/missing-workflow-permissions): read-only by
+# default; each deploy job adds the deployments:write it needs so its
+# environment: key can record Deployment statuses.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20.x = engines floor; 24.x = latest LTS (active LTS since Oct 2025).
+        node-version: [20, 24]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: npm
+      - run: node bin/check-node-engines
       - run: npm ci
       - run: npm test
 
@@ -32,8 +44,37 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - run: node bin/check-node-engines
       - run: npm ci
       - run: npm run smoke
+
+  search-index-probe:
+    # TOG-5722: R1-R5 search-index refresh probe, fixture-only, no network/credentials.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check:search-index
+
+  e2e-staging-acceptance:
+    # TOG-5722: CLI e2e staging acceptance, fixture-only, no network/credentials.
+    # WAYSELECT_STAGING_ENDPOINT is intentionally unset so the publish step
+    # runs as a local validator gate. fetch-depth 0 is required: the script
+    # extracts its CLI/schema slices via `git archive origin/<ref>`.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: node scripts/e2e-staging-acceptance.mjs --out ${{ runner.temp }}/e2e-evidence.json
 
   deploy-staging:
     name: Deploy to staging (Coolify)
@@ -41,11 +82,18 @@ jobs:
     # checks above pass. Pull requests and scheduled runs never deploy.
     needs: [test, ingestion-smoke]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    # Self-hosted (TOG-7131, routeware precedent): the panel token travels as
+    # an Authorization header, and the panel URL observed is plaintext http —
+    # that header must never cross the public internet from ubuntu-latest.
+    runs-on: [self-hosted, two-selfhosted]
     # The environment key creates the GitHub Deployment record (with status
     # updates) that the Shipping KPI reads. Verified query after merge:
     #   gh api repos/TogetherWeOwn/wayselect/deployments
     environment: staging
+    # Least privilege for this job's Deployment-status writes.
+    permissions:
+      contents: read
+      deployments: write
     # Serialize staging deploys so overlapping merges can't race; never
     # cancel an in-flight deploy.
     concurrency:
@@ -59,19 +107,48 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Deploy-target gate
-        # Fail-closed: a missing Coolify hook or staging URL FAILS the job
-        # (TOG-913 — never skip-and-pass). Prints secret NAMES only.
-        run: node scripts/check-deploy-target.mjs --env-name staging --hook-env COOLIFY_STAGING_DEPLOY_HOOK --url-env WAYSELECT_STAGING_URL
+        # Fail-closed: a missing bearer credential, panel URL, app UUID or
+        # staging URL FAILS the job (TOG-913 — never skip-and-pass). Prints
+        # secret NAMES only, never values.
+        run: >-
+          node scripts/check-deploy-target.mjs --env-name staging
+          --hook-env COOLIFY_TOKEN --url-env WAYSELECT_STAGING_URL
+          --require-env COOLIFY_URL
+          --require-env WAYSELECT_STAGING_APP_UUID
         env:
-          COOLIFY_STAGING_DEPLOY_HOOK: ${{ secrets.COOLIFY_STAGING_DEPLOY_HOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          WAYSELECT_STAGING_APP_UUID: ${{ secrets.WAYSELECT_STAGING_APP_UUID }}
           WAYSELECT_STAGING_URL: ${{ secrets.WAYSELECT_STAGING_URL }}
-      - name: Trigger Coolify deploy hook
-        # No migrate step: wayselect has no database; the catalog is a
-        # fixtures file baked into the image, so there is nothing to migrate
-        # before or after deploy.
-        run: curl -sSf -X POST "$COOLIFY_HOOK" -o /dev/null -w 'hook HTTP %{http_code}\n'
+      - name: Wait for the host mirror
+        # Coolify clones the host mirror (git@<host>:/srv/git/wayselect.git),
+        # not github.com, and the mirror re-syncs every ~2 minutes. Deploying
+        # sooner rebuilds the previous commit and looks like the merge did
+        # nothing (fleet precedent: two-bot DEPLOY.md §6.1).
         env:
-          COOLIFY_HOOK: ${{ secrets.COOLIFY_STAGING_DEPLOY_HOOK }}
+          MERGE_SHA: ${{ github.sha }}
+          MIRROR_POLL_SECONDS: "150"
+        run: node scripts/wait-for-host-mirror.mjs
+      - name: Trigger Coolify deploy (bearer header)
+        # Bearer-header transport (TOG-7131): the panel token is a HEADER,
+        # never a token-in-URL hook. Same shape as the fleet's two-bot
+        # DEPLOY.md §6.1. No migrate step: wayselect has no database; the
+        # catalog is a fixtures file baked into the image.
+        run: >-
+          curl -sSf -X POST
+          -H "Authorization: Bearer $COOLIFY_TOKEN"
+          "$COOLIFY_URL/api/v1/deploy?uuid=$WAYSELECT_STAGING_APP_UUID&force=true"
+          -o /dev/null -w 'deploy HTTP %{http_code}\n'
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          WAYSELECT_STAGING_APP_UUID: ${{ secrets.WAYSELECT_STAGING_APP_UUID }}
+      - name: Wait for staging to answer
+        # A 200 from the deploy call only queued the deploy. Poll /healthz
+        # until the new release answers, so green means "it is live".
+        run: node scripts/wait-for-staging-health.mjs --base-url "$STAGING_URL"
+        env:
+          STAGING_URL: ${{ secrets.WAYSELECT_STAGING_URL }}
       - name: Post-deploy smoke against staging
         run: node bin/smoke-wayselect-staging-preview --base-url "$STAGING_URL"
         env:
@@ -86,8 +163,11 @@ jobs:
     # need would otherwise skip this job too — dispatch from main only.
     needs: [deploy-staging]
     if: github.event_name == 'workflow_dispatch' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, two-selfhosted]
     environment: production
+    permissions:
+      contents: read
+      deployments: write
     concurrency:
       group: deploy-production
       cancel-in-progress: false
@@ -99,14 +179,35 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Deploy-target gate
-        run: node scripts/check-deploy-target.mjs --env-name production --hook-env COOLIFY_PRODUCTION_DEPLOY_HOOK --url-env WAYSELECT_PRODUCTION_URL
+        run: >-
+          node scripts/check-deploy-target.mjs --env-name production
+          --hook-env COOLIFY_TOKEN --url-env WAYSELECT_PRODUCTION_URL
+          --require-env COOLIFY_URL
+          --require-env WAYSELECT_PRODUCTION_APP_UUID
         env:
-          COOLIFY_PRODUCTION_DEPLOY_HOOK: ${{ secrets.COOLIFY_PRODUCTION_DEPLOY_HOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          WAYSELECT_PRODUCTION_APP_UUID: ${{ secrets.WAYSELECT_PRODUCTION_APP_UUID }}
           WAYSELECT_PRODUCTION_URL: ${{ secrets.WAYSELECT_PRODUCTION_URL }}
-      - name: Trigger Coolify deploy hook
-        run: curl -sSf -X POST "$COOLIFY_HOOK" -o /dev/null -w 'hook HTTP %{http_code}\n'
+      - name: Wait for the host mirror
         env:
-          COOLIFY_HOOK: ${{ secrets.COOLIFY_PRODUCTION_DEPLOY_HOOK }}
+          MERGE_SHA: ${{ github.sha }}
+          MIRROR_POLL_SECONDS: "150"
+        run: node scripts/wait-for-host-mirror.mjs
+      - name: Trigger Coolify deploy (bearer header)
+        run: >-
+          curl -sSf -X POST
+          -H "Authorization: Bearer $COOLIFY_TOKEN"
+          "$COOLIFY_URL/api/v1/deploy?uuid=$WAYSELECT_PRODUCTION_APP_UUID&force=true"
+          -o /dev/null -w 'deploy HTTP %{http_code}\n'
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          WAYSELECT_PRODUCTION_APP_UUID: ${{ secrets.WAYSELECT_PRODUCTION_APP_UUID }}
+      - name: Wait for production to answer
+        run: node scripts/wait-for-staging-health.mjs --base-url "$PRODUCTION_URL"
+        env:
+          PRODUCTION_URL: ${{ secrets.WAYSELECT_PRODUCTION_URL }}
       - name: Post-deploy smoke against production
         run: node bin/smoke-wayselect-staging-preview --base-url "$PRODUCTION_URL"
         env:
