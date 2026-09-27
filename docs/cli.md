@@ -148,6 +148,55 @@ node bin/wayselect explain --request fixtures/request.synthetic.json \
   --allow northstar
 ```
 
+## Typed capability requirements (capability-aware select, S1)
+
+`select` and `explain` filter catalog entries against typed requirements
+(spec R1), from flags or from a request file's `requirements` object. Missing
+or unknown capability data fails closed: the entry is excluded with an
+explicit reason, never silently included (spec R2).
+
+- `--input-modalities <m,...>` / `--output-modalities <m,...>` — repeatable,
+  comma-separated; every listed modality must appear in the candidate's
+  normalized `modalities` (otherwise `missing-modality:input:<value>`).
+- `--min-context-window <n>` / `--max-output-tokens <n>` — the candidate's
+  `limits` must meet the threshold. Unknown limits report
+  `missing-capability:contextWindow` / `missing-capability:maxOutputTokens`;
+  a short limit reports `insufficient-context-window` /
+  `insufficient-max-output-tokens`.
+- `--require-tools`, `--require-structured-output`, `--require-reasoning` —
+  checked against the normalized `toolUse`, `structuredOutput`, and
+  `reasoning` flags (`missing-capability:` / `unsupported-capability:`).
+  Absent means no constraint.
+- Malformed flag values fail closed at the CLI boundary (exit 1); unknown
+  `requirements` keys in a request file are rejected the same way.
+
+```sh
+# Fully-qualifying modalities pick the image route (exit 0):
+node bin/wayselect select --operation vision-chat --allow northstar \
+  --input-modalities image --output-modalities text \
+  --evaluation-time 2026-09-26T16:00:00.000Z
+
+# Unknown limits fail closed: the pinned fixture carries no context_window
+# fields, so every candidate is excluded (exit 3):
+node bin/wayselect select --operation chat --require toolUse \
+  --allow northstar,orbit --min-context-window 10000000 \
+  --evaluation-time 2026-09-26T16:00:00.000Z --json
+
+# explain names the typed requirements on its Request line:
+node bin/wayselect explain --operation chat --allow northstar,orbit \
+  --require-tools --input-modalities text \
+  --evaluation-time 2026-09-26T16:00:00.000Z
+```
+
+```text
+Request: operation=chat, require=[], allow=[northstar, orbit], typed=[inputModalities=[text], toolCalling]
+```
+
+A request file may carry the same constraints as a `requirements` object
+(`inputModalities`, `outputModalities`, `minContextWindow`,
+`maxOutputTokens`, `toolCalling`, `structuredOutput`, `reasoning`); flags
+override the file per dimension, mirroring `--require`/`--allow`.
+
 ## `catalog import`: ingest models.dev-shaped JSON
 
 ```sh

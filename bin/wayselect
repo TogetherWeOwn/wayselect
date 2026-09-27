@@ -358,9 +358,24 @@ const VALUE_FLAGS = new Set([
   "--evaluation-time",
   "--max-evidence-age-hours",
   "--max-catalog-age-hours",
+  "--min-context-window",
+  "--max-output-tokens",
 ]);
 
-const LIST_FLAGS = new Set(["--require", "--allow"]);
+const LIST_FLAGS = new Set([
+  "--require",
+  "--allow",
+  "--input-modalities",
+  "--output-modalities",
+]);
+
+// TOG-5857 (S1): typed-requirement boolean flags. Opt-in only — absent means
+// "no constraint", matching the library's `false means no constraint` rule.
+const REQUIREMENT_BOOLEAN_FLAGS = new Set([
+  "--require-tools",
+  "--require-structured-output",
+  "--require-reasoning",
+]);
 
 function usageError(message) {
   return new UsageError(`${message}\nRun "wayselect --help" for usage.`);
@@ -385,6 +400,13 @@ function parseCommandArgs(tokens, command) {
     operation: undefined,
     require: [],
     allow: [],
+    inputModalities: [],
+    outputModalities: [],
+    minContextWindow: undefined,
+    maxOutputTokens: undefined,
+    requireTools: undefined,
+    requireStructuredOutput: undefined,
+    requireReasoning: undefined,
     evaluationTime: undefined,
     maxEvidenceAgeHours: undefined,
     maxCatalogAgeHours: undefined,
@@ -402,14 +424,31 @@ function parseCommandArgs(tokens, command) {
       options.help = true;
       continue;
     }
+    if (REQUIREMENT_BOOLEAN_FLAGS.has(token)) {
+      if (token === "--require-tools") {
+        options.requireTools = true;
+      } else if (token === "--require-structured-output") {
+        options.requireStructuredOutput = true;
+      } else {
+        options.requireReasoning = true;
+      }
+      continue;
+    }
     if (LIST_FLAGS.has(token)) {
       const value = tokens[index + 1];
       if (!value || value.startsWith("--")) {
         throw usageError(`Missing value for ${token}`);
       }
-      options[token === "--require" ? "require" : "allow"].push(
-        ...splitListFlag(value, token),
-      );
+      const items = splitListFlag(value, token);
+      if (token === "--require") {
+        options.require.push(...items);
+      } else if (token === "--allow") {
+        options.allow.push(...items);
+      } else if (token === "--input-modalities") {
+        options.inputModalities.push(...items);
+      } else {
+        options.outputModalities.push(...items);
+      }
       index += 1;
       continue;
     }
@@ -432,6 +471,10 @@ function parseCommandArgs(tokens, command) {
         options.maxEvidenceAgeHours = value;
       } else if (token === "--max-catalog-age-hours") {
         options.maxCatalogAgeHours = value;
+      } else if (token === "--min-context-window") {
+        options.minContextWindow = value;
+      } else if (token === "--max-output-tokens") {
+        options.maxOutputTokens = value;
       }
       index += 1;
       continue;
@@ -488,17 +531,41 @@ function parseEvaluationTime(raw) {
   return time;
 }
 
+// TOG-5857 (S1): typed-requirement token thresholds. Fail-closed at the CLI
+// boundary (exit 1) so a typo never silently becomes "no constraint"; the
+// library's own boundary rejects malformed file values the same way.
+function parseTokenThreshold(raw, flag) {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new InputError(`${flag} must be a non-negative integer, got: ${raw}`);
+  }
+  return value;
+}
+
 async function resolveSelectionInput(options) {
   let fileSelection = null;
   let fileEvaluationTime;
   let fileMaxEvidenceAgeHours;
   let fileMaxCatalogAgeHours;
 
+  const wantsRequirementsFromFlags =
+    options.inputModalities.length > 0 ||
+    options.outputModalities.length > 0 ||
+    options.minContextWindow !== undefined ||
+    options.maxOutputTokens !== undefined ||
+    options.requireTools !== undefined ||
+    options.requireStructuredOutput !== undefined ||
+    options.requireReasoning !== undefined;
+
   const wantsFileDefault =
     options.request === null &&
     options.operation === undefined &&
     options.require.length === 0 &&
     options.allow.length === 0 &&
+    !wantsRequirementsFromFlags &&
     options.evaluationTime === undefined &&
     options.maxEvidenceAgeHours === undefined &&
     options.maxCatalogAgeHours === undefined;
@@ -516,6 +583,37 @@ async function resolveSelectionInput(options) {
     }
   }
 
+  // TOG-5857 (S1): typed requirements ride along only when the file or
+  // flags actually provide one — legacy file/flag combinations keep the
+  // exact pre-S1 selection shape, so legacy behavior is untouched.
+  const fileRequirements =
+    fileSelection?.requirements !== undefined ? fileSelection.requirements : undefined;
+  let requirements;
+  if (wantsRequirementsFromFlags) {
+    requirements = {
+      inputModalities:
+        options.inputModalities.length > 0
+          ? [...new Set(options.inputModalities)].sort()
+          : (fileRequirements?.inputModalities ?? []),
+      outputModalities:
+        options.outputModalities.length > 0
+          ? [...new Set(options.outputModalities)].sort()
+          : (fileRequirements?.outputModalities ?? []),
+      minContextWindow:
+        parseTokenThreshold(options.minContextWindow, "--min-context-window") ??
+        (fileRequirements?.minContextWindow ?? undefined),
+      maxOutputTokens:
+        parseTokenThreshold(options.maxOutputTokens, "--max-output-tokens") ??
+        (fileRequirements?.maxOutputTokens ?? undefined),
+      toolCalling: options.requireTools ?? fileRequirements?.toolCalling ?? false,
+      structuredOutput:
+        options.requireStructuredOutput ?? fileRequirements?.structuredOutput ?? false,
+      reasoning: options.requireReasoning ?? fileRequirements?.reasoning ?? false,
+    };
+  } else {
+    requirements = fileRequirements;
+  }
+
   const selection = {
     operation: options.operation ?? fileSelection?.operation,
     requiredCapabilities:
@@ -526,6 +624,7 @@ async function resolveSelectionInput(options) {
       options.allow.length > 0
         ? [...new Set(options.allow)].sort()
         : fileSelection?.providerAllowlist,
+    ...(requirements === undefined ? {} : { requirements }),
   };
 
   if (selection.operation === undefined) {
@@ -687,13 +786,44 @@ function formatMachineJson({ command, result, ranked, provenance, evaluationTime
   );
 }
 
+// TOG-5857 (S1): typed requirements render on the explain Request line
+// only when actually set — legacy boolean-only requests keep the exact
+// pre-S1 line the cli tests pin.
+function formatTypedRequirementsSummary(requirements) {
+  if (!requirements || Object.keys(requirements).length === 0) {
+    return null;
+  }
+  const parts = [];
+  for (const [key, values] of [
+    ["inputModalities", requirements.inputModalities],
+    ["outputModalities", requirements.outputModalities],
+  ]) {
+    if (Array.isArray(values) && values.length > 0) {
+      parts.push(`${key}=[${[...values].join(", ")}]`);
+    }
+  }
+  for (const key of ["minContextWindow", "maxOutputTokens"]) {
+    if (requirements[key] !== null && requirements[key] !== undefined) {
+      parts.push(`${key}=${requirements[key]}`);
+    }
+  }
+  for (const key of ["toolCalling", "structuredOutput", "reasoning"]) {
+    if (requirements[key] === true) {
+      parts.push(key);
+    }
+  }
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
 function formatRequestSummary(selection) {
   const required = selection.requiredCapabilities ?? [];
   const allowlist = selection.providerAllowlist ?? [];
+  const typed = formatTypedRequirementsSummary(selection.requirements);
   return (
     `operation=${selection.operation}, ` +
     `require=[${[...required].join(", ")}], ` +
-    `allow=[${[...allowlist].join(", ")}]`
+    `allow=[${[...allowlist].join(", ")}]` +
+    (typed === null ? "" : `, typed=[${typed}]`)
   );
 }
 
@@ -784,13 +914,25 @@ Options for select and explain:
   --configuration <path>         Support configuration (default: ${DEFAULT_PATHS.configuration})
   --request <path>               Request JSON: a full demo request or a bare
                                  selection {operation, requiredCapabilities,
-                                 providerAllowlist} (default: ${DEFAULT_PATHS.request}
-                                 when no requirement flags are given)
+                                 providerAllowlist, requirements} (default:
+                                 ${DEFAULT_PATHS.request} when no requirement
+                                 flags are given)
   --operation <name>             Override the requested operation
   --require <cap,...>            Override required capabilities (repeatable,
                                  comma-separated)
   --allow <provider,...>         Override the provider allowlist (repeatable,
                                  comma-separated)
+  --input-modalities <m,...>     Require input modalities (repeatable,
+                                 comma-separated; e.g. text,image)
+  --output-modalities <m,...>    Require output modalities (repeatable,
+                                 comma-separated; e.g. text)
+  --min-context-window <n>       Require at least <n> context-window tokens
+                                 (unknown limits fail closed)
+  --max-output-tokens <n>        Require at least <n> max-output tokens
+                                 (unknown limits fail closed)
+  --require-tools                Require tool calling (unknown data fails closed)
+  --require-structured-output    Require structured output (unknown data fails closed)
+  --require-reasoning            Require reasoning (unknown data fails closed)
   --evaluation-time <iso>        Override the evaluation timestamp
   --max-evidence-age-hours <n>   Override the evidence freshness limit
                                  (default: ${DEFAULT_MAX_EVIDENCE_AGE_HOURS})
@@ -826,10 +968,15 @@ function printCommandHelp(command) {
 Usage:
   wayselect ${command} [--catalog <path>] [--configuration <path>] [--request <path>]
       [--operation <name>] [--require <cap,...>] [--allow <provider,...>]
+      [--input-modalities <m,...>] [--output-modalities <m,...>]
+      [--min-context-window <n>] [--max-output-tokens <n>]
+      [--require-tools] [--require-structured-output] [--require-reasoning]
       [--evaluation-time <iso>] [--max-evidence-age-hours <n>]
       [--max-catalog-age-hours <n>] [--json]
 
 Requirements come from --request or from flags; flags override the file.
+Typed requirements filter catalog entries; unknown or missing capability
+data fails closed (excluded, never silently included).
 Stale/future catalogs fail closed (no eligible route, exit 3).
 Exit codes: 0 selected, 1 invalid input, 2 usage error, 3 no eligible route.
 `,
