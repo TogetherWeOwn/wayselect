@@ -47,7 +47,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   test asserting the doc seed matches the script default, npm script, and
   recorded SUMMARY (`docs/search-prompt-eval-seed-rerun.md`,
   `test/search-prompt-eval-seed-rerun.test.js`, `README.md`, docs+test only).
-- #(PR number on open) (2026-09-27) TOG-6052: `check-models-dev-freshness`
+- #159 (2026-09-27) TOG-6052: `check-models-dev-freshness`
   no-network contract doc — what `--input` reads, what the script never
   touches (single `globalThis.fetch` call site gated behind `--fetch`),
   and the operator offline-verification steps, proven by
