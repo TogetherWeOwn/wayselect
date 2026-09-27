@@ -110,6 +110,19 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+// Wrong-method refusal (TOG-6364): RFC 9110 §15.5.6 requires a 405 response
+// to carry an `Allow` header naming the methods the target supports. Every
+// known route shape funnels through here so OPTIONS/PUT/DELETE behave the
+// same on every route; unknown paths stay 404 (no resource, no `Allow`).
+function sendMethodNotAllowed(res, allow) {
+  res.writeHead(405, {
+    "content-type": "application/json; charset=utf-8",
+    ...SECURITY_HEADERS,
+    allow,
+  });
+  res.end(JSON.stringify({ error: "method_not_allowed" }));
+}
+
 // Bucket requests by route shape for the rate limiter: exact path for the
 // index, route templates for detail/purchase, and a fallback for 404s so
 // scanners cannot burn the budget of real routes (or vice versa).
@@ -170,7 +183,7 @@ export function createApp(env = process.env, options = {}) {
       return;
     }
     if (probePathname === "/healthz") {
-      sendJson(res, 405, { error: "method_not_allowed" });
+      sendMethodNotAllowed(res, "GET");
       return;
     }
 
@@ -210,7 +223,13 @@ export function createApp(env = process.env, options = {}) {
       return;
     }
 
-    if (req.method === "GET" && (pathname === "/listings" || pathname === "/listings/")) {
+    if (pathname === "/listings" || pathname === "/listings/") {
+      // TOG-6364: the index supports GET only. Non-GET methods are 405
+      // (not 404) with `Allow: GET` per RFC 9110 §15.5.6.
+      if (req.method !== "GET") {
+        sendMethodNotAllowed(res, "GET");
+        return;
+      }
       // TOG-6049: mint one nonce per HTML response; stamp it on the inline
       // tags via the renderer and allowlist exactly it in the CSP header.
       const nonce = newCspNonce();
@@ -245,7 +264,7 @@ export function createApp(env = process.env, options = {}) {
     const purchaseMatch = pathname.match(PURCHASE_ROUTE);
     if (purchaseMatch) {
       if (req.method !== "POST") {
-        sendJson(res, 405, { error: "method_not_allowed" });
+        sendMethodNotAllowed(res, "POST");
         return;
       }
       // TOG-5710: a nonexistent resource must 404 first; 403 is only
@@ -275,7 +294,7 @@ export function createApp(env = process.env, options = {}) {
     const listingMatch = pathname.match(LISTING_ROUTE);
     if (listingMatch) {
       if (req.method !== "GET") {
-        sendJson(res, 405, { error: "method_not_allowed" });
+        sendMethodNotAllowed(res, "GET");
         return;
       }
       // TOG-6049: one nonce per HTML response (see index route above).
