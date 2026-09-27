@@ -28,6 +28,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`scripts/check-deploy-target.mjs`, `scripts/wait-for-host-mirror.mjs`,
   `scripts/wait-for-staging-health.mjs`, `test/check-deploy-target.test.js`,
   `test/deploy-helpers.test.js`).
+- #142 (2026-09-27) TOG-6737: seller-intake vs purchase error-envelope
+  parity note — §4A field table + rationale in the seller acceptance
+  spec, pinning both HTTP envelopes and both validator vocabularies to
+  code (`docs/wayselect-seller-acceptance.md`, docs-only).
 - #146 (2026-09-27) TOG-6371: IPv6-mapped IPv4 normalization pin —
   `resolveClientIp` trusted-proxy matching and XFF client identity share
   one bucket across plain/mapped/upper/translated/loopback spellings
