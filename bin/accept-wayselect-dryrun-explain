@@ -10,11 +10,10 @@
 // 1 otherwise. Budget: under 15 minutes (typically < 10s).
 //
 // Surface note: TOG-4797 (`select`/`explain` subcommands, human output,
-// --json, exit codes 0/1/2/3) is still an open PR, not on `main`. The D-block
-// below pins the current-tree JSON explain path (per-candidate eligibility +
-// reasons) and always runs. The X-block auto-activates when an `explain`
-// subcommand is detected and SKIP-lines otherwise, so this script re-checks
-// cleanly once TOG-4797 lands.
+// --json, exit codes 0/1/2/3) extends the bare-invocation demo JSON pinned by
+// the D-block below (per-candidate eligibility + reasons, always runs). The
+// X-block auto-activates when an `explain` subcommand is detected and
+// SKIP-lines otherwise, so this script re-checks cleanly once TOG-4797 lands.
 
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -26,7 +25,12 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BUDGET_MS = 15 * 60 * 1000;
-const EVAL_TIME = "2026-09-24T12:00:00.000Z"; // pinned: matches fixtures/request.synthetic.json
+// Refresh-proof clock: read the live request fixture's evaluationTime so the
+// catalog freshness gate (TOG-5117, wired into select/explain by TOG-4797)
+// sees a fresh snapshot across provenance refreshes.
+const EVAL_TIME = JSON.parse(
+  await readFile(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
+).evaluationTime;
 const startedAt = Date.now();
 const results = [];
 

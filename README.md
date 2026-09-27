@@ -40,23 +40,27 @@ npm test
 npm run demo
 ```
 
-The demo reads only:
+The demo (`wayselect select`) reads only:
 
 - `fixtures/catalog.synthetic.json`
 - `fixtures/configuration.synthetic.json`
 - `fixtures/request.synthetic.json`
 
-It prints JSON containing:
+It prints:
 
-1. fixture provenance;
-2. every candidate and its eligibility or exclusion reasons;
-3. the deterministic selected route or `no-eligible-route`;
-4. a response from `FakeTransport` with `networkUsed: false`.
+1. the deterministic selected route or `no eligible route`, labelled dry-run;
+2. the ranked candidates with eligibility or exclusion reasons;
+3. fixture provenance.
+
+Use `wayselect select --json` or `wayselect explain` for the
+subcommand UX with human output, machine-readable shape, and exit codes
+(0 selected, 1 invalid input, 2 usage error, 3 no eligible route).
+See `docs/cli.md` for copy-pasteable examples.
 
 Use alternate fixture files without adding code or network access:
 
 ```sh
-node bin/wayselect \
+node bin/wayselect select \
   --catalog fixtures/catalog.synthetic.json \
   --configuration fixtures/configuration.synthetic.json \
   --request fixtures/request.synthetic.json
@@ -202,7 +206,7 @@ fixture refreshes without edits.
 - `src/selection.js` produces a dry-run decision and full candidate explanations.
 - `src/transport.js` exposes only `FakeTransport`; executable location fields are rejected.
 - `src/canonical.js` provides the canonical-JSON form the provenance hash is computed over.
-- `bin/wayselect` is the reproducible fixture demo.
+- `bin/wayselect` is the thin CLI: `select`/`explain` subcommands (`--help`, `--version`, exit codes 0/1/2/3; see `docs/cli.md`) with the bare-invocation fixture demo kept for backward compatibility.
 - `bin/refresh-catalog-fixtures` stamps fixture provenance and verifies it (`--check`).
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.
