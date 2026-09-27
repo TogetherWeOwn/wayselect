@@ -39,7 +39,9 @@ function attr(tag, name) {
 function labelEntries(form) {
   return [...form.matchAll(/<label\b([^>]*)>([\s\S]*?)<\/label>/g)].map((match) => ({
     forId: match[1].match(/for="([^"]*)"/)?.[1] ?? null,
-    text: match[2].replaceAll(/<[^>]+>/g, "").trim(),
+    // Case-insensitive strip (CodeQL incomplete-multi-character-sanitization,
+    // same fix as ca1873e): an uppercase tag must not survive the strip.
+    text: match[2].replaceAll(/<[^>]+>/gi, "").trim(),
   }));
 }
 
