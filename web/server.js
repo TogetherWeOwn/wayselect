@@ -62,6 +62,19 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+// Wrong-method refusal: RFC 9110 §15.5.6 requires a 405 response to carry
+// an `Allow` header naming the methods the target supports. Every known
+// route shape funnels through here so wrong-method requests behave the
+// same on every route; unknown paths stay 404 (no resource, no `Allow`).
+function sendMethodNotAllowed(res, allow) {
+  res.writeHead(405, {
+    "content-type": "application/json; charset=utf-8",
+    ...SECURITY_HEADERS,
+    allow,
+  });
+  res.end(JSON.stringify({ error: "method_not_allowed" }));
+}
+
 // Bucket requests by route shape for the rate limiter: exact path for the
 // index, route templates for detail/purchase, and a fallback for 404s so
 // scanners cannot burn the budget of real routes (or vice versa).
@@ -98,7 +111,29 @@ export const SERVER_VERSION = loadServerVersion();
 
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
+  // Structured request logging (TOG-5739): one JSON line per request on
+  // `res` finish, so delayed paths (the detail-fragment `setTimeout`) report
+  // honest end-to-end latency. Injectable sink for tests (default
+  // console.log); unparseable targets log the raw target verbatim.
+  const logger = options.logger ?? ((line) => console.log(line));
   return createServer((req, res) => {
+    const startMs = Date.now();
+    let logPath;
+    try {
+      logPath = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      logPath = req.url ?? "/";
+    }
+    res.on("finish", () => {
+      logger(
+        JSON.stringify({
+          method: req.method,
+          path: logPath,
+          status: res.statusCode,
+          latencyMs: Date.now() - startMs,
+        }),
+      );
+    });
     // TOG-5726: /healthz is the orchestrator liveness probe. It answers
     // before rate limiting (a saturated limiter must not look like a dead
     // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
@@ -116,7 +151,7 @@ export function createApp(env = process.env, options = {}) {
       return;
     }
     if (probePathname === "/healthz") {
-      sendJson(res, 405, { error: "method_not_allowed" });
+      sendMethodNotAllowed(res, "GET");
       return;
     }
 
@@ -176,7 +211,7 @@ export function createApp(env = process.env, options = {}) {
     const purchaseMatch = pathname.match(PURCHASE_ROUTE);
     if (purchaseMatch) {
       if (req.method !== "POST") {
-        sendJson(res, 405, { error: "method_not_allowed" });
+        sendMethodNotAllowed(res, "POST");
         return;
       }
       // TOG-5710: a nonexistent resource must 404 first; 403 is only
@@ -206,7 +241,7 @@ export function createApp(env = process.env, options = {}) {
     const listingMatch = pathname.match(LISTING_ROUTE);
     if (listingMatch) {
       if (req.method !== "GET") {
-        sendJson(res, 405, { error: "method_not_allowed" });
+        sendMethodNotAllowed(res, "GET");
         return;
       }
       if (!isPreviewEnabled(env)) {

@@ -114,6 +114,9 @@ describe("preview server routes", () => {
     });
     const get = await fetch(`${base}/listings/northstar/alpha-chat/purchase`);
     strictEqual(get.status, 405);
+    // TOG-5739: 405s carry `Allow` naming the supported methods (RFC 9110).
+    strictEqual(get.headers.get("allow"), "POST");
+    deepStrictEqual(await get.json(), { error: "method_not_allowed" });
   });
 
   it("returns 404 for purchase on an unknown listing before 403 (TOG-5710)", async () => {

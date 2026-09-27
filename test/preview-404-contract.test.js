@@ -106,6 +106,8 @@ describe("preview 404 content-type contract (TOG-5714)", () => {
       });
       strictEqual(get.status, 405, `accept=${accept}`);
       strictEqual(get.headers.get("content-type"), JSON_CT, `accept=${accept}`);
+      // TOG-5739: 405s carry `Allow: POST` on the purchase route.
+      strictEqual(get.headers.get("allow"), "POST", `accept=${accept}`);
     }
   });
 

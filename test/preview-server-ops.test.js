@@ -74,6 +74,10 @@ describe("preview server ops (TOG-5726)", () => {
     strictEqual(post.status, 405);
     strictEqual(post.contentType, JSON_CT);
     deepStrictEqual(JSON.parse(post.text), { error: "method_not_allowed" });
+    // TOG-5739: 405s carry `Allow` naming the supported methods (RFC 9110).
+    const allowRes = await fetch(`${base}/healthz`, { method: "POST" });
+    strictEqual(allowRes.headers.get("allow"), "GET");
+    await allowRes.text();
     // A query string does not change the probe path (URL pathname match),
     // so harmless probe parameters still answer 200.
     const queried = await get(base, "/healthz?x=1");
