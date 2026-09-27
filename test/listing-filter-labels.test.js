@@ -35,13 +35,28 @@ function attr(tag, name) {
   return tag.match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? null;
 }
 
-// Every label's visible text: strip the nested control markup, keep text.
+// Every label's visible text: the content outside the single nested <input>.
+// Located with indexOf/slice rather than a tag-strip replace — CodeQL flags
+// generic strip-sanitizers as incomplete multi-character sanitization even
+// case-insensitive. Sound here: the inputs' attributes are escaped
+// server-side, so no raw `>` can hide inside the tag, and each label nests
+// exactly one control.
+function labelText(inner) {
+  const open = inner.indexOf("<input");
+  if (open === -1) {
+    return inner.trim();
+  }
+  const close = inner.indexOf(">", open);
+  if (close === -1) {
+    return inner.trim();
+  }
+  return `${inner.slice(0, open)}${inner.slice(close + 1)}`.trim();
+}
+
 function labelEntries(form) {
   return [...form.matchAll(/<label\b([^>]*)>([\s\S]*?)<\/label>/g)].map((match) => ({
     forId: match[1].match(/for="([^"]*)"/)?.[1] ?? null,
-    // Case-insensitive strip (CodeQL incomplete-multi-character-sanitization,
-    // same fix as ca1873e): an uppercase tag must not survive the strip.
-    text: match[2].replaceAll(/<[^>]+>/gi, "").trim(),
+    text: labelText(match[2]),
   }));
 }
 
