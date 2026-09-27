@@ -10,12 +10,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20.x = engines floor; 24.x = latest LTS (active LTS since Oct 2025).
+        node-version: [20, 24]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: npm
+      - run: node bin/check-node-engines
       - run: npm ci
       - run: npm test
 
@@ -27,6 +33,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - run: node bin/check-node-engines
       - run: npm ci
       - run: npm run smoke
 
