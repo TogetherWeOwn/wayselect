@@ -25,6 +25,7 @@
     "accept:buyer-listing": "node bin/accept-wayselect-buyer-listing",
     "accept:payout": "node bin/accept-wayselect-payout",
     "accept:eligibility": "node bin/accept-wayselect-eligibility",
+    "accept:capability-select": "node bin/accept-wayselect-capability-select",
     "accept:dryrun-explain": "node bin/accept-wayselect-dryrun-explain",
     "accept:checkout": "node bin/accept-wayselect-checkout",
     "accept:gateway-phase1": "node bin/accept-wayselect-gateway-phase1",
