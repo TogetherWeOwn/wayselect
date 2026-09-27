@@ -78,8 +78,11 @@ export function createApp(env = process.env, options = {}) {
     const bucket = pathname === null ? `${req.method} other` : routeBucket(req.method, pathname);
     const verdict = limiter.check(ip, bucket);
     if (!verdict.allowed) {
+      // TOG-5732 audit: the 429 path previously bypassed sendJson and so
+      // missed SECURITY_HEADERS — every response carries them now.
       res.writeHead(429, {
         "content-type": "application/json; charset=utf-8",
+        ...SECURITY_HEADERS,
         "retry-after": String(verdict.retryAfterSec),
       });
       res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));
