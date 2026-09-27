@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #107 (2026-09-27) TOG-6370: `q` length cap (200, fail-closed 400 naming
+  the bound) + form `maxlength` hint (`web/filter.js`,
+  `web/listing-detail.js`, `test/listing-filter.test.js`,
+  `test/listing-empty-error-states.test.js`).
 - #100 (2026-09-27) TOG-6386: automated dep-update PRs via Dependabot
   (monthly npm + github-actions, free tier, no auto-merge) + Automation
   section in policy doc (`.github/dependabot.yml`,
