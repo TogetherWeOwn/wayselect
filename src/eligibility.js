@@ -84,6 +84,86 @@ function normalizeOptions(options) {
   return { now, maxEvidenceAgeMs, catalogProbe };
 }
 
+// TOG-4794: typed capability requirements. Each requirement is optional;
+// unknown requirement names are rejected at the boundary (fail closed).
+// `false` on a boolean flag means "no constraint" — only `true` requires.
+const REQUIREMENT_KEYS = new Set([
+  "inputModalities",
+  "outputModalities",
+  "minContextWindow",
+  "maxOutputTokens",
+  "toolCalling",
+  "structuredOutput",
+  "reasoning",
+]);
+
+const BOOLEAN_CAPABILITY_FOR_FLAG = {
+  toolCalling: "toolUse",
+  structuredOutput: "structuredOutput",
+  reasoning: "reasoning",
+};
+
+// selectRoute normalizes the request before evaluateEligibility normalizes
+// it again, so null (the normalized "absent") must round-trip like undefined.
+function optionalTokenThreshold(value, label) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value < 0) {
+    throw new EligibilityRequestError(`${label} must be a non-negative integer when present`);
+  }
+  return value;
+}
+
+function optionalRequirementFlag(value, label) {
+  if (value === undefined) {
+    return false;
+  }
+  if (typeof value !== "boolean") {
+    throw new EligibilityRequestError(`${label} must be a boolean when present`);
+  }
+  return value;
+}
+
+function normalizeRequirements(value) {
+  if (value === undefined) {
+    return Object.freeze({});
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new EligibilityRequestError("request.requirements must be an object when present");
+  }
+  for (const key of Object.keys(value)) {
+    if (!REQUIREMENT_KEYS.has(key)) {
+      throw new EligibilityRequestError(
+        `request.requirements contains unknown requirement: ${key}`,
+      );
+    }
+  }
+
+  return Object.freeze({
+    inputModalities: Object.freeze(
+      uniqueStringArray(value.inputModalities ?? [], "request.requirements.inputModalities"),
+    ),
+    outputModalities: Object.freeze(
+      uniqueStringArray(value.outputModalities ?? [], "request.requirements.outputModalities"),
+    ),
+    minContextWindow: optionalTokenThreshold(
+      value.minContextWindow,
+      "request.requirements.minContextWindow",
+    ),
+    maxOutputTokens: optionalTokenThreshold(
+      value.maxOutputTokens,
+      "request.requirements.maxOutputTokens",
+    ),
+    toolCalling: optionalRequirementFlag(value.toolCalling, "request.requirements.toolCalling"),
+    structuredOutput: optionalRequirementFlag(
+      value.structuredOutput,
+      "request.requirements.structuredOutput",
+    ),
+    reasoning: optionalRequirementFlag(value.reasoning, "request.requirements.reasoning"),
+  });
+}
+
 export function normalizeSelectionRequest(request) {
   if (request === null || typeof request !== "object" || Array.isArray(request)) {
     throw new EligibilityRequestError("request must be an object");
@@ -102,7 +182,75 @@ export function normalizeSelectionRequest(request) {
         allowEmpty: false,
       }),
     ),
+    requirements: normalizeRequirements(request.requirements),
   });
+}
+
+function stringArrayOrNull(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    return null;
+  }
+  return value;
+}
+
+function tokenCountOrNull(value) {
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function typedRequirementReasons(candidate, requirements) {
+  const reasons = [];
+  if (!requirements || Object.keys(requirements).length === 0) {
+    return reasons;
+  }
+
+  const modalities = candidate.modalities ?? null;
+  const candidateInput = modalities ? stringArrayOrNull(modalities.input) : null;
+  const candidateOutput = modalities ? stringArrayOrNull(modalities.output) : null;
+  for (const modality of requirements.inputModalities ?? []) {
+    if (candidateInput === null || !candidateInput.includes(modality)) {
+      reasons.push(`missing-modality:input:${modality}`);
+    }
+  }
+  for (const modality of requirements.outputModalities ?? []) {
+    if (candidateOutput === null || !candidateOutput.includes(modality)) {
+      reasons.push(`missing-modality:output:${modality}`);
+    }
+  }
+
+  const limits = candidate.limits ?? null;
+  const contextWindow = limits ? tokenCountOrNull(limits.contextWindow) : null;
+  if (requirements.minContextWindow !== null && requirements.minContextWindow !== undefined) {
+    if (contextWindow === null) {
+      reasons.push("missing-capability:contextWindow");
+    } else if (contextWindow < requirements.minContextWindow) {
+      reasons.push("insufficient-context-window");
+    }
+  }
+  const maxOutputTokens = limits ? tokenCountOrNull(limits.maxOutputTokens) : null;
+  if (requirements.maxOutputTokens !== null && requirements.maxOutputTokens !== undefined) {
+    if (maxOutputTokens === null) {
+      reasons.push("missing-capability:maxOutputTokens");
+    } else if (maxOutputTokens < requirements.maxOutputTokens) {
+      reasons.push("insufficient-max-output-tokens");
+    }
+  }
+
+  for (const flag of ["toolCalling", "structuredOutput", "reasoning"]) {
+    if (requirements[flag] === true) {
+      const name = BOOLEAN_CAPABILITY_FOR_FLAG[flag];
+      const value = candidate.capabilities[name];
+      if (value === undefined || value === null) {
+        reasons.push(`missing-capability:${name}`);
+      } else if (value !== true) {
+        reasons.push(`unsupported-capability:${name}`);
+      }
+    }
+  }
+
+  return reasons;
 }
 
 function evidenceReasons(candidate, now, maxEvidenceAgeMs) {
@@ -213,17 +361,31 @@ export function evaluateEligibility(candidates, requestInput, optionsInput) {
           }
         }
 
+        // TOG-4794: typed requirements, evaluated in fixed field order so the
+        // dry-run explanation is deterministic. Missing or unknown candidate
+        // data fails closed with an explicit reason — never treated as
+        // supported. Candidates without modalities/limits data are only
+        // excluded when a requirement actually constrains that dimension, so
+        // legacy boolean-only requests are unaffected.
+        reasons.push(...typedRequirementReasons(candidate, request.requirements));
+
         if (ELIGIBLE_STATES.has(candidate.supportState)) {
           reasons.push(...evidenceReasons(candidate, now, maxEvidenceAgeMs));
         }
+
+        // Reasons are a distinct set of explanations in first-seen (fixed)
+        // order: legacy boolean checks and typed flags can cover the same
+        // capability (e.g. requiredCapabilities ["toolUse"] plus
+        // requirements.toolCalling), and the dry-run output must not repeat it.
+        const distinctReasons = [...new Set(reasons)];
 
         return Object.freeze({
           routeId: candidate.routeId,
           providerId: candidate.providerId,
           modelId: candidate.modelId,
           supportState: candidate.supportState,
-          eligible: reasons.length === 0,
-          reasons: Object.freeze(reasons),
+          eligible: distinctReasons.length === 0,
+          reasons: Object.freeze(distinctReasons),
           rates: candidate.rates,
         });
       }),

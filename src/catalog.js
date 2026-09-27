@@ -9,6 +9,8 @@ const MODEL_KEYS = new Set([
   "tool_call",
   "structured_output",
   "modalities",
+  "context_window",
+  "max_output_tokens",
   "cost",
 ]);
 const MODALITY_KEYS = new Set(["input", "output"]);
@@ -54,6 +56,18 @@ function optionalBoolean(value, label) {
   }
   if (typeof value !== "boolean") {
     throw new CatalogValidationError(`${label} must be a boolean when present`);
+  }
+  return value;
+}
+
+// TOG-4794: token-count limits are optional per-model data. Absent means
+// unknown (null), never zero — eligibility fails closed on unknown limits.
+function optionalTokenCount(value, label) {
+  if (value === undefined) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value < 0) {
+    throw new CatalogValidationError(`${label} must be a non-negative integer when present`);
   }
   return value;
 }
@@ -169,6 +183,13 @@ function normalizeModel(providerId, modelKey, value) {
     textInput: modalities.input.includes("text"),
     textOutput: modalities.output.includes("text"),
   };
+  // TOG-4794: raw modalities ride along (frozen) so typed modality
+  // requirements can be checked without re-deriving them; limits ride along
+  // as nullable counts so unknown data fails closed downstream.
+  const limits = {
+    contextWindow: optionalTokenCount(model.context_window, `${label}.context_window`),
+    maxOutputTokens: optionalTokenCount(model.max_output_tokens, `${label}.max_output_tokens`),
+  };
 
   const catalogOperations = [];
   if (capabilityValues.textInput && capabilityValues.textOutput) {
@@ -186,6 +207,11 @@ function normalizeModel(providerId, modelKey, value) {
     supportState: "catalogued",
     catalogOperations: Object.freeze(catalogOperations.sort()),
     capabilities: Object.freeze(capabilityValues),
+    modalities: Object.freeze({
+      input: Object.freeze([...modalities.input]),
+      output: Object.freeze([...modalities.output]),
+    }),
+    limits: Object.freeze(limits),
     rates: normalizeCost(model.cost, `${label}.cost`),
   });
 }
