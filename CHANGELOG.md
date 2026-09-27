@@ -189,6 +189,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`web/jsonBody.js`, `web/server.js`, `src/intakeLimits.js`,
   `test/json-body-read-timeout.test.js`).
 - #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
+- #140 (2026-09-27) TOG-5739: structured request logging + 405 Allow
+  consistency — one JSON line per request `{method,path,status,latencyMs}`
+  via injectable `options.logger`; seller intake/confirm 405s funnel through
+  `sendMethodNotAllowed` (`Allow: POST` / `Allow: GET, POST`)
+  (`web/server.js`, `test/request-logging.test.js`,
+  `test/json-error-no-store.test.js`, `test/head-method-contract.test.js`,
+  `test/seller-confirm.test.js`).
 - #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
   invalid `--now` exits 1 with empty stdout, exact
   `CatalogFreshnessError` bytes, `--out` dir never created, and no

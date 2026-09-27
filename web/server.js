@@ -295,6 +295,13 @@ export function createApp(env = process.env, options = {}) {
   // Clock for intent expiry (TOG-6716): injectable via `options.now` so
   // tests can pin the expiry boundary; production uses wall-clock time.
   const now = options.now ?? Date.now;
+  // Structured request logging (TOG-5739): one JSON line per request —
+  // `{method, path, status, latencyMs}` — emitted on `res` finish so delayed
+  // paths (the detail-fragment `setTimeout`) report honest end-to-end
+  // latency. Injectable sink for tests (default console.log); unparseable
+  // targets log the raw target verbatim.
+  // eslint-disable-next-line no-console
+  const logger = options.logger ?? ((line) => console.log(line));
   // Pending seller intents (TOG-4969) with expiry (TOG-6716):
   // routeId -> { model, storedAt }. In-memory only — restart clears.
   // Confirm records intent; nothing here publishes, charges, or persists.
@@ -336,6 +343,26 @@ export function createApp(env = process.env, options = {}) {
   // `httpTimeouts: { headersTimeout, requestTimeout }` (see
   // configureHttpTimeouts for the bounds).
   const server = createServer(async (req, res) => {
+    // Structured logging preamble (TOG-5739): capture start + path now, emit
+    // one JSON line on `res` finish so delayed paths report honest latency.
+    // Async handler: the seller intake route awaits the strict JSON body gate.
+    const startMs = Date.now();
+    let logPath;
+    try {
+      logPath = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      logPath = req.url ?? "/";
+    }
+    res.on("finish", () => {
+      logger(
+        JSON.stringify({
+          method: req.method,
+          path: logPath,
+          status: res.statusCode,
+          latencyMs: Date.now() - startMs,
+        }),
+      );
+    });
     // TOG-5726: /healthz is the orchestrator liveness probe. It answers
     // before rate limiting (a saturated limiter must not look like a dead
     // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
@@ -624,7 +651,10 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 200, receipt);
         return;
       }
-      sendJson(res, 405, { error: "method_not_allowed" });
+      // TOG-5739: wrong-method refusals funnel through the shared 405
+      // helper so every known route carries `Allow` (RFC 9110). The confirm
+      // route supports GET (restate) and POST (record).
+      sendMethodNotAllowed(res, "GET, POST");
       return;
     }
 
