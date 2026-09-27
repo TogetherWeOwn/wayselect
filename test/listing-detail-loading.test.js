@@ -28,8 +28,8 @@ describe("listing-detail shell", () => {
     // assert no form survives; the only form (disabled purchase stub) lives
     // in the noscript/fragment render.
     const chrome = html
-      .replaceAll(/<noscript>[\s\S]*?<\/noscript>/g, "")
-      .replaceAll(/<script>[\s\S]*?<\/script>/g, "");
+      .replaceAll(/<noscript>[\s\S]*?<\/noscript>/gi, "")
+      .replaceAll(/<script>[\s\S]*?<\/script>/gi, "");
     ok(!chrome.includes("<form"), "no live form in shell chrome");
     ok(html.includes("disabled"), "noscript purchase stub stays disabled");
   });
