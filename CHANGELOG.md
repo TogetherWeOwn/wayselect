@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7271: gateway operator-key handling audit pin — hostile
+  operator/wrong keys through every gateway error path (401 variants,
+  500 misconfig/transport branches, all 400 validators), success bodies,
+  transport records, and console capture assert zero key material; the
+  `timingSafeEqual` compare and the no-logging-sink shape stay pinned
+  statically, and tracked snapshots carry no bearer material
+  (`test/operator-key-audit.test.js`, test-only, no source change: every
+  error path already returns static messages and auth stays
+  byte-identical).
 - TOG-7283: POST intake rate-limit coverage audit pin — every POST
   intake route (`/listings/:provider/:model/purchase`,
   `/sellers/submissions`,
