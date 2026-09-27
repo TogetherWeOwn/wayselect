@@ -127,6 +127,69 @@ with a valid token → `409`.
 | `POST …/purchase` | 403 `preview_only` (with or without seller token) | 403 `preview_only` (ungated by design) |
 | Anything else | 404 JSON `{error:"not_found"}` | 404 JSON `{error:"not_found"}` |
 
+## 4A. Error-envelope parity: seller intake vs purchase stub (R4-31)
+
+Gap [TOG-6737](/TOG/issues/TOG-6737): `POST /sellers/submissions` returns a
+diagnostic envelope (`error` + `code`/`key`/`source` + `message`) while
+`POST /listings/:p/:m/purchase` returns a fixed refusal shape
+(`error` + `message`, no `code`/`key`/`source`) with no documented reason.
+This note pins both shapes to code so a reviewer can check the mapping
+without reading source.
+
+### HTTP-layer envelopes
+
+| # | Case | Seller intake (`POST /sellers/submissions`, `web/server.js:373-425`) | Purchase stub (`POST …/purchase`, `web/server.js:338-366`) | Why they differ |
+| --- | --- | --- | --- | --- |
+| E1 | Wrong method | `405 {error:"method_not_allowed"}`, no `Allow` header (`:374-377`) | `405 {error:"method_not_allowed"}` with `Allow: POST` via `sendMethodNotAllowed` (`:340-343`, helper `:159-167`) | Incidental asymmetry: only the purchase path uses the shared 405 helper. No client should rely on the difference. |
+| E2 | Preview flag off | `404 {error:"preview_disabled"}` — intake is flag-gated (`:378-381`) | `403 preview_only` in both flag states — the stub is intentionally ungated | A refuse-stub has no preview-only behavior to gate; intake does. |
+| E3 | Unreadable body | Transport envelope (400, or 413 for oversize): `{error:<transport code>, key:"submission", source:null, message}` (`:382-392`); `<transport code>` is one of `wrong_content_type`, `malformed_json`, `body_too_large` (`web/jsonBody.js:51,63,71,94,108,112`) | No body is read — n/a | Only intake accepts a body, so only intake has a transport layer. |
+| E4 | Domain validation failure | Diagnostic envelope `400 {error:"invalid_submission", code, key, source, message}` (`:393-413`); `code`/`key`/`source` come verbatim from `SellerSubmissionError` (`src/sellerSubmission.js:63-71`); browsers get the same fields as the HTML rejection page (`web/seller.js:313`) | n/a — the stub never validates | Intake must tell the seller *what* to fix (defect class + dotted key path + provenance); a stub that never accepts input has nothing to diagnose. |
+| E5 | Unknown listing | n/a (intake is not per-listing) | `404 {error:"listing_not_found"}` — undecodable segments or no stub match (`:349-358`) | Purchase is addressed at a listing; intake creates one. |
+| E6 | Known listing | n/a | `403 {error:"preview_only", message:"Purchases are disabled in preview. No backend writes."}` (`:360-364`) — never writes, always refuses | Default-deny: no purchase path performs a charge in preview. |
+| E7 | Success | `200` confirm model + `confirmPath` (`:415-424`) | No success shape exists | Intake stages an intent; the stub has no success state. |
+
+### Validator vocabularies (library layer, `src/`)
+
+Both validators throw the same triple — a stable `code`, the offending
+dotted `key` path, and the provenance `source` — on identically-shaped
+error classes (`SellerSubmissionError`, `src/sellerSubmission.js:63-71`;
+`PurchaseSubmissionError`, `src/purchase.js:39-47`). Only the seller
+validator is wired to HTTP (`web/server.js:394-413`); the purchase
+validator runs CLI-side only (`bin/accept-wayselect-buyer-listing:29,219,238`,
+`bin/accept-wayselect-checkout:37,145,208`).
+
+| `code` | Seller intake | Purchase validator | Meaning |
+| --- | --- | --- | --- |
+| `invalid-type` | yes | yes | Wrong JSON type (object/boolean expected) |
+| `missing-field` | yes | yes | Required field absent or blank (purchase: incl. `confirm`) |
+| `invalid-value` | yes | yes | Present but out of range/pattern (caps, slug ids, dates, provenance) |
+| `unknown-field` | yes | yes | Extra key at any level (`additionalProperties: false`) |
+| `forbidden-field` | yes (`src/sellerSubmission.js:156`) | yes (`src/purchase.js:117`) | Executable location field (`url`/`endpoint`/`baseUrl`/`apiUrl`) at any depth |
+| `missing-provenance` | yes (`src/sellerSubmission.js:430`) | yes (`src/purchase.js:233`) | `provenance` envelope absent |
+| `id-mismatch` | yes (`src/sellerSubmission.js:463`) — `modelId` must equal `entry.id` | — | Seller-only cross-check (SG2 interim convention) |
+| `unconfirmed` | — | yes (`src/purchase.js:144`) — `confirm:false` never proceeds | Purchase-only guard: the click-path confirm step |
+
+### Why they differ (rationale)
+
+1. **Different jobs.** Intake is a fix-and-resubmit loop: the seller needs
+   the defect class (`code`), the exact location (`key`), and the data
+   source (`source`) to correct the submission. The purchase stub is a
+   default-deny endpoint: it takes no body, makes no decision, and writes
+   nothing, so a fixed `{error, message}` refusal is the whole contract.
+2. **Library parity already exists where it matters.** Both validators
+   share the `code`/`key`/`source` triple and six of eight codes, so a
+   future purchase route that accepts a body can reuse the intake mapping
+   verbatim (transport codes → `error`, validator codes → `code`).
+3. **No HTTP purchase validation exists to map.** `validatePurchaseSubmission`
+   is exercised by the buyer/checkout acceptance scripts, never by
+   `web/server.js` (no reference to it there). Documenting a purchase
+   `code`/`key`/`source` HTTP shape today would describe code that cannot run.
+4. **Forward rule.** If a purchase route ever accepts a JSON body, it MUST
+   go through `readJsonBody` first and map `PurchaseSubmissionError` to
+   `{error, code, key, source, message}` exactly as `:400-406` does (with a
+   route-appropriate `error` name), so the two envelopes converge instead
+   of drifting again.
+
 ## 5. Runnable acceptance script (under 15 minutes)
 
 ```sh
