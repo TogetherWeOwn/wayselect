@@ -46,9 +46,10 @@ Then verify with the repo's own health probe against the running container:
 node bin/check-preview-health --base-url http://localhost:3000
 ```
 
-Exit 0 = every check passed (skips allowed); exit 1 = failure. The probe
-asserts the listing index, one detail page, the unknown-listing 404, the
-purchase-stub 403 guard, and catalog-index freshness.
+Exit 0 = every check passed (skips allowed); exit 1 = failure; exit 2 =
+usage error (bad flag). The probe asserts the listing index, one detail
+page, the unknown-listing 404, the purchase-stub 403 guard (`H4`), and
+catalog-index freshness (`F1`).
 
 ## 3. Environment contract
 
@@ -66,8 +67,9 @@ Explicitly **not** server config (do not set these on a deployment):
 - `WAYSELECT_STAGING_ENDPOINT` — read only by local acceptance probes
   (`scripts/e2e-staging-acceptance.mjs`, `bin/accept-wayselect-buyer-listing`)
   to optionally POST a fixture entry at a staging URL. The server ignores it.
-- `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` — not present on `main`; a test/dev
-  slow-network knob from an unmerged slice. Do not set it.
+- `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` — test/dev slow-network knob read by
+  `web/server.js` (delays the detail fragment only, unset/non-positive means
+  no delay). Do not set it on a deployment.
 
 ## 4. Rollback
 
