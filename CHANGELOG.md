@@ -18,8 +18,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-7277: gateway 401 contract pin — missing/wrong bearer key returns
-  byte-identical status/body/headers with `WWW-Authenticate: Bearer`
+- #150 (2026-09-27) TOG-7277: gateway 401 contract pin — missing/wrong
+  bearer key returns byte-identical status/body/headers with
+  `WWW-Authenticate: Bearer`
   carried on the 401 result for a future HTTP binding to forward verbatim
   (`src/gateway.js`, `test/gateway.test.js`,
   `bin/accept-wayselect-gateway-phase1`).
