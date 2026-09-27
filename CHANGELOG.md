@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7315: debt-marker introduction gate — `bin/check-no-todo-markers`
+  (stdlib-only, case-sensitive whole-word match, PNG-safe, skips
+  `.git`/`node_modules`/`coverage`) runs as the `marker-gate` CI job
+  without `npm ci`; newly added marker words fail the run
+  (`bin/check-no-todo-markers`, `test/no-todo-markers.test.js`,
+  `.github/workflows/ci.yml`, CI-only).
 - #146 (2026-09-27) TOG-6371: IPv6-mapped IPv4 normalization pin —
   `resolveClientIp` trusted-proxy matching and XFF client identity share
   one bucket across plain/mapped/upper/translated/loopback spellings
