@@ -13,11 +13,15 @@ import {
   probeSearchIndexRefresh,
   reloadSearchIndex,
 } from "../src/searchIndex.js";
-import { readFixture } from "../support/helpers.js";
+import { evaluationNow, readFixture } from "../support/helpers.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = new URL("..", import.meta.url);
-const NOW = "2026-09-24T12:00:00.000Z";
+// Evaluation clock derived from the live catalog snapshot (two hours after
+// the snapshot stamp), mirroring the suite-wide pattern in
+// support/helpers.js so these assertions stay green across provenance
+// fixture refreshes without edits.
+const NOW = evaluationNow().toISOString();
 const MAX_CATALOG_AGE_MS = 24 * 60 * 60 * 1000;
 
 async function fixtureParts() {
@@ -162,14 +166,11 @@ async function runCli(args) {
 }
 
 test("TOG-5460: CLI --check probe passes twice consecutively (done criteria)", async () => {
-  const args = [
-    "bin/wayselect-search-index-refresh",
-    "--check",
-    "--now",
-    NOW,
-    "--max-catalog-age-hours",
-    "24",
-  ];
+  // No --now: exercises the CLI's snapshot-derived default clock
+  // (evaluation sits two hours after the live fixture stamp), the same path
+  // `npm run check:search-index` takes. Explicit --now paths are pinned
+  // separately below.
+  const args = ["bin/wayselect-search-index-refresh", "--check", "--max-catalog-age-hours", "24"];
   const first = await runCli(args);
   const second = await runCli(args);
   assert.equal(first.code, 0);
@@ -231,12 +232,19 @@ test("TOG-5460: CLI refresh writes the index and reloads idempotently", async ()
 test("TOG-5460: CLI stale catalog fails closed and writes no file", async () => {
   const outDir = join(await fs.mkdtemp(join(tmpdir(), "wayselect-search-index-")), "out");
   try {
+    // Stale clock: 28 days after the live fixture stamp, so the expected age
+    // is derived from the fixture instead of pinned and stays exact across
+    // provenance refreshes.
+    const { provenance } = await fixtureParts();
+    const snapshotMs = Date.parse(provenance.snapshotTimestamp);
+    const staleNow = new Date(snapshotMs + 28 * 24 * 60 * 60 * 1000).toISOString();
+    const expectedAgeMs = Date.parse(staleNow) - snapshotMs;
     const result = await runCli([
       "bin/wayselect-search-index-refresh",
       "--out",
       outDir,
       "--now",
-      "2026-10-24T12:00:00.000Z",
+      staleNow,
       "--max-catalog-age-hours",
       "24",
     ]);
@@ -244,7 +252,7 @@ test("TOG-5460: CLI stale catalog fails closed and writes no file", async () => 
     assert.equal(result.stdout, "");
     assert.equal(
       result.stderr,
-      "Error: refusing stale staging snapshot: age 2599200000ms exceeds limit 86400000ms\n",
+      `Error: refusing stale staging snapshot: age ${expectedAgeMs}ms exceeds limit 86400000ms\n`,
     );
     assert.deepEqual(await fs.readdir(outDir).catch(() => []), []);
   } finally {

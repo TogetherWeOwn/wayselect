@@ -59,6 +59,21 @@ function compactTimestamp(iso) {
   return iso.replace(/[-:.]/g, "");
 }
 
+// Default evaluation clock derived from the loaded catalog snapshot so the
+// probe stays green across provenance refreshes without edits: evaluation
+// sits two hours after the snapshot, mirroring evaluationNow() in
+// support/helpers.js. Keyed off the --catalog file actually loaded (not the
+// default fixture path) so catalog overrides behave the same. Returns
+// undefined when the snapshot stamp is unparseable; the library then falls
+// back to wall-clock and the catalog boundary still fails closed first.
+function defaultNowFor(fixture) {
+  const snapshotMs = Date.parse(fixture?.provenance?.snapshotTimestamp);
+  if (!Number.isFinite(snapshotMs)) {
+    return undefined;
+  }
+  return new Date(snapshotMs + 2 * 60 * 60 * 1000).toISOString();
+}
+
 async function main() {
   const args = parseArguments(process.argv.slice(2));
 
@@ -72,8 +87,9 @@ async function main() {
   }
 
   const fixture = JSON.parse(await readFile(resolve(args.catalog), "utf8"));
+  const derivedNow = args.now !== null ? args.now : defaultNowFor(fixture);
   const refreshOptions = {
-    ...(args.now !== null ? { now: args.now } : {}),
+    ...(derivedNow !== undefined ? { now: derivedNow } : {}),
     ...(maxCatalogAgeMs !== undefined ? { maxCatalogAgeMs } : {}),
   };
 
