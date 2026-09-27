@@ -43,12 +43,15 @@ the report (or `--json` summary) and nothing else.
 ## How to verify offline (operator steps)
 
 From the repo root, with the network disconnected (or DNS blocked — the
-command must still pass):
+command must still pass). `--input` takes a models.dev-shaped provider map,
+so carve it out of the stored snapshot first (the snapshot wraps it under
+the `catalog` key — passing the whole snapshot file fails closed with
+"no live routes survived extraction"):
 
 ```sh
-node bin/check-models-dev-freshness \
-  --input fixtures/catalog.synthetic.json \
-  --now "$(node -e 'const f=require("./fixtures/catalog.synthetic.json");console.log(new Date(Date.parse(f.provenance.snapshotTimestamp)+3600000).toISOString())')"
+node -e 'const f=require("./fixtures/catalog.synthetic.json");require("fs").writeFileSync("/tmp/live.json",JSON.stringify(f.catalog))'
+NOW=$(node -e 'const f=require("./fixtures/catalog.synthetic.json");console.log(new Date(Date.parse(f.provenance.snapshotTimestamp)+3600000).toISOString())')
+node bin/check-models-dev-freshness --input /tmp/live.json --now "$NOW"
 ```
 
 Expected: exit `0`, stderr empty, stdout contains `network not used` and
@@ -64,7 +67,7 @@ cat > /tmp/block-fetch.mjs <<'EOF'
 globalThis.fetch = () => { throw new Error("network access is forbidden in offline probe"); };
 EOF
 node --import file:///tmp/block-fetch.mjs bin/check-models-dev-freshness \
-  --input fixtures/catalog.synthetic.json --json --now <ISO above> \
+  --input /tmp/live.json --json --now "$NOW" \
   | grep '"networkUsed": false'
 ```
 
