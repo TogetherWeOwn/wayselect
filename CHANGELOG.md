@@ -25,6 +25,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   assert repeatability, v2/v3 shuffle-invariance, v3 goldens, and identical
   CLI SUMMARY across one seed per shuffle class incl. 5492
   (`test/search-prompt-multi-seed.test.js`, test-only, no prod change).
+- #90 (2026-09-27) TOG-6391: add `.github/pull_request_template.md`
+  (what-changed, verification, CHANGELOG, review sections per
+  `CONTRIBUTING.md`) (`.github/pull_request_template.md`, `CHANGELOG.md`,
+  docs-only, no prod change).
 - #88 (2026-09-27) TOG-6388: root `CONTRIBUTING.md` (setup, ground
   rules, branch/PR/gates, review-and-merge policy) + README link
   (`CONTRIBUTING.md`, `README.md`).
