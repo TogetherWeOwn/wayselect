@@ -25,7 +25,8 @@
     "snapshot": "node bin/wayselect-snapshot",
     "check:provenance": "node bin/check-ingestion-provenance",
     "refresh": "node bin/refresh-catalog-fixtures",
-    "refresh:check": "node bin/refresh-catalog-fixtures --check"
+    "refresh:check": "node bin/refresh-catalog-fixtures --check",
+    "accept:fixture-refresh": "node bin/accept-fixture-refresh"
   },
   "dependencies": {
     "ajv": "^8.17.1",
