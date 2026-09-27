@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+
+- #136 (2026-09-27) TOG-5860: capability-aware select QA golden
+  harness — 9 CLI goldens pinning spec acceptance A1–A7 (typed-requirement
+  win, impossible threshold, fail-closed unknown data, stale-catalog
+  refusal, tie byte-identity, support-state gating, help + README)
+  with small newly-authored fixtures only, plus `accept:capability-select`
+  (`test/capability-select-golden.test.js`,
+  `bin/accept-wayselect-capability-select`, `package.json`, test-only).
 - #124 (2026-09-27) TOG-6710: double-encoded purchase path segment
   contract — collapsing `%252F` targets pinned as the listing route's 405
   (POST) / listing miss (GET), never a purchase refusal; exact
@@ -77,6 +85,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   verbatim, flag-on/off, trailing slash, 404-first boundary)
   (`test/purchase-refusal-body-contract.test.js`, test-only, no prod
   change).
+
 - #115 (2026-09-27) TOG-6375: preview-disabled JSON fragment contract —
   flag-off detail requests negotiating `Accept: application/json` 404
   with `{error: "preview_disabled"}` (HTML default and HTML-only index
