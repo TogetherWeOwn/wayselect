@@ -1,0 +1,46 @@
+# CLI `--json` machine contract (TOG-5734)
+
+`wayselect select --json` / `wayselect explain --json` is a versioned
+machine interface. Consumers pin against it; breaking changes must be
+declared, never silent.
+
+## What is pinned
+
+- Structural schema: [`schema/cli-json/v1.json`](../schema/cli-json/v1.json),
+  enforced by [`src/validate-cli-json.js`](../src/validate-cli-json.js).
+  `additionalProperties` is `false` at every object level, so any added,
+  removed, or renamed field fails validation.
+- Cross-field invariants the structural schema cannot express (checked in the
+  same validator): `status: selected` requires a non-null `selectedRouteId`
+  matching the top-ranked candidate; `no-eligible-route` requires null;
+  `rank` is 1..N in order; eligible candidates carry zero reasons, excluded
+  candidates carry at least one.
+- Value snapshots: [`test/fixtures/cli-json-select.v1.json`](../test/fixtures/cli-json-select.v1.json),
+  [`test/fixtures/cli-json-explain.v1.json`](../test/fixtures/cli-json-explain.v1.json),
+  [`test/fixtures/cli-json-no-route.v1.json`](../test/fixtures/cli-json-no-route.v1.json)
+  — byte-level snapshots of live CLI output with volatile fields scrubbed.
+- Tests: [`test/cli-json-contract.test.js`](../test/cli-json-contract.test.js)
+  runs the CLI against the checked-in fixtures, validates the output against
+  the schema, and compares it byte-for-byte to the snapshots.
+
+Volatile by design (normalized away before comparison, asserted well-formed
+separately): ISO timestamps (`evaluationTime`, `provenance.snapshotTimestamp`,
+`provenance.fetchedAt`) and `provenance.snapshotHash` — these move on every
+fixture refresh. Also, snapshot fixtures store the `fetchedAt` placeholder
+`<fetchedAt: wall-clock at evaluation, any ISO timestamp>` instead of a live
+value. Everything else — commands, statuses, policies, ranks, reasons, rates —
+is refresh-stable and compared exactly.
+
+## Bump procedure (intentional shape change)
+
+1. Change `bin/wayselect` output and update `docs/cli.md`'s `--json` example
+   in the same commit.
+2. Copy the schema: `schema/cli-json/v1.json` → `schema/cli-json/v2.json`,
+   update its `$id`/`title`/`description`, and point
+   `src/validate-cli-json.js` at the new file (and its `SCHEMA_VERSION`).
+   Old versions stay checked in.
+3. Regenerate the snapshots: run the three CLI invocations from
+   `test/cli-json-contract.test.js` (`SELECT_ARGS`, explain, `NO_ROUTE_ARGS`)
+   with the suite clock and scrub `fetchedAt` to the placeholder.
+4. Run `npm test` green and name the breaking change in the PR description so
+   downstream consumers can adapt.

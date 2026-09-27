@@ -180,14 +180,15 @@ state — the probe stays green across 3 consecutive refreshes.
 npm run eval:search-prompts
 ```
 
-Compares two storefront search-prompt versions over 20 fixed queries
+Compares three storefront search-prompt versions over 30 fixed queries
 (`evals/search-prompt-regression/queries.json`) against the 3 stub listings
-and records top-1 relevance before/after in
+and records top-1 relevance before/mid/after in
 `evals/search-prompt-regression/results.md`: v1-baseline (raw substring
 pass-through, shipped S2 rule) vs v2-cue-extraction (deterministic
-interpret-then-match). Stdlib only, no network, no credentials; seed 5492
-recorded for the shuffle-invariance self-check. Today: before 12/20, after
-20/20 — 8 fixed, 0 regressed.
+interpret-then-match) vs v3-negation-scope (v2 plus negation scope).
+Stdlib only, no network, no credentials; seed 5492
+recorded for the shuffle-invariance self-check. Today: before 13/30, mid
+24/30, after 30/30 — v2 fixed 11, v3 fixed 6, 0 regressed.
 
 ## Catalog search-index refresh
 
@@ -254,8 +255,10 @@ ingested body fails closed instead of writing an unverifiable document.
 - `src/selection.js` produces a dry-run decision and full candidate explanations.
 - `src/transport.js` exposes only `FakeTransport`; executable location fields are rejected.
 - `src/canonical.js` provides the canonical-JSON form the provenance hash is computed over.
+- `src/gateway.js` exposes the Phase-1 OpenAI chat-completions skeleton as a pure in-process handler (`handleChatCompletionsRequest`): `POST /v1/chat/completions` non-streaming only, `model` auto-route + pinned semantics, the spec error table, FakeTransport-backed with `dryRun:true` and synthetic text labeled synthetic. **Synthetic-only:** every completion in this slice is fake-backed (`networkUsed:false` enforced); no live calls, no credentials, no spend.
 - `bin/wayselect` is the thin CLI: `select`/`explain` subcommands plus the opt-in `catalog import` ingestion path (`--fetch` is the only networked path; `--help`, `--version`, exit codes 0/1/2/3; see `docs/cli.md`) with the bare-invocation fixture demo kept for backward compatibility.
 - `bin/refresh-catalog-fixtures` stamps fixture provenance and verifies it (`--check`).
+- `bin/accept-wayselect-gateway-phase1` is the Phase-1 gateway conformance script (auto-route, pinned-eligible, pinned-ineligible 400, no-eligible-route 400, 401 cases; README synthetic-only check). Offline: in-process handler plus a fetch stub that throws.
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.
 
@@ -286,6 +289,32 @@ unknown, malformed means rejected); normalized entries expose frozen
 ## Explicit non-goals
 
 This slice does not include live provider calls, endpoint discovery, credentials, HTTP servers, paid inference, real usage or billing data, third-party catalog redistribution, production deployment, universal compatibility, or a savings claim. Future transport or live-conformance work requires separate provenance, security, access, and review decisions.
+
+The gateway surface (`src/gateway.js`, Phase 1) is synthetic-only: completions are FakeTransport-backed (`networkUsed:false` is enforced on every result), carry `dryRun:true` + `synthetic:true`, and can never spend or touch the network. Streaming/SSE, the Anthropic surface, and live transport are later phases.
+
+## Docs index
+
+Acceptance specs and contracts live in `docs/`. Start here:
+
+- [Acceptance spec — capability-aware dry-run select](docs/acceptance-spec-capability-select.md) — next-feature acceptance for capability-aware selection (v1).
+- [CLI `--json` machine contract](docs/cli-json-contract.md) — versioned machine interface for `select --json` / `explain --json`.
+- [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
+- [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
+- [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
+- [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
+- [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
+- [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
+- [Buyer listing spec](docs/wayselect-buyer-listing.md) — listing fields + purchase acceptance (v2).
+- [Eligibility-explain acceptance](docs/wayselect-eligibility-acceptance.md) — fail-closed eligibility paths on the CLI.
+- [First-run onboarding spec](docs/wayselect-onboarding-spec.md) — empty states, picker copy, eligibility-explain entry point.
+- [Seller payout-status acceptance](docs/wayselect-payout-acceptance.md) — accepted offer → pending → released.
+- [Preview security checklist (S42-style)](docs/wayselect-preview-s42-checklist.md) — S42-style security review of the preview storefront.
+- [Preview security checklist](docs/wayselect-preview-security-checklist.md) — security review of the preview storefront.
+- [Catalog search/filter acceptance](docs/wayselect-search-filter-acceptance.md) — executable contract for the search/filter slice.
+- [Seller acceptance](docs/wayselect-seller-acceptance.md) — list → offer → accept slice.
+- [Seller payout-eligibility checklist](docs/wayselect-seller-payout-eligibility.md) — payout-eligibility rules (part 4).
+- [Snapshot retention policy](docs/snapshot-retention.md) — keep-last-10 + 30-day prune rule and `bin/wayselect-snapshot-prune` usage.
+- [Web acceptance](docs/wayselect-web-acceptance.md) — listing-detail + search/filter web slices.
 
 ## Contributing
 

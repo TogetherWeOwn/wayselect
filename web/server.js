@@ -2,6 +2,10 @@
 // with the shell-first loading state (TOG-5499).
 //
 // Zero dependencies: Node built-in http only. Routes:
+//   GET /healthz                            — liveness probe (TOG-5726):
+//                                            `{status:"ok",version}` JSON,
+//                                            ungated by WAYSELECT_PREVIEW
+//                                            and exempt from rate limiting
 //   GET /listings                          — stub listing index (flag-gated)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
@@ -10,10 +14,37 @@
 //                                            unknown listings, 403 for known
 //                                            listings (no backend writes)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
+//
+// Security headers (TOG-5731, nonce CSP TOG-6049):
+//   - Every response carries `X-Content-Type-Options: nosniff` (HTML and
+//     JSON alike, including the 429 rate-limit refusal below).
+//   - HTML responses additionally deny framing (`X-Frame-Options: DENY`
+//     plus `frame-ancestors 'none'`) and carry a per-response nonce CSP.
+//     Feasibility verdict (TOG-6049): nonces work — every page carries
+//     exactly one inline `<style>` block and the detail shell exactly one
+//     inline `<script>` (same-origin fetch of the JSON fragment); there
+//     are no event-handler attributes, no `style=` attributes, and no
+//     dynamic script/style injection, so `style-src`/`script-src`
+//     allowlist exactly the request nonce and `'unsafe-inline'` is gone.
+//     Effort was trivial: one `randomBytes` nonce per HTML response,
+//     stamped on the inline tags and allowlisted in the header.
+//
+// 404 content-type contract (TOG-5714):
+//   - Browser routes (index, detail incl. listing misses, flag-off pages):
+//     HTML by default; JSON only when the client explicitly negotiates
+//     `Accept: application/json` (the shell's fragment fetch).
+//   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
+//     always JSON.
+//   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
+//     default; HTML only when the client explicitly negotiates
+//     `Accept: text/html` without `application/json` (a browser address-bar
+//     navigation). `*/*` (fetch/curl defaults) gets JSON.
 
+import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { isPreviewEnabled } from "./preview.js";
-import { createRateLimiter } from "./rate-limit.js";
+import { createRateLimiter, resolveClientIp } from "./rate-limit.js";
 import {
   listingDetailFragment,
   renderInvalidFilter,
@@ -23,8 +54,9 @@ import {
   renderListingIndex,
   renderNotFound,
   renderPreviewDisabled,
+  renderRouteNotFound,
 } from "./listing-detail.js";
-import { applyListingsFilters, parseListingsQuery } from "./filter.js";
+import { applyListingsFilters, paginateListings, parseListingsQuery } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
 
 const LISTING_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/?$/;
@@ -35,8 +67,41 @@ const SECURITY_HEADERS = {
   "referrer-policy": "no-referrer",
 };
 
-function sendHtml(res, status, html) {
-  res.writeHead(status, { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS });
+// HTML-only hardening (TOG-5731, nonces TOG-6049): deny framing both the
+// legacy (`X-Frame-Options`) and the standard (`frame-ancestors`) way, and
+// lock the page to same-origin resources with a per-response CSP. Every
+// page carries one inline `<style>` block and the detail shell carries one
+// inline `<script>` that same-origin fetches its JSON fragment — both
+// carry the request nonce (`newCspNonce`), so `style-src`/`script-src`
+// allowlist exactly that nonce and there is no `'unsafe-inline'` anywhere.
+// `form-action 'self'` covers the filter GET form and the purchase POST
+// form.
+const HTML_SECURITY_HEADERS = {
+  "x-frame-options": "DENY",
+};
+
+// TOG-6049: 128-bit nonce per HTML response (base64, CSP grammar-safe).
+// Fresh value on every response: a leaked page source cannot authorize
+// script/style on any other response.
+export function newCspNonce() {
+  return randomBytes(16).toString("base64");
+}
+
+export function htmlCsp(nonce) {
+  return (
+    "default-src 'self'; frame-ancestors 'none'; " +
+    `style-src 'self' 'nonce-${nonce}'; script-src 'self' 'nonce-${nonce}'; ` +
+    "img-src 'self'; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'self'"
+  );
+}
+
+function sendHtml(res, status, html, nonce) {
+  res.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    ...SECURITY_HEADERS,
+    ...HTML_SECURITY_HEADERS,
+    "content-security-policy": htmlCsp(nonce),
+  });
   res.end(html);
 }
 
@@ -61,14 +126,65 @@ function routeBucket(method, pathname) {
   return `${method} other`;
 }
 
+// Server version reported by GET /healthz (TOG-5726). Read once at module
+// load from the package manifest; a missing/unparseable manifest degrades
+// to "unknown" rather than breaking the server.
+function loadServerVersion() {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    return typeof manifest.version === "string" && manifest.version !== ""
+      ? manifest.version
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+export const SERVER_VERSION = loadServerVersion();
+
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
+  // XFF trust boundary (TOG-6029): unset by default (direct-remote only).
+  // Opt-in for a single trusted proxy hop via `trustedProxyIp` option or
+  // the `WAYSELECT_TRUSTED_PROXY_IP` env var — exactly one peer IP. Empty
+  // string env counts as unset. Documented in rate-limit.js; no prod use.
+  const rawTrusted = options.trustedProxyIp ?? env.WAYSELECT_TRUSTED_PROXY_IP ?? null;
+  const trustedProxyIp = rawTrusted === null || String(rawTrusted).trim() === "" ? null : String(rawTrusted).trim();
   return createServer((req, res) => {
+    // TOG-5726: /healthz is the orchestrator liveness probe. It answers
+    // before rate limiting (a saturated limiter must not look like a dead
+    // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
+    // routes, not process health). Pathname match: query strings still hit
+    // the probe, but a trailing slash is a different path and falls through
+    // to the 404 contract below.
+    let probePathname = null;
+    try {
+      probePathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      probePathname = null;
+    }
+    if (req.method === "GET" && probePathname === "/healthz") {
+      sendJson(res, 200, { status: "ok", version: SERVER_VERSION });
+      return;
+    }
+    if (probePathname === "/healthz") {
+      sendJson(res, 405, { error: "method_not_allowed" });
+      return;
+    }
+
     // Per-IP/per-route cap (TOG-5563). Bucket by route shape so one hot
     // listing cannot starve — or be starved by — unrelated routes.
     // Unparseable targets count against the fallback bucket so garbage
-    // requests cannot bypass the cap.
-    const ip = req.socket?.remoteAddress ?? "unknown";
+    // requests cannot bypass the cap. Client identity goes through
+    // resolveClientIp so spoofed XFF from an untrusted peer never evades
+    // the bucket (TOG-6029).
+    const ip = resolveClientIp(
+      req.socket?.remoteAddress ?? "unknown",
+      req.headers?.["x-forwarded-for"],
+      trustedProxyIp,
+    );
     let pathname = null;
     try {
       pathname = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -78,8 +194,11 @@ export function createApp(env = process.env, options = {}) {
     const bucket = pathname === null ? `${req.method} other` : routeBucket(req.method, pathname);
     const verdict = limiter.check(ip, bucket);
     if (!verdict.allowed) {
+      // TOG-5732 audit: the 429 path previously bypassed sendJson and so
+      // missed SECURITY_HEADERS — every response carries them now.
       res.writeHead(429, {
         "content-type": "application/json; charset=utf-8",
+        ...SECURITY_HEADERS,
         "retry-after": String(verdict.retryAfterSec),
       });
       res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));
@@ -92,8 +211,13 @@ export function createApp(env = process.env, options = {}) {
     }
 
     if (req.method === "GET" && (pathname === "/listings" || pathname === "/listings/")) {
+      // TOG-6049: mint one nonce per HTML response; stamp it on the inline
+      // tags via the renderer and allowlist exactly it in the CSP header.
+      const nonce = newCspNonce();
+      const sendPage = (status, html) => sendHtml(res, status, html, nonce);
+      const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
-        sendHtml(res, 404, renderPreviewDisabled());
+        sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
       let params;
@@ -105,13 +229,15 @@ export function createApp(env = process.env, options = {}) {
       }
       const parsed = parseListingsQuery(params);
       if (!parsed.ok) {
-        sendHtml(res, 400, renderInvalidFilter(parsed));
+        sendPage(400, renderInvalidFilter(parsed, pageOpts));
         return;
       }
-      sendHtml(
-        res,
+      const filtered = applyListingsFilters(STUB_LISTINGS, parsed.filters);
+      // TOG-6028: bound the HTML render with limit/offset (fail-closed above).
+      const { page, total, limit, offset } = paginateListings(filtered, parsed.paging);
+      sendPage(
         200,
-        renderListingIndex(applyListingsFilters(STUB_LISTINGS, parsed.filters), undefined, parsed.filters),
+        renderListingIndex(page, undefined, parsed.filters, { total, limit, offset }, pageOpts),
       );
       return;
     }
@@ -152,8 +278,14 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 405, { error: "method_not_allowed" });
         return;
       }
+      // TOG-6049: one nonce per HTML response (see index route above).
+      // The JSON fragment and its error paths carry no CSP — only the 500
+      // HTML fallback (render throw) mints a nonce.
+      const nonce = newCspNonce();
+      const sendPage = (status, html) => sendHtml(res, status, html, nonce);
+      const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
-        sendHtml(res, 404, renderPreviewDisabled());
+        sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
       const [, providerId, modelId] = listingMatch;
@@ -163,7 +295,7 @@ export function createApp(env = process.env, options = {}) {
         decodedProviderId = decodeURIComponent(providerId);
         decodedModelId = decodeURIComponent(modelId);
       } catch {
-        sendHtml(res, 404, renderNotFound(providerId, modelId));
+        sendPage(404, renderNotFound(providerId, modelId, pageOpts));
         return;
       }
       const listing = getStubListing(decodedProviderId, decodedModelId);
@@ -175,7 +307,7 @@ export function createApp(env = process.env, options = {}) {
           sendJson(res, 404, { error: "listing_not_found" });
           return;
         }
-        sendHtml(res, 404, renderNotFound(providerId, modelId));
+        sendPage(404, renderNotFound(providerId, modelId, pageOpts));
         return;
       }
       // TOG-5499: the shell's inline fetch negotiates this fragment.
@@ -186,7 +318,13 @@ export function createApp(env = process.env, options = {}) {
           try {
             sendJson(res, 200, listingDetailFragment(listing));
           } catch {
-            sendHtml(res, 500, renderListingDetailError(decodedProviderId, decodedModelId));
+            const errNonce = newCspNonce();
+            sendHtml(
+              res,
+              500,
+              renderListingDetailError(decodedProviderId, decodedModelId, { cspNonce: errNonce }),
+              errNonce,
+            );
           }
         };
         const fragmentDelayMs = Number.parseInt(
@@ -201,13 +339,25 @@ export function createApp(env = process.env, options = {}) {
         return;
       }
       try {
-        sendHtml(res, 200, renderListingDetailShell(listing));
+        sendPage(200, renderListingDetailShell(listing, undefined, pageOpts));
       } catch {
-        sendHtml(res, 500, renderListingDetailError(decodedProviderId, decodedModelId));
+        sendPage(500, renderListingDetailError(decodedProviderId, decodedModelId, pageOpts));
       }
       return;
     }
 
+    // TOG-5714 fallback (see the 404 content-type contract above):
+    // unknown paths are JSON by default; HTML only for explicit browser
+    // navigation (`Accept: text/html` without `application/json`). `*/*`
+    // (fetch/curl defaults) and missing Accept get JSON.
+    const accept = String(req.headers?.accept ?? "");
+    if (!accept.includes("application/json") && accept.includes("text/html")) {
+      // TOG-6049: the browser fallback is an HTML response, so it mints its
+      // own nonce like every other HTML path.
+      const nonce = newCspNonce();
+      sendHtml(res, 404, renderRouteNotFound(pathname, { cspNonce: nonce }), nonce);
+      return;
+    }
     sendJson(res, 404, { error: "not_found" });
   });
 }
@@ -216,11 +366,55 @@ const isMainModule =
   process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 
 export function resolvePort(raw = process.env.PORT ?? "3000") {
-  const port = Number.parseInt(String(raw).trim(), 10);
+  // Strict decimal: parseInt would silently accept "3.5" as 3 or "3000x"
+  // as 3000, starting the server on a port the operator did not ask for.
+  const text = String(raw).trim();
+  const port = /^\d+$/.test(text) ? Number(text) : NaN;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new RangeError(`Invalid PORT ${JSON.stringify(String(raw))}: expected an integer 1-65535`);
   }
   return port;
+}
+
+// Graceful shutdown (TOG-5726): on SIGTERM/SIGINT stop accepting new
+// connections, then exit once in-flight requests drain (or after a bounded
+// grace period so a stuck keep-alive cannot hold the deploy forever).
+// Exported for tests; the main block below wires it to process signals.
+export const SHUTDOWN_GRACE_MS = 5000;
+
+export function installShutdownHandlers(server, options = {}) {
+  const graceMs = options.graceMs ?? SHUTDOWN_GRACE_MS;
+  const exit = options.exit ?? ((code) => process.exit(code));
+  const timers = options.timers ?? { setTimeout, clearTimeout };
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    // eslint-disable-next-line no-console
+    console.log(`received ${signal}, closing preview server`);
+    const force = timers.setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.error("graceful shutdown timed out, forcing exit");
+      exit(1);
+    }, graceMs);
+    // A pending force-exit timer must not hold the event loop open on its
+    // own once the server has drained and closed cleanly.
+    force?.unref?.();
+    server.close(() => {
+      timers.clearTimeout(force);
+      exit(0);
+    });
+  };
+  const onSigterm = () => shutdown("SIGTERM");
+  const onSigint = () => shutdown("SIGINT");
+  process.on("SIGTERM", onSigterm);
+  process.on("SIGINT", onSigint);
+  return () => {
+    process.removeListener("SIGTERM", onSigterm);
+    process.removeListener("SIGINT", onSigint);
+  };
 }
 
 if (isMainModule) {
@@ -234,6 +428,7 @@ if (isMainModule) {
   }
   const host = process.env.HOST ?? "127.0.0.1";
   const server = createApp();
+  installShutdownHandlers(server);
   server.listen(port, host, () => {
     // eslint-disable-next-line no-console
     console.log(

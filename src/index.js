@@ -14,6 +14,7 @@ export {
 export {
   EligibilityRequestError,
   evaluateEligibility,
+  normalizeRequirements,
   normalizeSelectionRequest,
 } from "./eligibility.js";
 export {
@@ -24,6 +25,9 @@ export {
   ingestModelsDev,
 } from "./ingest.js";
 export { selectRoute } from "./selection.js";
+export { validateCliJson } from "./validate-cli-json.js";
+export { compareRouteIds } from "./routeIds.js";
+export { handleChatCompletionsRequest } from "./gateway.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
 export { SellerSubmissionError, validateSellerSubmission } from "./sellerSubmission.js";
 export {
@@ -80,11 +84,21 @@ export {
   failOnGapsMessage,
   formatCliFailure,
   futureSnapshotMessage,
+  invalidKeepLastMessage,
   invalidMaxCatalogAgeMessage,
+  invalidPruneMaxAgeDaysMessage,
+  invalidPruneNowMessage,
   missingValueMessage,
   staleSnapshotMessage,
   unknownArgumentMessage,
 } from "./cliErrors.js";
+export {
+  DEFAULT_KEEP_LAST,
+  DEFAULT_MAX_AGE_DAYS,
+  SNAPSHOT_FILE_PATTERN,
+  SnapshotPruneError,
+  planSnapshotPrune,
+} from "./snapshotPrune.js";
 export {
   compareProbeProvenance,
   diffProbedRoutes,

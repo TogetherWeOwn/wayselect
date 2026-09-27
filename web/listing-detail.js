@@ -56,14 +56,23 @@ function modalityList(modalities, key) {
   return values.join(", ");
 }
 
-function layout({ title, body }) {
+// TOG-6049: nonce attribute for the inline <style>/<script> tags. The
+// server passes a fresh base64 nonce per response; renderers called without
+// one (unit tests, acceptance probes) emit the legacy bare tag. The value
+// is HTML-escaped so a caller-supplied string can never break out of the
+// attribute (base64 itself needs no escaping — defense in depth).
+function nonceAttr(cspNonce) {
+  return cspNonce ? ` nonce="${escapeHtml(cspNonce)}"` : "";
+}
+
+function layout({ title, body, cspNonce }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} — Wayselect</title>
-<style>
+<style${nonceAttr(cspNonce)}>
 :root { color-scheme: light dark; }
 body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; line-height: 1.5; }
 main { max-width: 44rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
@@ -217,10 +226,11 @@ ${capabilityRow("Structured output", entry.structured_output)}
 // branch carries the same full render so no-JS clients, bots, and the
 // plain-fetch acceptance probes see complete content. The error panel is
 // hidden until a fetch fails, and Retry re-runs the same fragment request.
-export function renderListingDetailShell(listing, evaluationOverride) {
+export function renderListingDetailShell(listing, evaluationOverride, options) {
   const { entry } = listing;
   const title = listingDetailTitle(listing);
   const routePath = `/listings/${encodeURIComponent(listing.providerId)}/${encodeURIComponent(listing.modelId)}`;
+  const cspNonce = typeof options?.cspNonce === "string" ? options.cspNonce : undefined;
   const noscriptBody = listingDetailBody(listing, evaluationOverride);
   const body = `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
 <p id="listing-detail-status" class="visually-hidden" role="status">Loading listing details…</p>
@@ -238,7 +248,7 @@ export function renderListingDetailShell(listing, evaluationOverride) {
 </div>
 </div>
 <noscript>${noscriptBody}</noscript>
-<script>
+<script${nonceAttr(cspNonce)}>
 (function () {
   var mount = document.getElementById("listing-detail");
   var status = document.getElementById("listing-detail-status");
@@ -290,7 +300,7 @@ export function renderListingDetailShell(listing, evaluationOverride) {
 })();
 </script>`;
 
-  return layout({ title, body });
+  return layout({ title, body, cspNonce });
 }
 
 // JSON fragment payload behind the shell: the full detail body as `html`,
@@ -300,34 +310,55 @@ export function listingDetailFragment(listing, evaluationOverride) {
   return { html: listingDetailBody(listing, evaluationOverride) };
 }
 
-export function renderListingDetail(listing, evaluationOverride) {
+// TOG-6049: page renderers accept an optional trailing `{ cspNonce }` so
+// the server can stamp the request nonce on the inline <style>/<script>
+// tags. Omitted → legacy bare tags (unit tests, acceptance probes).
+function pageNonce(options) {
+  return typeof options?.cspNonce === "string" ? options.cspNonce : undefined;
+}
+
+export function renderListingDetail(listing, evaluationOverride, options) {
   return layout({
     title: listingDetailTitle(listing),
     body: listingDetailBody(listing, evaluationOverride),
+    cspNonce: pageNonce(options),
   });
 }
 
-export function renderListingDetailError(providerId, modelId) {
+export function renderListingDetailError(providerId, modelId, options) {
   const body = `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
 <div role="alert">
 <h1>Couldn&rsquo;t load listing details</h1>
 <p>No stub listing data could be loaded for <code>${escapeHtml(providerId)}/${escapeHtml(modelId)}</code>. Please retry.</p>
 </div>
 <a class="back" href="/listings">Back to listings</a>`;
-  return layout({ title: "Listing unavailable", body });
+  return layout({ title: "Listing unavailable", body, cspNonce: pageNonce(options) });
 }
 
-export function renderNotFound(providerId, modelId) {
+export function renderNotFound(providerId, modelId, options) {
   const body = `<h1>Listing not found</h1>
 <p>No stub listing matches <code>${escapeHtml(providerId)}/${escapeHtml(modelId)}</code>.</p>
 <a class="back" href="/listings">Back to listings</a>`;
-  return layout({ title: "Not found", body });
+  return layout({ title: "Not found", body, cspNonce: pageNonce(options) });
 }
 
-export function renderPreviewDisabled() {
+// TOG-5714: HTML 404 page for unknown (non-listing) paths, served only when
+// the client explicitly negotiates `Accept: text/html` (e.g. a browser
+// address-bar navigation). API-shaped callers get the JSON `{error:
+// "not_found"}` payload instead — see the 404 content-type contract in
+// web/server.js. Accepts the same optional `{ cspNonce }` as the other page
+// renderers (TOG-6049).
+export function renderRouteNotFound(path, options) {
+  const body = `<h1>Page not found</h1>
+<p>No preview page matches <code>${escapeHtml(path)}</code>.</p>
+<a class="back" href="/listings">Back to listings</a>`;
+  return layout({ title: "Not found", body, cspNonce: pageNonce(options) });
+}
+
+export function renderPreviewDisabled(options) {
   const body = `<h1>Preview unavailable</h1>
 <p>This page is behind the <code>WAYSELECT_PREVIEW</code> flag, which is currently off.</p>`;
-  return layout({ title: "Preview unavailable", body });
+  return layout({ title: "Preview unavailable", body, cspNonce: pageNonce(options) });
 }
 
 const CAPABILITY_LABELS = Object.freeze({
@@ -342,7 +373,11 @@ function checkboxRow(name, values, selected) {
     .map((value) => {
       const label = name === "capability" ? (CAPABILITY_LABELS[value] ?? value) : value;
       const checked = selected.includes(value) ? " checked" : "";
-      return `<label><input type="checkbox" name="${name}" value="${escapeHtml(value)}"${checked}> ${escapeHtml(label)}</label>`;
+      // TOG-6038: explicit id/for pairing on top of the wrapping label so
+      // every checkbox has a programmatically associated label that both AT
+      // and tests can resolve. Ids derive from the enum-controlled value.
+      const id = `filter-${name}-${value}`;
+      return `<label for="${escapeHtml(id)}"><input type="checkbox" id="${escapeHtml(id)}" name="${name}" value="${escapeHtml(value)}"${checked}> ${escapeHtml(label)}</label>`;
     })
     .join("\n");
 }
@@ -353,7 +388,7 @@ function filterForm(filters) {
   const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
   const modalities = Array.isArray(active.modalities) ? active.modalities : [];
   return `<form method="get" action="/listings" role="search" aria-label="Filter listings">
-<label>Search <input type="text" name="q" value="${escapeHtml(q)}"></label>
+<label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}"></label>
 <fieldset><legend>Capabilities</legend>
 ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
 </fieldset>
@@ -365,34 +400,89 @@ ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 </form>`;
 }
 
-export function renderInvalidFilter({ kind, value, valid }) {
+export function renderInvalidFilter({ kind, value, valid }, options) {
   const body = `<h1>Invalid filter</h1>
 <p>Unknown ${escapeHtml(kind)} &quot;${escapeHtml(value)}&quot;. Valid values: ${valid.map(escapeHtml).join(", ")}.</p>
 <a class="back" href="/listings">Back to listings</a>`;
-  return layout({ title: "Invalid filter", body });
+  return layout({ title: "Invalid filter", body, cspNonce: pageNonce(options) });
 }
 
-export function renderListingIndex(listings, evaluationsOverride, filters) {
+// Paged navigation for the listing index (TOG-6028). `pageInfo` is the
+// `{ total, limit, offset }` window the server sliced; without it the full
+// array renders with the legacy "N listings found." copy. Prev/Next links
+// preserve the active filters so paging never drops a filter.
+function pageHref(filters, limit, offset) {
+  const params = new URLSearchParams();
+  if (typeof filters?.q === "string" && filters.q !== "") {
+    params.set("q", filters.q);
+  }
+  for (const name of filters?.capabilities ?? []) {
+    params.append("capability", name);
+  }
+  for (const name of filters?.modalities ?? []) {
+    params.append("modality", name);
+  }
+  params.set("limit", String(limit));
+  if (offset > 0) {
+    params.set("offset", String(offset));
+  }
+  const qs = params.toString();
+  return `/listings${qs ? `?${qs}` : ""}`;
+}
+
+function pageNav(filters, total, limit, offset, shown) {
+  const links = [];
+  if (offset > 0) {
+    links.push(
+      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}">Previous</a>`,
+    );
+  }
+  if (offset + shown < total) {
+    links.push(
+      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}">Next</a>`,
+    );
+  }
+  return links.length === 0 ? "" : `<nav aria-label="Listings pages"><p>${links.join(" ")}</p></nav>`;
+}
+
+export function renderListingIndex(listings, evaluationsOverride, filters, pageInfo, options) {
   const evaluations = resolveIndexEvaluations(listings, evaluationsOverride);
-  const countCopy =
-    listings.length === 1 ? "1 listing" : `${listings.length} listings`;
-  const results =
-    listings.length === 0
-      ? `<section aria-label="Results">\n<p role="status">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`
-      : `<section aria-label="Results">\n<p role="status">${escapeHtml(countCopy)} found.</p>\n<ul>\n${listings
-          .map((listing) => {
-            const described = describeEligibility(
-              evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
-            );
-            // S2 (TOG-5475, preserved through the main rebase): path
-            // segments are URL-encoded inside the HTML escape so ids with
-            // reserved characters keep working hrefs without XSS.
-            return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
-          })
-          .join("\n")}\n</ul>\n</section>`;
+  const active = filters ?? emptyFilters();
+  const total =
+    Number.isSafeInteger(pageInfo?.total) && pageInfo.total >= 0 ? pageInfo.total : listings.length;
+  const limit =
+    Number.isSafeInteger(pageInfo?.limit) && pageInfo.limit > 0 ? pageInfo.limit : listings.length;
+  const offset =
+    Number.isSafeInteger(pageInfo?.offset) && pageInfo.offset >= 0 ? pageInfo.offset : 0;
+  const windowed = total !== listings.length || offset > 0;
+  const countCopy = total === 1 ? "1 listing" : `${total} listings`;
+  let results;
+  if (listings.length === 0) {
+    // Offset past the end is a valid empty page, not a filter miss: say so
+    // and link back to the first page instead of blaming the filters.
+    results =
+      total > 0
+        ? `<section aria-label="Results">\n<p role="status">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
+        : `<section aria-label="Results">\n<p role="status">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
+  } else {
+    const status =
+      `${countCopy} found.` + (windowed ? ` Showing ${offset + 1}-${offset + listings.length}.` : "");
+    results =
+      `<section aria-label="Results">\n<p role="status">${escapeHtml(status)}</p>\n<ul>\n${listings
+        .map((listing) => {
+          const described = describeEligibility(
+            evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
+          );
+          // S2 (TOG-5475, preserved through the main rebase): path
+          // segments are URL-encoded inside the HTML escape so ids with
+          // reserved characters keep working hrefs without XSS.
+          return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+        })
+        .join("\n")}\n</ul>\n${pageNav(active, total, limit, offset, listings.length)}</section>`;
+  }
   const body = `<div class="preview-banner" role="note">Preview build: stub data only.</div>
 <h1>Listings</h1>
 ${filterForm(filters)}
 ${results}`;
-  return layout({ title: "Listings", body });
+  return layout({ title: "Listings", body, cspNonce: pageNonce(options) });
 }
