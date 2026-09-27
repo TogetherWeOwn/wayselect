@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #148 (2026-09-27) TOG-6708: `Vary: Accept` on content-negotiated routes — seller-intake,
+  seller-confirm, listing-detail shell/fragment, and the 404 fallback
+  negotiate HTML vs JSON on `Accept`, so every variant carries
+  `Vary: Accept` (one `res.setHeader` per route branch); non-negotiated
+  routes (healthz, purchase stub, index) stay without it
+  (`web/server.js`, `test/vary-accept.test.js`).
 - TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
   routes wrong-method refusals through the shared `sendMethodNotAllowed`
   helper (RFC 9110 §15.5.6) instead of raw `sendJson`; HEAD-contract pin

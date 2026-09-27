@@ -426,6 +426,10 @@ export function createApp(env = process.env, options = {}) {
         sendMethodNotAllowed(res, "POST");
         return;
       }
+      // TOG-6708 (gap R4-02): this route negotiates HTML vs JSON on
+      // `Accept`, so every variant carries `Vary: Accept` — otherwise a
+      // shared cache can poison the variant on a later request.
+      res.setHeader("vary", "Accept");
       if (!isPreviewEnabled(env)) {
         sendJson(res, 404, { error: "preview_disabled" });
         return;
@@ -483,6 +487,9 @@ export function createApp(env = process.env, options = {}) {
     // no intent was staged; neither publishes anything.
     const sellerConfirmMatch = pathname.match(SELLER_CONFIRM_ROUTE);
     if (sellerConfirmMatch) {
+      // TOG-6708 (gap R4-02): GET restates the intent as HTML or JSON
+      // depending on `Accept` — every variant carries `Vary: Accept`.
+      res.setHeader("vary", "Accept");
       if (!isPreviewEnabled(env)) {
         if (req.method === "GET" && !String(req.headers?.accept ?? "").includes("application/json")) {
           const nonce = newCspNonce();
@@ -557,6 +564,9 @@ export function createApp(env = process.env, options = {}) {
         sendMethodNotAllowed(res, "GET");
         return;
       }
+      // TOG-6708 (gap R4-02): shell vs JSON fragment (and the flag-off
+      // JSON error shape) select on `Accept` — `Vary: Accept` on all of it.
+      res.setHeader("vary", "Accept");
       // TOG-6049: one nonce per HTML response (see index route above).
       // The JSON fragment and its error paths carry no CSP — only the 500
       // HTML fallback (render throw) mints a nonce.
@@ -667,6 +677,9 @@ export function createApp(env = process.env, options = {}) {
     // navigation (`Accept: text/html` without `application/json`). `*/*`
     // (fetch/curl defaults) and missing Accept get JSON.
     const accept = String(req.headers?.accept ?? "");
+    // TOG-6708 (gap R4-02): the fallback negotiates JSON vs HTML on
+    // `Accept` — a shared cache must key on it.
+    res.setHeader("vary", "Accept");
     if (!accept.includes("application/json") && accept.includes("text/html")) {
       // TOG-6049: the browser fallback is an HTML response, so it mints its
       // own nonce like every other HTML path.
