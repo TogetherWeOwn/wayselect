@@ -6,6 +6,11 @@ on:
   schedule:
     # Nightly ingestion smoke (TOG-5246): fixture-only, no network/credentials.
     - cron: "17 6 * * *"
+  # Production deploys are operator-initiated only (TOG-6910): the
+  # deploy-production job below runs on workflow_dispatch, gated behind the
+  # production GitHub environment with a required reviewer. It stays gated
+  # until TOG-6905 says Wayselect may go live.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -29,3 +34,80 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run smoke
+
+  deploy-staging:
+    name: Deploy to staging (Coolify)
+    # TOG-6910: merge to main auto-deploys staging, only after the blocking
+    # checks above pass. Pull requests and scheduled runs never deploy.
+    needs: [test, ingestion-smoke]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # The environment key creates the GitHub Deployment record (with status
+    # updates) that the Shipping KPI reads. Verified query after merge:
+    #   gh api repos/TogetherWeOwn/wayselect/deployments
+    environment: staging
+    # Serialize staging deploys so overlapping merges can't race; never
+    # cancel an in-flight deploy.
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Deploy-target gate
+        # Fail-closed: a missing Coolify hook or staging URL FAILS the job
+        # (TOG-913 — never skip-and-pass). Prints secret NAMES only.
+        run: node scripts/check-deploy-target.mjs --env-name staging --hook-env COOLIFY_STAGING_DEPLOY_HOOK --url-env WAYSELECT_STAGING_URL
+        env:
+          COOLIFY_STAGING_DEPLOY_HOOK: ${{ secrets.COOLIFY_STAGING_DEPLOY_HOOK }}
+          WAYSELECT_STAGING_URL: ${{ secrets.WAYSELECT_STAGING_URL }}
+      - name: Trigger Coolify deploy hook
+        # No migrate step: wayselect has no database; the catalog is a
+        # fixtures file baked into the image, so there is nothing to migrate
+        # before or after deploy.
+        run: curl -sSf -X POST "$COOLIFY_HOOK" -o /dev/null -w 'hook HTTP %{http_code}\n'
+        env:
+          COOLIFY_HOOK: ${{ secrets.COOLIFY_STAGING_DEPLOY_HOOK }}
+      - name: Post-deploy smoke against staging
+        run: node bin/smoke-wayselect-staging-preview --base-url "$STAGING_URL"
+        env:
+          STAGING_URL: ${{ secrets.WAYSELECT_STAGING_URL }}
+
+  deploy-production:
+    name: Deploy to production (Coolify, reviewer-gated)
+    # TOG-6910: operator-initiated only, after deploy-staging succeeded on
+    # main. The production environment carries the required reviewer; the job
+    # stays gated until TOG-6905 says Wayselect may go live. The result check
+    # matters: on a dispatch event deploy-staging is skipped, and a skipped
+    # need would otherwise skip this job too — dispatch from main only.
+    needs: [deploy-staging]
+    if: github.event_name == 'workflow_dispatch' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Deploy-target gate
+        run: node scripts/check-deploy-target.mjs --env-name production --hook-env COOLIFY_PRODUCTION_DEPLOY_HOOK --url-env WAYSELECT_PRODUCTION_URL
+        env:
+          COOLIFY_PRODUCTION_DEPLOY_HOOK: ${{ secrets.COOLIFY_PRODUCTION_DEPLOY_HOOK }}
+          WAYSELECT_PRODUCTION_URL: ${{ secrets.WAYSELECT_PRODUCTION_URL }}
+      - name: Trigger Coolify deploy hook
+        run: curl -sSf -X POST "$COOLIFY_HOOK" -o /dev/null -w 'hook HTTP %{http_code}\n'
+        env:
+          COOLIFY_HOOK: ${{ secrets.COOLIFY_PRODUCTION_DEPLOY_HOOK }}
+      - name: Post-deploy smoke against production
+        run: node bin/smoke-wayselect-staging-preview --base-url "$PRODUCTION_URL"
+        env:
+          PRODUCTION_URL: ${{ secrets.WAYSELECT_PRODUCTION_URL }}
