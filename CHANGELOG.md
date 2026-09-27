@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
+  Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
+  output, no route redirects, links stay relative, and rotating Host/XFH
+  mints no rate-limit budget (XFH ignored even behind the trusted proxy)
+  (`test/host-header-audit.test.js`, test-only, no source change: the
+  server never reads Host/XFH).
 - #138 (2026-09-27) TOG-6716: seller-intent TTL — staged intents expire
   15 min after intake (`SELLER_INTENT_TTL_MS`, injectable `options.now`);
   expired confirms 404 as missing; intake sweeps stale entries
