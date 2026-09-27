@@ -83,6 +83,21 @@ describe("eligibility classification", () => {
     }
   });
 
+  it("fails closed to unknown on forged eligible:true with non-empty reasons", () => {
+    // TOG-5298: eligible implies empty reasons per the evaluator contract;
+    // a forged evaluation must never render granted.
+    for (const forged of [
+      { eligible: true, reasons: ["missing-capability:toolUse"] },
+      { eligible: true, reasons: ["operation-not-configured"] },
+    ]) {
+      strictEqual(
+        classifyEligibilityDisplay(forged),
+        ELIGIBILITY_STATE.UNKNOWN,
+        JSON.stringify(forged),
+      );
+    }
+  });
+
   it("keeps support-state exclusions as blocked, not unknown", () => {
     strictEqual(
       classifyEligibilityDisplay({
