@@ -8,6 +8,7 @@
 
 import { createServer } from "node:http";
 import { isPreviewEnabled } from "./preview.js";
+import { createRateLimiter } from "./rate-limit.js";
 import {
   renderInvalidFilter,
   renderListingDetail,
@@ -31,12 +32,48 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-export function createApp(env = process.env) {
+// Bucket requests by route shape for the rate limiter: exact path for the
+// index, route templates for detail/purchase, and a fallback for 404s so
+// scanners cannot burn the budget of real routes (or vice versa).
+function routeBucket(method, pathname) {
+  if (method === "GET" && (pathname === "/listings" || pathname === "/listings/")) {
+    return "GET /listings";
+  }
+  if (PURCHASE_ROUTE.test(pathname)) {
+    return `${method} /listings/:provider/:model/purchase`;
+  }
+  if (LISTING_ROUTE.test(pathname)) {
+    return `${method} /listings/:provider/:model`;
+  }
+  return `${method} other`;
+}
+
+export function createApp(env = process.env, options = {}) {
+  const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
   return createServer((req, res) => {
-    let pathname;
+    // Per-IP/per-route cap (TOG-5563). Bucket by route shape so one hot
+    // listing cannot starve — or be starved by — unrelated routes.
+    // Unparseable targets count against the fallback bucket so garbage
+    // requests cannot bypass the cap.
+    const ip = req.socket?.remoteAddress ?? "unknown";
+    let pathname = null;
     try {
       pathname = new URL(req.url ?? "/", "http://localhost").pathname;
     } catch {
+      pathname = null;
+    }
+    const bucket = pathname === null ? `${req.method} other` : routeBucket(req.method, pathname);
+    const verdict = limiter.check(ip, bucket);
+    if (!verdict.allowed) {
+      res.writeHead(429, {
+        "content-type": "application/json; charset=utf-8",
+        "retry-after": String(verdict.retryAfterSec),
+      });
+      res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));
+      return;
+    }
+
+    if (pathname === null) {
       sendJson(res, 404, { error: "not_found" });
       return;
     }
