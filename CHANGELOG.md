@@ -18,6 +18,28 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #121 (2026-09-27) TOG-6709: HEAD method contract — HEAD pinned as a
+  plain wrong method (405 + `Allow` on GET/purchase routes, 405 without
+  `Allow` on seller routes, 404 on unknown paths; empty body, method gate
+  precedes the preview flag) (`test/head-method-contract.test.js`,
+  test-only).
+- #119 (2026-09-27) TOG-6394: badge color-contrast guard — WCAG AA
+  evidence for the five badge classes (on/granted 8.62, off 7.35,
+  blocked 8.49, unknown 7.73), pinned as a failing-if-regressed test
+  (`test/badge-contrast.test.js`, test-only).
+- #116 (2026-09-27) TOG-6384: purchase refusal body contract — exact
+  403 `{error: "preview_only", message}` body pinned (keys, message
+  verbatim, flag-on/off, trailing slash, 404-first boundary)
+  (`test/purchase-refusal-body-contract.test.js`, test-only, no prod
+  change).
+- #115 (2026-09-27) TOG-6375: preview-disabled JSON fragment contract —
+  flag-off detail requests negotiating `Accept: application/json` 404
+  with `{error: "preview_disabled"}` (HTML default and HTML-only index
+  unchanged) (`web/server.js`, `test/preview-disabled-json.test.js`).
+- #114 (2026-09-27) TOG-6367: `Cache-Control: no-store` on dynamic JSON
+  errors (`sendJson` for status >= 400, `sendMethodNotAllowed`, 429
+  refusal); success JSON and HTML untouched (`web/server.js`,
+  `test/json-error-no-store.test.js`).
 - #107 (2026-09-27) TOG-6370: `q` length cap (200, fail-closed 400 naming
   the bound) + form `maxlength` hint (`web/filter.js`,
   `web/listing-detail.js`, `test/listing-filter.test.js`,

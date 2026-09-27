@@ -42,10 +42,12 @@
 //     Effort was trivial: one `randomBytes` nonce per HTML response,
 //     stamped on the inline tags and allowlisted in the header.
 //
-// 404 content-type contract (TOG-5714):
+// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375):
 //   - Browser routes (index, detail incl. listing misses, flag-off pages):
 //     HTML by default; JSON only when the client explicitly negotiates
-//     `Accept: application/json` (the shell's fragment fetch).
+//     `Accept: application/json` (the shell's fragment fetch). Flag-off
+//     JSON is `{error: "preview_disabled"}` so the shell renders its
+//     alert panel instead of choking on an HTML page.
 //   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
 //     always JSON.
 //   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
@@ -131,7 +133,16 @@ function sendHtml(res, status, html, nonce) {
 }
 
 function sendJson(res, status, payload) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
+  // TOG-6367: error JSON is dynamic (per-request 403/404/405/400/413
+  // bodies, never cacheable content), so error statuses carry
+  // `Cache-Control: no-store` — shared caches must not store them.
+  // Success JSON keeps default cache semantics: cacheable GETs (ETag,
+  // validators, 304) belong to TOG-6050, which decides per route there.
+  const headers = { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS };
+  if (status >= 400) {
+    headers["cache-control"] = "no-store";
+  }
+  res.writeHead(status, headers);
   res.end(JSON.stringify(payload));
 }
 
@@ -139,10 +150,12 @@ function sendJson(res, status, payload) {
 // to carry an `Allow` header naming the methods the target supports. Every
 // known route shape funnels through here so OPTIONS/PUT/DELETE behave the
 // same on every route; unknown paths stay 404 (no resource, no `Allow`).
+// Always an error, so always `Cache-Control: no-store` (TOG-6367).
 function sendMethodNotAllowed(res, allow) {
   res.writeHead(405, {
     "content-type": "application/json; charset=utf-8",
     ...SECURITY_HEADERS,
+    "cache-control": "no-store",
     allow,
   });
   res.end(JSON.stringify({ error: "method_not_allowed" }));
@@ -245,9 +258,12 @@ export function createApp(env = process.env, options = {}) {
     if (!verdict.allowed) {
       // TOG-5732 audit: the 429 path previously bypassed sendJson and so
       // missed SECURITY_HEADERS — every response carries them now.
+      // TOG-6367: the refusal body is dynamic, so `no-store` like every
+      // other JSON error.
       res.writeHead(429, {
         "content-type": "application/json; charset=utf-8",
         ...SECURITY_HEADERS,
+        "cache-control": "no-store",
         "retry-after": String(verdict.retryAfterSec),
       });
       res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));
@@ -472,6 +488,16 @@ export function createApp(env = process.env, options = {}) {
       const sendPage = (status, html) => sendHtml(res, status, html, nonce);
       const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
+        // TOG-6375: the shell's fragment fetch negotiates JSON, so a
+        // flag-off fragment request degrades to a JSON error the shell
+        // renders as its alert panel — never an HTML page that breaks
+        // `res.json()`. Flag check precedes listing lookup, so unknown
+        // listings gate identically. Index stays HTML-only: it has no
+        // fragment shape, flag-on or flag-off.
+        if (String(req.headers?.accept ?? "").includes("application/json")) {
+          sendJson(res, 404, { error: "preview_disabled" });
+          return;
+        }
         sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
