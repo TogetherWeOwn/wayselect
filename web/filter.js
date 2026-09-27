@@ -21,8 +21,19 @@ export const LISTINGS_DEFAULT_LIMIT = 20;
 export const LISTINGS_MAX_LIMIT = 100;
 export const LISTINGS_DEFAULT_OFFSET = 0;
 
+// Known /listings query keys (TOG-6365): anything else is a typo failing
+// silently, so unknown keys fail closed (400 upstream) naming this list.
+export const VALID_LISTINGS_QUERY_PARAMS = Object.freeze([
+  "q",
+  "capability",
+  "modality",
+  "limit",
+  "offset",
+]);
+
 const CAPABILITY_SET = new Set(VALID_CAPABILITIES);
 const MODALITY_SET = new Set(VALID_MODALITIES);
+const QUERY_PARAM_SET = new Set(VALID_LISTINGS_QUERY_PARAMS);
 
 export function emptyFilters() {
   return { q: "", capabilities: [], modalities: [] };
@@ -58,6 +69,11 @@ function parsePagingParam(raw, fallback) {
 // Validate raw query params. Returns `{ ok: true, filters, paging }` or
 // `{ ok: false, kind, value, valid }` for the 400 invalid-filter page.
 export function parseListingsQuery(searchParams) {
+  for (const key of new Set(searchParams.keys())) {
+    if (!QUERY_PARAM_SET.has(key)) {
+      return { ok: false, kind: "query", value: key, valid: VALID_LISTINGS_QUERY_PARAMS };
+    }
+  }
   const filters = normalizeFilters({
     q: searchParams.get("q") ?? "",
     capabilities: searchParams.getAll("capability"),
