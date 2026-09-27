@@ -189,6 +189,8 @@ interpret-then-match) vs v3-negation-scope (v2 plus negation scope).
 Stdlib only, no network, no credentials; seed 5492
 recorded for the shuffle-invariance self-check. Today: before 13/30, mid
 24/30, after 30/30 — v2 fixed 11, v3 fixed 6, 0 regressed.
+Seed, rerun steps, and expected determinism:
+[search-prompt eval seed-rerun contract](docs/search-prompt-eval-seed-rerun.md).
 
 ## Catalog search-index refresh
 
@@ -306,6 +308,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
 - [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
+- [Search-prompt eval seed-rerun contract](docs/search-prompt-eval-seed-rerun.md) — documented seed 5492, rerun steps, and expected determinism for the search-prompt regression eval.
 - [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
 - [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
 - [Buyer listing spec](docs/wayselect-buyer-listing.md) — listing fields + purchase acceptance (v2).
