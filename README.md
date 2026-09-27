@@ -216,15 +216,45 @@ snapshot-derived pattern as the suite (`support/helpers.js`
 after the live fixture `snapshotTimestamp`, so the probe stays green across
 fixture refreshes without edits.
 
+## Catalog ingestion from models.dev-shaped JSON
+
+`wayselect catalog import <file|--fetch>` maps provider-keyed,
+models.dev-shaped JSON (providers → models with modalities, limits,
+tool/structured-output flags, and list prices) onto the normalized catalog
+schema and writes a `{ provenance, catalog }` document. Default reads a local
+file; `--fetch` is the only networked path, explicit and never exercised in
+tests. Every ingested entry lands as support state `catalogued` only —
+ingestion never configures, enables, or produces executable URLs.
+Unknown/malformed fields are quarantined with reasons; capabilities are never
+guessed. Tests use small newly-authored fixtures, never a redistributed
+snapshot.
+
+```sh
+node bin/wayselect catalog import models.json \
+  --source "https://models.dev/api.json" \
+  --snapshot-timestamp 2026-09-24T10:00:00.000Z \
+  --out catalog.json
+```
+
+Provenance: `--source` defaults to the `file://` input path (or the fetch
+URL with `--fetch`), `--snapshot-timestamp` defaults to now, and
+`--snapshot-hash` defaults to the canonical SHA-256 hash of the ingested
+mapping — the same gate `normalizeCatalog` verifies, so a default import
+always round-trips. An explicit `--snapshot-hash` that does not match the
+ingested body fails closed instead of writing an unverifiable document.
+`--json` emits the machine-readable summary (`command`, `networkUsed`,
+`entryCount`, `quarantined` with per-entry reasons, `outPath`).
+
 ## Library boundaries
 
 - `src/catalog.js` validates a narrow provider-keyed, models.dev-shaped fixture subset and preserves provenance. Unknown fields are rejected at the boundary.
+- `src/ingest.js` maps models.dev-shaped JSON onto catalog input with provenance (`ingestModelsDev`); known upstream extras are stripped, unknowns quarantine with reasons.
 - `src/support.js` applies explicit support states and configured operation claims without mutating catalog evidence.
 - `src/eligibility.js` applies operation, capability, provider, and evidence-age rules. An empty provider allowlist is invalid.
 - `src/selection.js` produces a dry-run decision and full candidate explanations.
 - `src/transport.js` exposes only `FakeTransport`; executable location fields are rejected.
 - `src/canonical.js` provides the canonical-JSON form the provenance hash is computed over.
-- `bin/wayselect` is the thin CLI: `select`/`explain` subcommands (`--help`, `--version`, exit codes 0/1/2/3; see `docs/cli.md`) with the bare-invocation fixture demo kept for backward compatibility.
+- `bin/wayselect` is the thin CLI: `select`/`explain` subcommands plus the opt-in `catalog import` ingestion path (`--fetch` is the only networked path; `--help`, `--version`, exit codes 0/1/2/3; see `docs/cli.md`) with the bare-invocation fixture demo kept for backward compatibility.
 - `bin/refresh-catalog-fixtures` stamps fixture provenance and verifies it (`--check`).
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.

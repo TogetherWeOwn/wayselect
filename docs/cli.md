@@ -148,6 +148,65 @@ node bin/wayselect explain --request fixtures/request.synthetic.json \
   --allow northstar
 ```
 
+## `catalog import`: ingest models.dev-shaped JSON
+
+```sh
+node bin/wayselect catalog import models.json \
+  --source "https://models.dev/api.json" \
+  --snapshot-timestamp 2026-09-24T10:00:00.000Z \
+  --out catalog.json
+```
+
+`catalog import` maps provider-keyed, models.dev-shaped JSON (providers →
+models with modalities, limits, tool/structured-output flags, and list
+prices) onto the normalized catalog schema and writes a
+`{ provenance, catalog }` document. It is a dry-run adapter, not a
+configuration step:
+
+- Default reads a local file. `--fetch` fetches `https://models.dev/api.json`
+  (overridable with `--fetch-url`) and is the only networked path in the CLI —
+  explicit opt-in, never exercised in tests.
+- Every ingested entry lands as support state `catalogued` only — ingestion
+  never configures, enables, or produces executable URLs.
+- models.dev `limit: { context, output }` maps onto `context_window` /
+  `max_output_tokens`. Known upstream extras are stripped at the boundary:
+  sibling pricing metadata beyond input/output list prices, URL-bearing
+  `api`/`endpoint`/`doc` fields, and `temperature`/`knowledge`/`release_date`/
+  `open_weights` card metadata. Anything else unknown or malformed quarantines
+  the entry with a named reason; capabilities are never guessed.
+- Provenance: `--source` defaults to the `file://` input path (or the fetch
+  URL with `--fetch`), `--snapshot-timestamp` defaults to now, and
+  `--snapshot-hash` defaults to the canonical SHA-256 hash of the ingested
+  mapping — the same gate `normalizeCatalog` verifies, so a default import
+  always round-trips. An explicit `--snapshot-hash` that does not match the
+  ingested body fails closed instead of writing an unverifiable document.
+
+Example (one entry ingested, one quarantined for an unknown field):
+
+```sh
+node bin/wayselect catalog import models.json --source doc-example \
+  --snapshot-timestamp 2026-09-24T10:00:00.000Z
+```
+
+```text
+catalog import — dry-run only (support state: catalogued only)
+Source: doc-example @ 2026-09-24T10:00:00.000Z
+Snapshot hash: sha256:2007ad13…
+Raw input hash: sha256:b8b4ecc6…
+Ingested 1 entry from 1 provider (support state: catalogued only).
+Quarantined 1:
+  - acme/mystery: provider acme model mystery contains unknown field: frobnicate
+No --out path given; catalog document not written.
+```
+
+`--json` emits the machine-readable summary instead (`command`,
+`networkUsed`, `source`, `snapshotTimestamp`, `snapshotHash`, `rawHash`,
+`providerCount`, `entryCount`, `quarantined` with per-entry reasons,
+`outPath`). `--out <path>` writes the catalog document; without it nothing is
+written. Failures render as `<Name>: <message>` on stderr with exit code 1
+(unreadable file, bad JSON, failed validation, mismatched snapshot hash, or
+zero surviving entries). `catalog --help` prints the same usage.
+
 ## Exit codes
 
 | Code | Meaning | Example |

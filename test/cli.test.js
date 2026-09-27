@@ -419,6 +419,7 @@ test("--help exits 0 with usage and exit codes", async () => {
   assert.equal(stderr, "");
   assert.match(stdout, /wayselect select \[options\]/);
   assert.match(stdout, /wayselect explain \[options\]/);
+  assert.match(stdout, /wayselect catalog import/);
   assert.match(stdout, /Exit codes:/);
 });
 
@@ -434,5 +435,225 @@ test("--version exits 0 with the package version", async () => {
 
   assert.equal(stderr, "");
   assert.match(stdout, /^wayselect \d+\.\d+\.\d+\n$/);
+});
+
+// TOG-4791: the `catalog import` opt-in path is covered against small
+// newly-authored temp-dir fixtures only — no redistributed snapshot, no
+// network (--fetch is never exercised).
+function importInput() {
+  return {
+    acme: {
+      id: "acme",
+      name: "Acme Synthetic",
+      models: {
+        "chat-one": {
+          id: "chat-one",
+          name: "Chat One",
+          attachment: false,
+          reasoning: false,
+          tool_call: true,
+          structured_output: true,
+          modalities: { input: ["text"], output: ["text"] },
+          cost: { input: 1, output: 2 },
+          limit: { context: 8000, output: 2000 },
+        },
+        mystery: {
+          id: "mystery",
+          name: "Mystery",
+          modalities: { input: ["text"], output: ["text"] },
+          frobnicate: true,
+        },
+      },
+    },
+  };
+}
+
+async function writeImportInput(dir) {
+  const path = join(dir, "models-dev-sample.json");
+  await writeFile(path, JSON.stringify(importInput()));
+  return path;
+}
+
+test("catalog import reads a local file, quarantines unknowns, exits 0", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-import-"));
+  try {
+    const input = await writeImportInput(dir);
+
+    const { code, stdout, stderr } = await runCli([
+      "catalog",
+      "import",
+      input,
+      "--source",
+      "https://models.dev/api.json",
+      "--snapshot-timestamp",
+      "2026-09-24T10:00:00.000Z",
+    ]);
+
+    assert.equal(code, 0);
+    assert.equal(stderr, "");
+    assert.match(stdout, /support state: catalogued only/);
+    assert.match(stdout, /Source: https:\/\/models\.dev\/api\.json @ 2026-09-24T10:00:00\.000Z/);
+    assert.match(stdout, /Snapshot hash: sha256:[a-f0-9]{64}/);
+    assert.match(stdout, /Raw input hash: sha256:[a-f0-9]{64}/);
+    assert.match(stdout, /Ingested 1 entry from 1 provider/);
+    assert.match(stdout, /Quarantined 1:/);
+    assert.match(stdout, /acme\/mystery: .*unknown field: frobnicate/);
+    assert.match(stdout, /catalog document not written/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("catalog import --json emits the machine-readable summary", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-import-"));
+  try {
+    const input = await writeImportInput(dir);
+
+    const { code, stdout, stderr } = await runCli([
+      "catalog",
+      "import",
+      input,
+      "--source",
+      "https://models.dev/api.json",
+      "--snapshot-timestamp",
+      "2026-09-24T10:00:00.000Z",
+      "--json",
+    ]);
+    const result = JSON.parse(stdout);
+
+    assert.equal(code, 0);
+    assert.equal(stderr, "");
+    assert.equal(result.command, "catalog import");
+    assert.equal(result.dryRun, true);
+    assert.equal(result.networkUsed, false);
+    assert.equal(result.source, "https://models.dev/api.json");
+    assert.equal(result.entryCount, 1);
+    assert.equal(result.providerCount, 1);
+    assert.equal(result.quarantined.length, 1);
+    assert.equal(result.quarantined[0].routeId, "acme/mystery");
+    assert.equal(result.outPath, null);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("catalog import --out writes a verifiable catalog document", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-import-"));
+  try {
+    const input = await writeImportInput(dir);
+    const outPath = join(dir, "catalog.out.json");
+
+    const { code, stdout } = await runCli([
+      "catalog",
+      "import",
+      input,
+      "--source",
+      "https://models.dev/api.json",
+      "--snapshot-timestamp",
+      "2026-09-24T10:00:00.000Z",
+      "--out",
+      outPath,
+    ]);
+    const document = JSON.parse(await readFile(outPath, "utf8"));
+
+    assert.equal(code, 0);
+    assert.match(stdout, /Wrote catalog document:/);
+    assert.equal(document.provenance.source, "https://models.dev/api.json");
+    assert.deepEqual(Object.keys(document.catalog), ["acme"]);
+    assert.deepEqual(Object.keys(document.catalog.acme.models), ["chat-one"]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("catalog import --snapshot-hash pins the ingested body or fails closed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-import-"));
+  try {
+    const input = await writeImportInput(dir);
+    const base = [
+      "catalog",
+      "import",
+      input,
+      "--source",
+      "https://models.dev/api.json",
+      "--snapshot-timestamp",
+      "2026-09-24T10:00:00.000Z",
+      "--json",
+    ];
+
+    const first = await runCli(base);
+    assert.equal(first.code, 0);
+    const pinned = JSON.parse(first.stdout).snapshotHash;
+
+    const repinned = await runCli([...base, "--snapshot-hash", pinned]);
+    assert.equal(repinned.code, 0);
+    assert.equal(JSON.parse(repinned.stdout).snapshotHash, pinned);
+
+    const tampered = await runCli(
+      [...base, "--snapshot-hash", `sha256:${"b".repeat(64)}`],
+      { expectFailure: true },
+    );
+    assert.equal(tampered.code, 1);
+    assert.match(tampered.stderr, /does not match the ingested catalog body/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("catalog import rejects file+--fetch together and missing input", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-import-"));
+  try {
+    const input = await writeImportInput(dir);
+
+    const both = await runCli(["catalog", "import", input, "--fetch"], {
+      expectFailure: true,
+    });
+    assert.equal(both.code, 1);
+    assert.match(both.stderr, /either a file or --fetch/);
+
+    const missing = await runCli(["catalog", "import"], { expectFailure: true });
+    assert.equal(missing.code, 1);
+    assert.match(missing.stderr, /input file or --fetch/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("catalog import fails closed on bad JSON, unreadable files, unknown flags", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-import-"));
+  try {
+    const badJson = join(dir, "bad.json");
+    await writeFile(badJson, "{not json");
+
+    const unparsable = await runCli(["catalog", "import", badJson], {
+      expectFailure: true,
+    });
+    assert.equal(unparsable.code, 1);
+    assert.match(unparsable.stderr, /Cannot parse .* as JSON/);
+
+    const unreadable = await runCli(["catalog", "import", join(dir, "missing.json")], {
+      expectFailure: true,
+    });
+    assert.equal(unreadable.code, 1);
+    assert.match(unreadable.stderr, /Cannot read .*missing\.json/);
+
+    const input = await writeImportInput(dir);
+    const unknownFlag = await runCli(["catalog", "import", input, "--nope"], {
+      expectFailure: true,
+    });
+    assert.equal(unknownFlag.code, 1);
+    assert.match(unknownFlag.stderr, /Unknown argument: --nope/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("catalog --help exits 0 with import usage", async () => {
+  const { code, stdout, stderr } = await runCli(["catalog", "--help"]);
+
+  assert.equal(code, 0);
+  assert.equal(stderr, "");
+  assert.match(stdout, /wayselect catalog import/);
+  assert.match(stdout, /--fetch/);
 });
 
