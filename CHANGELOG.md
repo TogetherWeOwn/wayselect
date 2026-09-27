@@ -26,6 +26,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `<select>` and survives Prev/Next page links (`web/filter.js`,
   `web/listing-detail.js`, `web/server.js`, `test/listing-filter.test.js`,
   `test/listing-filter-labels.test.js`, `test/listing-pagination.test.js`).
+- #160 (2026-09-27) TOG-6711: uppercase provider/model path contract pin —
+  `/listings/Northstar/Alpha-Chat` 404s (HTML miss page by default, JSON
+  `{error: "listing_not_found"}` on fragment negotiation) instead of
+  remapping to the lowercase listing; all case variants 404 identically
+  while the canonical lowercase path serves 200
+  (`test/listing-uppercase-path.test.js`, test-only, no source change).
 - #164 (2026-09-27) TOG-6051: index result-count live region — the
   result-count paragraph carries explicit `aria-live="polite"` alongside
   `role="status"` in all three index states so filter changes announce the
