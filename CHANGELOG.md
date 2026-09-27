@@ -18,7 +18,6 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-
 - #136 (2026-09-27) TOG-5860: capability-aware select QA golden
   harness — 9 CLI goldens pinning spec acceptance A1–A7 (typed-requirement
   win, impossible threshold, fail-closed unknown data, stale-catalog
@@ -26,6 +25,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   with small newly-authored fixtures only, plus `accept:capability-select`
   (`test/capability-select-golden.test.js`,
   `bin/accept-wayselect-capability-select`, `package.json`, test-only).
+- #133 (2026-09-27) TOG-5752: designed unknown-listing 404 — search hint
+  (`searching the listings` → `/listings?q=<model>`, capped at the index
+  `q` bound) plus the listing-index link, in the listing-shell chrome
+  (`web/listing-detail.js`, `test/unknown-listing-404.test.js`,
+  `docs/wayselect-onboarding-spec.md`, `preview-unknown-listing-404.png`).
 - #124 (2026-09-27) TOG-6710: double-encoded purchase path segment
   contract — collapsing `%252F` targets pinned as the listing route's 405
   (POST) / listing miss (GET), never a purchase refusal; exact
