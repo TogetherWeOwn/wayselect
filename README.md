@@ -1,8 +1,20 @@
 # Wayselect
 
-> **Early development: fixture-only and dry-run only.** Wayselect does not call models, store credentials, discover endpoints, or claim production compatibility, savings, or optimal routing.
+> **Early development — fixture-only, dry-run only.** No live routing, no live model calls, no credentials, no endpoint discovery. Makes no compatibility, cost, or savings claims. Catalog presence (`catalogued`) is not support, permission, configuration, conformance, or availability.
 
 Wayselect is a small Node 20+ ES module library with a thin local CLI. It turns a newly authored synthetic, models.dev-shaped catalog fixture into an explicit support configuration, applies fail-closed eligibility rules, and returns an inspectable selection explanation. The only transport in this slice is an in-memory fake adapter.
+
+## What Wayselect is / is not
+
+Is:
+
+- A dry-run selector over a synthetic fixture catalog: normalize, configure explicit support states, apply fail-closed eligibility, and explain the deterministic pick.
+- A local teaching and review surface — every decision ships its candidate reasons, provenance, and synthetic-rate policy.
+
+Is not:
+
+- A transport gateway: it never routes a request to a live model, never discovers endpoints, and never sends traffic over the network (`FakeTransport` reports `networkUsed: false`).
+- A compatibility, cost, or savings oracle: selected rates are synthetic/list-price estimates only, and catalog presence never implies permission, configuration, conformance, or availability.
 
 ## What this slice proves
 
@@ -29,16 +41,22 @@ A support state is not a provider credential or permission grant. Evidence can a
 ## Requirements
 
 - Node.js 20 or newer
-- No package installation
-- No environment variables or credentials
+- `npm ci` before `npm test` — the suite uses pinned packages (`ajv`, `ajv-formats` for catalog-entry schema validation; `escape-html` for the preview page). The fixture demo itself (`node bin/wayselect select`) needs no install and runs on the standard library alone.
+- No environment variables or credentials for the fixture demo
 
 ## Reproducible local demo
 
+Quickstart from a clean checkout:
+
 ```sh
-node --version
+git clone https://github.com/TogetherWeOwn/wayselect && cd wayselect
+node --version   # 20+
+npm ci
 npm test
 npm run demo
 ```
+
+Full CLI reference (copy-pasteable `select`/`explain` examples, `--json`, exit codes 0/1/2/3): see `docs/cli.md`.
 
 The demo (`wayselect select`) reads only:
 
@@ -238,3 +256,12 @@ unknown, malformed means rejected); normalized entries expose frozen
 ## Explicit non-goals
 
 This slice does not include live provider calls, endpoint discovery, credentials, HTTP servers, paid inference, real usage or billing data, third-party catalog redistribution, production deployment, universal compatibility, or a savings claim. Future transport or live-conformance work requires separate provenance, security, access, and review decisions.
+
+## Contributing
+
+- Tests stay offline: the suite runs `node --test` with pinned packages only; the `transport` test fails if `fetch` is called, server tests bind an ephemeral port and talk to it over `localhost`/`127.0.0.1`, and the probe tests run the CLI against saved local input (`--fetch`, the only networked path, is never exercised in tests). Do not add tests that reach the live network.
+- Fixture policy: fixtures under `fixtures/` are synthetic and checked in. Add or edit them as data files; refresh stamped provenance through `bin/refresh-catalog-fixtures`, never by hand-editing. Keep unknown fields rejected at the `src/catalog.js` boundary and never guess missing capability data.
+- Node 20+ ESM; keep `bin/wayselect` thin and `src/` boundaries intact. Run `npm run accept:fixture-refresh` + `npm run check:drift` after each refresh. No new runtime dependencies without a CTO note.
+- Keep README claims accurate to merged behavior only — no compatibility, cost, or savings language.
+
+License: not yet chosen.
