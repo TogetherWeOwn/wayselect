@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #120 (2026-09-27) TOG-6383: slow-network knob operator doc (gap T5) —
+  `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` contract plus guard test
+  (`docs/wayselect-slow-network-knob.md`,
+  `test/fragment-delay-knob.test.js`, `README.md`).
 - #123 (2026-09-27) TOG-6374: multi-error 400 page — the HTML
   invalid-filter page lists every error (counted list) instead of only
   the first; single-error copy unchanged (`web/filter.js`,
