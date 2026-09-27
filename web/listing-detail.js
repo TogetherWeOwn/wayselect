@@ -341,8 +341,14 @@ export function renderListingDetailError(providerId, modelId, options) {
 }
 
 export function renderNotFound(providerId, modelId, options) {
+  // TOG-5752: designed miss page — the miss is named, then a search hint
+  // (the requested model id prefilled as the index `q`) plus the index
+  // link. The hint query is capped at the index `q` bound so the link
+  // never 400s; ids are URL-encoded inside the HTML escape (S2 pattern).
+  const hintQuery = String(modelId).slice(0, LISTINGS_MAX_QUERY_LENGTH);
   const body = `<h1>Listing not found</h1>
 <p>No stub listing matches <code>${escapeHtml(providerId)}/${escapeHtml(modelId)}</code>.</p>
+<p>Try <a href="/listings?q=${escapeHtml(encodeURIComponent(hintQuery))}">searching the listings</a> for a similar name, or browse the full <a href="/listings">listing index</a>.</p>
 <a class="back" href="/listings">Back to listings</a>`;
   return layout({ title: "Not found", body, cspNonce: pageNonce(options) });
 }
