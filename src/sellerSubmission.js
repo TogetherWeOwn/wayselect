@@ -78,24 +78,6 @@ function requireNonEmptyString(value, label, key, source) {
   return value;
 }
 
-// TOG-5960: routable identifiers. Trim on intake (before the SG2 equality
-// check) and reject `/` or control characters so `routeId` is always a clean
-// `provider/model` pair that round-trips through GET /listings/:provider/:model
-// (2-segment LISTING_ROUTE, exact-match getStubListing lookup).
-function requireRouteSegment(value, label, key, source) {
-  requireNonEmptyString(value, label, key, source);
-  const trimmed = value.trim();
-  if (trimmed.includes("/") || /[\x00-\x1f\x7f]/.test(trimmed)) {
-    fail(
-      "invalid-value",
-      key,
-      source,
-      `${label} must not contain "/" or control characters`,
-    );
-  }
-  return trimmed;
-}
-
 function requireBoolean(value, label, key, source) {
   if (typeof value !== "boolean") {
     fail("invalid-type", key, source, `${label} must be a boolean`);
@@ -280,7 +262,7 @@ function normalizeEntry(value, source) {
           );
 
   return Object.freeze({
-    id: requireRouteSegment(entry.id, "entry.id", "entry.id", source),
+    id: requireNonEmptyString(entry.id, "entry.id", "entry.id", source),
     name: requireNonEmptyString(entry.name, "entry.name", "entry.name", source),
     description: requireNonEmptyString(
       entry.description,
@@ -373,13 +355,13 @@ export function validateSellerSubmission(submission) {
   assertNoLocationFields(input, "submission", provenanceSource);
   assertKnownKeys(input, SUBMISSION_KEYS, "submission", "submission", provenanceSource);
 
-  const providerId = requireRouteSegment(
+  const providerId = requireNonEmptyString(
     input.providerId,
     "providerId",
     "providerId",
     provenanceSource,
   );
-  const modelId = requireRouteSegment(input.modelId, "modelId", "modelId", provenanceSource);
+  const modelId = requireNonEmptyString(input.modelId, "modelId", "modelId", provenanceSource);
   if (input.entry === undefined) {
     fail("missing-field", "entry", provenanceSource, "submission.entry is required");
   }
