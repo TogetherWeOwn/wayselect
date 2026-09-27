@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #131 (2026-09-27) TOG-6910: deploy-on-merge to Coolify staging +
+  reviewer-gated production — `deploy-staging`/`deploy-production` jobs in
+  `.github/workflows/ci.yml` (`ubuntu-latest`, `environment:` Deployment
+  records, serialized concurrency, fail-closed `check-deploy-target` gate,
+  post-deploy `smoke-wayselect-staging-preview`); staging target decided as
+  Coolify hook (`scripts/check-deploy-target.mjs`,
+  `test/check-deploy-target.test.js`).
 - #121 (2026-09-27) TOG-6709: HEAD method contract — HEAD pinned as a
   plain wrong method (405 + `Allow` on GET/purchase routes, 405 without
   `Allow` on seller routes, 404 on unknown paths; empty body, method gate
