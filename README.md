@@ -313,6 +313,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Catalog search/filter acceptance](docs/wayselect-search-filter-acceptance.md) — executable contract for the search/filter slice.
 - [Seller acceptance](docs/wayselect-seller-acceptance.md) — list → offer → accept slice.
 - [Seller payout-eligibility checklist](docs/wayselect-seller-payout-eligibility.md) — payout-eligibility rules (part 4).
+- [Snapshot retention policy](docs/snapshot-retention.md) — keep-last-10 + 30-day prune rule and `bin/wayselect-snapshot-prune` usage.
 - [Web acceptance](docs/wayselect-web-acceptance.md) — listing-detail + search/filter web slices.
 
 ## Contributing

@@ -10,6 +10,7 @@
   "bin": {
     "wayselect": "bin/wayselect",
     "wayselect-snapshot": "bin/wayselect-snapshot",
+    "wayselect-snapshot-prune": "bin/wayselect-snapshot-prune",
     "wayselect-search-index-refresh": "bin/wayselect-search-index-refresh"
   },
   "scripts": {
@@ -28,6 +29,7 @@
     "accept:checkout": "node bin/accept-wayselect-checkout",
     "accept:gateway-phase1": "node bin/accept-wayselect-gateway-phase1",
     "snapshot": "node bin/wayselect-snapshot",
+    "prune:snapshots": "node bin/wayselect-snapshot-prune",
     "check:provenance": "node bin/check-ingestion-provenance",
     "smoke": "node bin/smoke-wayselect-ingestion",
     "smoke:staging-preview": "node bin/smoke-wayselect-staging-preview",
