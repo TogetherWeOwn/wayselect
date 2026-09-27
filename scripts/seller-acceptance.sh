@@ -107,18 +107,24 @@ else
 fi
 
 # S2 live probe: malformed entry rejected with identifying context; unknown field refused.
+# Mutations change the catalog body, so each mutated copy re-pins the
+# integrity hash first: otherwise every mutation trivially refuses at the
+# snapshot-hash layer (pinned separately by the security checklist) and the
+# probe never reaches the field validator it claims to exercise.
 cat > "$TMPDIR_WORK/failclosed.mjs" <<'EOF'
 import { readFileSync } from "node:fs";
-const { normalizeCatalog } = await import(`${process.env.REPO_ROOT}/src/index.js`);
+const { computeCatalogSnapshotHash, normalizeCatalog } = await import(`${process.env.REPO_ROOT}/src/index.js`);
 const base = JSON.parse(readFileSync(process.argv[2] ?? "fixtures/catalog.synthetic.json", "utf8"));
 if (Array.isArray(base)) { console.log("S2-PROBE: v1 entry list; validator rejects via TOG-4830 path"); process.exit(0); }
 const malformed = structuredClone(base);
 delete malformed.catalog.northstar.models["alpha-chat"].name;
+malformed.provenance.snapshotHash = computeCatalogSnapshotHash(malformed.catalog);
 let malformedRejected = false;
 try { normalizeCatalog(malformed.catalog, malformed.provenance); }
 catch (e) { malformedRejected = /alpha-chat/.test(e.message); console.log(`S2-PROBE malformed rejected: ${e.message}`); }
 const injected = structuredClone(base);
 injected.catalog.northstar.models["alpha-chat"].admin_override = true;
+injected.provenance.snapshotHash = computeCatalogSnapshotHash(injected.catalog);
 let unknownRejected = false;
 try { normalizeCatalog(injected.catalog, injected.provenance); }
 catch (e) { unknownRejected = /unknown field/.test(e.message); console.log(`S2-PROBE unknown-field rejected: ${e.message}`); }
@@ -220,8 +226,154 @@ else
   verdict S6 FAIL "freshness probe misbehaving (see S6-PROBE above) — defect in freshness path (Founding Engineer)"
 fi
 
-# --- S7: confirm + listing-created surfaces ---
-verdict S7 FAIL "confirm/listing-created are specified-not-built in this slice — expected FAIL; named defect for the seller build slice TOG-4969 (Web Engineer, unblocks on TOG-4958 acceptance)"
+# --- S7: confirm + listing-created surfaces (TOG-4969) ---
+# Exercises the real preview server: intake a fixture submission, confirm
+# screen restates routeId/price/support/verdict with exact reason codes, the
+# confirm POST records intent-only, rejections name key + source, and the
+# flag-off server refuses everything. No live publish anywhere.
+cat > "$TMPDIR_WORK/s7.mjs" <<'EOF'
+import { readFile } from "node:fs/promises";
+const { createApp } = await import(`${process.env.REPO_ROOT}/web/server.js`);
+const fixtures = JSON.parse(
+  await readFile(`${process.env.REPO_ROOT}/fixtures/seller-submission.synthetic.json`, "utf8"),
+);
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+const close = (server) => new Promise((resolve) => server.close(resolve));
+async function postJson(base, path, body, headers = {}) {
+  const res = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, text: await res.text() };
+}
+
+const failures = [];
+function check(cond, label, detail = "") {
+  console.log(`S7-PROBE ${cond ? "ok" : "FAIL"} ${label}${detail ? ` — ${detail}` : ""}`);
+  if (!cond) failures.push(label);
+}
+
+const on = await listen({ WAYSELECT_PREVIEW: "1" });
+const off = await listen({});
+const baseOn = `http://127.0.0.1:${on.address().port}`;
+const baseOff = `http://127.0.0.1:${off.address().port}`;
+try {
+  // Intake: valid submission validates to a confirm model.
+  const accepted = await postJson(baseOn, "/sellers/submissions", structuredClone(fixtures.valid));
+  const model = JSON.parse(accepted.text);
+  check(accepted.status === 200, "intake accepts the valid fixture", `got ${accepted.status}`);
+  check(model.routeId === "northstar/seller-chat", "intake routeId", model.routeId);
+  check(model.priceLabel === "in=1 out=2", "price as-quoted", model.priceLabel);
+  check(model.supportState === "catalogued", "new listings enter catalogued", model.supportState);
+  check(
+    Array.isArray(model.reasons) && model.reasons.includes("support-state:catalogued"),
+    "verdict carries exact reason codes",
+    JSON.stringify(model.reasons),
+  );
+
+  // Unpublished price renders as Price unpublished, never invented.
+  const minimal = await postJson(baseOn, "/sellers/submissions", structuredClone(fixtures.minimal));
+  check(
+    minimal.status === 200 && JSON.parse(minimal.text).priceLabel === "Price unpublished",
+    "missing cost renders Price unpublished",
+  );
+
+  // Fail-closed rejections name the offending key + provenance source.
+  const forbidden = structuredClone(fixtures.valid);
+  forbidden.entry.url = "https://example.invalid/x";
+  const rForbidden = await postJson(baseOn, "/sellers/submissions", forbidden);
+  const jForbidden = JSON.parse(rForbidden.text);
+  check(
+    rForbidden.status === 400 &&
+      jForbidden.code === "forbidden-field" &&
+      jForbidden.key === "submission.entry.url" &&
+      jForbidden.source === "synthetic://wayselect/seller-fixture-v1",
+    "forbidden location field rejected with key + source",
+    rForbidden.text.slice(0, 160),
+  );
+  const unknown = structuredClone(fixtures.valid);
+  unknown.extra = true;
+  const rUnknown = await postJson(baseOn, "/sellers/submissions", unknown);
+  check(
+    rUnknown.status === 400 && JSON.parse(rUnknown.text).code === "unknown-field",
+    "unknown field rejected fail-closed",
+  );
+
+  // Confirm screen: GET restates the staged intent.
+  const confirmRes = await fetch(`${baseOn}/sellers/submissions/northstar/seller-chat/confirm`);
+  const confirmJson = JSON.parse(await confirmRes.text());
+  check(
+    confirmRes.status === 200 && confirmJson.routeId === "northstar/seller-chat",
+    "confirm screen restates the staged route",
+  );
+
+  // Confirm HTML renders the §3-step-5 facts for browsers.
+  const confirmHtml = await (
+    await fetch(`${baseOn}/sellers/submissions/northstar/seller-chat/confirm`, {
+      headers: { accept: "text/html" },
+    })
+  ).text();
+  check(
+    confirmHtml.includes("Confirm listing") &&
+      confirmHtml.includes("support-state:catalogued") &&
+      confirmHtml.includes("No live publish"),
+    "confirm HTML restates route, verdict codes, intent-only",
+  );
+
+  // Listing-created receipt: intent recorded, never a publish.
+  const receiptRes = await fetch(
+    `${baseOn}/sellers/submissions/northstar/seller-chat/confirm`,
+    { method: "POST" },
+  );
+  const receipt = JSON.parse(await receiptRes.text());
+  check(
+    receiptRes.status === 200 && receipt.recorded === true && receipt.intentOnly === true,
+    "confirm records intent only (no live publish)",
+  );
+  check(
+    receipt.routeId === "northstar/seller-chat" &&
+      receipt.priceLabel === "in=1 out=2" &&
+      receipt.provenance?.source === "synthetic://wayselect/seller-fixture-v1",
+    "receipt carries route, price as-quoted, provenance",
+  );
+  check(
+    !("amount" in receipt) && !("paymentUrl" in receipt) && !("url" in receipt),
+    "receipt carries no payment or location fields",
+  );
+
+  // Unknown intents fail closed; flag-off refuses everything.
+  const missing = await fetch(`${baseOn}/sellers/submissions/northstar/nope/confirm`);
+  check(missing.status === 404, "unknown intent 404s (never guessed)");
+  const offPost = await postJson(baseOff, "/sellers/submissions", structuredClone(fixtures.valid));
+  check(
+    offPost.status === 404 && JSON.parse(offPost.text).error === "preview_disabled",
+    "flag off refuses intake",
+  );
+} finally {
+  await Promise.all([close(on), close(off)]);
+}
+if (failures.length > 0) {
+  console.log(`S7-PROBE-ERROR: ${failures.length} probe(s) failed`);
+  process.exit(1);
+}
+console.log("S7-PROBE: intake + fail-closed validation + confirm + receipt all green");
+EOF
+if node "$TMPDIR_WORK/s7.mjs" >"$TMPDIR_WORK/s7.log" 2>&1; then
+  cat "$TMPDIR_WORK/s7.log"
+  verdict S7 PASS "submission intake + fail-closed validation + confirm screen + intent-only receipt (TOG-4969)"
+else
+  cat "$TMPDIR_WORK/s7.log"
+  verdict S7 FAIL "seller confirm surfaces misbehaving (see S7-PROBE above) — defect in seller build slice TOG-4969 (Web Engineer)"
+fi
 
 echo "---"
 echo "seller-acceptance: PASS=$PASS FAIL=$FAIL BLOCKED=$BLOCKED"

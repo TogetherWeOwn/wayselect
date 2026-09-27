@@ -13,6 +13,19 @@
 //   POST /listings/:provider/:model/purchase — stub CTA target: 404 for
 //                                            unknown listings, 403 for known
 //                                            listings (no backend writes)
+//   POST /sellers/submissions                — seller intake (TOG-4969):
+//                                            validates the JSON body with
+//                                            validateSellerSubmission and
+//                                            records a pending intent
+//                                            in-memory (restart clears)
+//   GET /sellers/submissions/:provider/:model/confirm
+//                                          — confirm screen (TOG-4969):
+//                                            restates route, price, support,
+//                                            evidence age + verdict
+//   POST /sellers/submissions/:provider/:model/confirm
+//                                          — records intent, returns the
+//                                            listing-created receipt
+//                                            (no live publish, ever)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
 //
 // Security headers (TOG-5731, nonce CSP TOG-6049):
@@ -58,9 +71,21 @@ import {
 } from "./listing-detail.js";
 import { applyListingsFilters, paginateListings, parseListingsQuery } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
+import { readJsonBody } from "./jsonBody.js";
+import {
+  confirmModel,
+  confirmModelJson,
+  renderSellerConfirm,
+  renderSellerIntentMissing,
+  renderSellerReceipt,
+  renderSellerSubmissionError,
+} from "./seller.js";
+import { SellerSubmissionError, validateSellerSubmission } from "../src/sellerSubmission.js";
 
 const LISTING_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/?$/;
 const PURCHASE_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/purchase\/?$/;
+const SELLER_INTAKE_ROUTE = /^\/sellers\/submissions\/?$/;
+const SELLER_CONFIRM_ROUTE = /^\/sellers\/submissions\/([^/]+)\/([^/]+)\/confirm\/?$/;
 
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
@@ -120,6 +145,12 @@ function routeBucket(method, pathname) {
   if (PURCHASE_ROUTE.test(pathname)) {
     return `${method} /listings/:provider/:model/purchase`;
   }
+  if (SELLER_CONFIRM_ROUTE.test(pathname)) {
+    return `${method} /sellers/submissions/:provider/:model/confirm`;
+  }
+  if (SELLER_INTAKE_ROUTE.test(pathname)) {
+    return `${method} /sellers/submissions`;
+  }
   if (LISTING_ROUTE.test(pathname)) {
     return `${method} /listings/:provider/:model`;
   }
@@ -146,13 +177,18 @@ export const SERVER_VERSION = loadServerVersion();
 
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
+  // Pending seller intents (TOG-4969): routeId -> frozen confirm model.
+  // In-memory only — restart clears. Confirm records intent; nothing here
+  // publishes, charges, or persists.
+  const sellerIntents = new Map();
   // XFF trust boundary (TOG-6029): unset by default (direct-remote only).
   // Opt-in for a single trusted proxy hop via `trustedProxyIp` option or
   // the `WAYSELECT_TRUSTED_PROXY_IP` env var — exactly one peer IP. Empty
   // string env counts as unset. Documented in rate-limit.js; no prod use.
   const rawTrusted = options.trustedProxyIp ?? env.WAYSELECT_TRUSTED_PROXY_IP ?? null;
   const trustedProxyIp = rawTrusted === null || String(rawTrusted).trim() === "" ? null : String(rawTrusted).trim();
-  return createServer((req, res) => {
+  // Async handler: the seller intake route awaits the strict JSON body gate.
+  return createServer(async (req, res) => {
     // TOG-5726: /healthz is the orchestrator liveness probe. It answers
     // before rate limiting (a saturated limiter must not look like a dead
     // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
@@ -269,6 +305,138 @@ export function createApp(env = process.env, options = {}) {
         error: "preview_only",
         message: "Purchases are disabled in preview. No backend writes.",
       });
+      return;
+    }
+
+    // Seller submission intake (TOG-4969): strict JSON body gate, then the
+    // fail-closed seller validator. 200 + confirm model on success; 400 with
+    // the offending key + provenance source on rejection (JSON for API
+    // callers, the named rejection page for browsers). Flag-gated; no live
+    // publish anywhere on this path.
+    if (SELLER_INTAKE_ROUTE.test(pathname)) {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      if (!isPreviewEnabled(env)) {
+        sendJson(res, 404, { error: "preview_disabled" });
+        return;
+      }
+      const body = await readJsonBody(req);
+      if (!body.ok) {
+        const status = body.code === "body_too_large" ? 413 : 400;
+        sendJson(res, status, {
+          error: body.code,
+          key: "submission",
+          source: null,
+          message: `Seller submission rejected: ${body.code}.`,
+        });
+        return;
+      }
+      let normalized;
+      try {
+        normalized = validateSellerSubmission(body.value);
+      } catch (error) {
+        if (!(error instanceof SellerSubmissionError)) {
+          throw error;
+        }
+        const payload = {
+          error: "invalid_submission",
+          code: error.code ?? "invalid-submission",
+          key: error.key ?? "submission",
+          source: error.source ?? null,
+          message: error.message,
+        };
+        if (String(req.headers?.accept ?? "").includes("text/html")) {
+          const nonce = newCspNonce();
+          sendHtml(res, 400, renderSellerSubmissionError(payload, { cspNonce: nonce }), nonce);
+          return;
+        }
+        sendJson(res, 400, payload);
+        return;
+      }
+      const model = confirmModel(normalized);
+      sellerIntents.set(model.routeId, model);
+      const confirmPath = `/sellers/submissions/${encodeURIComponent(model.providerId)}/${encodeURIComponent(model.modelId)}/confirm`;
+      if (String(req.headers?.accept ?? "").includes("text/html")) {
+        const nonce = newCspNonce();
+        sendHtml(res, 200, renderSellerConfirm(model, { cspNonce: nonce }), nonce);
+        return;
+      }
+      sendJson(res, 200, { ...confirmModelJson(model), confirmPath });
+      return;
+    }
+
+    // Seller confirm + receipt (TOG-4969): GET restates the pending intent,
+    // POST records it and returns the listing-created receipt. Both 404 when
+    // no intent was staged; neither publishes anything.
+    const sellerConfirmMatch = pathname.match(SELLER_CONFIRM_ROUTE);
+    if (sellerConfirmMatch) {
+      if (!isPreviewEnabled(env)) {
+        if (req.method === "GET" && !String(req.headers?.accept ?? "").includes("application/json")) {
+          const nonce = newCspNonce();
+          sendHtml(res, 404, renderPreviewDisabled({ cspNonce: nonce }), nonce);
+          return;
+        }
+        sendJson(res, 404, { error: "preview_disabled" });
+        return;
+      }
+      const [, rawSellerProvider, rawSellerModel] = sellerConfirmMatch;
+      let providerId;
+      let modelId;
+      try {
+        providerId = decodeURIComponent(rawSellerProvider);
+        modelId = decodeURIComponent(rawSellerModel);
+      } catch {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      const routeId = `${providerId}/${modelId}`;
+      const model = sellerIntents.get(routeId) ?? null;
+      if (req.method === "GET") {
+        if (!model) {
+          if (String(req.headers?.accept ?? "").includes("text/html")) {
+            const nonce = newCspNonce();
+            sendHtml(
+              res,
+              404,
+              renderSellerIntentMissing(providerId, modelId, { cspNonce: nonce }),
+              nonce,
+            );
+            return;
+          }
+          sendJson(res, 404, { error: "no_pending_intent", routeId });
+          return;
+        }
+        if (String(req.headers?.accept ?? "").includes("text/html")) {
+          const nonce = newCspNonce();
+          sendHtml(res, 200, renderSellerConfirm(model, { cspNonce: nonce }), nonce);
+          return;
+        }
+        sendJson(res, 200, confirmModelJson(model));
+        return;
+      }
+      if (req.method === "POST") {
+        if (!model) {
+          sendJson(res, 404, { error: "no_pending_intent", routeId });
+          return;
+        }
+        const recordedAt = new Date().toISOString();
+        const receipt = {
+          recorded: true,
+          intentOnly: true,
+          recordedAt,
+          ...confirmModelJson(model),
+        };
+        if (String(req.headers?.accept ?? "").includes("text/html")) {
+          const nonce = newCspNonce();
+          sendHtml(res, 200, renderSellerReceipt(model, recordedAt, { cspNonce: nonce }), nonce);
+          return;
+        }
+        sendJson(res, 200, receipt);
+        return;
+      }
+      sendJson(res, 405, { error: "method_not_allowed" });
       return;
     }
 
