@@ -24,6 +24,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `routeBucket` lockstep), failing with the stale side named
   (`test/preview-route-table.test.js`).
 
+- #54 (2026-09-28) TOG-5747: provenance-drift JSON report pinned to v1 schema —
+  `bin/check-provenance-drift --out` shape is now fail-closed
+  (`schema/drift-report/v1.json`: exact D1/D2/D3 check table, written on
+  green and red runs alike) with green + three red runs asserted
+  (`test/drift-report-schema.test.js`, test-only, no source change).
 - #191 (2026-09-28) TOG-6043: README deploy section matches landed runbook — new
   "Deploying the preview server (staging only)" section (Docker build/run,
   health-probe verify, three-variable env contract, merge-to-main staging

@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/TogetherWeOwn/wayselect/schema/drift-report/v1.json",
+  "title": "WayselectProvenanceDriftReport",
+  "description": "Versioned schema (v1) for the bin/check-provenance-drift --out JSON report consumed by the refresh scheduler. Fail-closed: additionalProperties is false at every object level. The report is written on every run that gets past argument parsing — green (ok true) and red (ok false with per-check fail entries) alike — so scheduler consumers can rely on the shape regardless of exit code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "mode", "issue", "ranAt", "catalog", "evidence", "snapshotTimestamp", "recordedHash", "recomputedHash", "evidenceHash", "evidenceVerdict", "now", "maxCatalogAgeMs", "freshness", "checks"],
+  "properties": {
+    "ok": {
+      "description": "True only when D1, D2 and D3 all pass. Mirrors the process exit code (0/1).",
+      "type": "boolean"
+    },
+    "mode": {
+      "description": "Probe identifier; always this constant.",
+      "const": "provenance-drift-probe"
+    },
+    "issue": {
+      "description": "Owning probe issue; pinned so consumers can detect a probe-generation change.",
+      "const": "TOG-5542"
+    },
+    "ranAt": {
+      "description": "Wall-clock time the report was built (RFC 3339).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "catalog": {
+      "description": "Resolved catalog path the probe read (as passed via --catalog or the default).",
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "description": "Resolved evidence path the probe read (as passed via --evidence or the default).",
+      "type": "string",
+      "minLength": 1
+    },
+    "snapshotTimestamp": {
+      "description": "Recorded catalog snapshot timestamp, or null when the body was unreadable.",
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "recordedHash": {
+      "description": "Snapshot hash recorded in the fixture provenance (D1 expectation). String when present, null when unreadable. Deliberately pattern-open: on red runs this can carry the mismatching value that D1 rejected.",
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "recomputedHash": {
+      "description": "Canonical SHA-256 recomputed over the live catalog body, or null when the body could not be hashed. Deliberately pattern-open for the same reason as recordedHash.",
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "evidenceHash": {
+      "description": "Provenance hash pinned by the last harness run (D2 expectation), or null when the evidence file carries no string hash. Deliberately pattern-open: malformed pins are a D2 FAIL, still reported.",
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "evidenceVerdict": {
+      "description": "Passthrough of the raw evidence verdict (expected \"PASS\"). Any JSON value is accepted — the verdict domain is open by design (anything but PASS is a D2 FAIL) — null when unreadable."
+    },
+    "now": {
+      "description": "Reference clock for the D3 freshness window (as passed via --now or wall-clock).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "maxCatalogAgeMs": {
+      "description": "Freshness window in milliseconds (from --max-catalog-age-hours).",
+      "type": "number",
+      "minimum": 0
+    },
+    "freshness": {
+      "description": "D3 freshness probe result. Null only when D3 could not run (e.g. unreadable timestamp input).",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["fresh", "ageMs", "snapshotTimestamp", "maxCatalogAgeMs"],
+      "properties": {
+        "fresh": {
+          "type": "boolean"
+        },
+        "ageMs": {
+          "description": "now minus snapshotTimestamp in ms; negative means a future-dated snapshot (D3 FAIL).",
+          "type": "number"
+        },
+        "snapshotTimestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "maxCatalogAgeMs": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "checks": {
+      "description": "Per-check table, always exactly the D1/D2/D3 entries in order.",
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "detail"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": ["pass", "fail"]
+          },
+          "detail": {
+            "description": "Human-readable one-liner; machine consumers must key on name/status, not this text.",
+            "type": "string"
+          }
+        }
+      },
+      "allOf": [
+        { "contains": { "type": "object", "properties": { "name": { "type": "string", "pattern": "^D1\\b" } }, "required": ["name"] } },
+        { "contains": { "type": "object", "properties": { "name": { "type": "string", "pattern": "^D2\\b" } }, "required": ["name"] } },
+        { "contains": { "type": "object", "properties": { "name": { "type": "string", "pattern": "^D3\\b" } }, "required": ["name"] } }
+      ]
+    }
+  }
+}
