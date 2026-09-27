@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #116 (2026-09-27) TOG-6384: purchase refusal body contract — exact
+  403 `{error: "preview_only", message}` body pinned (keys, message
+  verbatim, flag-on/off, trailing slash, 404-first boundary)
+  (`test/purchase-refusal-body-contract.test.js`, test-only, no prod
+  change).
 - #115 (2026-09-27) TOG-6375: preview-disabled JSON fragment contract —
   flag-off detail requests negotiating `Accept: application/json` 404
   with `{error: "preview_disabled"}` (HTML default and HTML-only index
