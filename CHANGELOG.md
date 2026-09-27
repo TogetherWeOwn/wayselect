@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
+  routes wrong-method refusals through the shared `sendMethodNotAllowed`
+  helper (RFC 9110 §15.5.6) instead of raw `sendJson`; HEAD-contract pin
+  updated for the intake path (`web/server.js`,
+  `test/seller-intake-405.test.js`, `test/head-method-contract.test.js`).
 - #143 (2026-09-27) TOG-6713: cap slowloris header/body receipt —
   `createApp()` pins `headersTimeout` 10s / `requestTimeout` 120s on every
   server it builds (below Node's 60s/300s defaults), with a validated

@@ -420,8 +420,10 @@ export function createApp(env = process.env, options = {}) {
     // callers, the named rejection page for browsers). Flag-gated; no live
     // publish anywhere on this path.
     if (SELLER_INTAKE_ROUTE.test(pathname)) {
+      // TOG-6707: wrong-method refusal goes through the shared helper so
+      // the 405 carries `Allow: POST` per RFC 9110 §15.5.6.
       if (req.method !== "POST") {
-        sendJson(res, 405, { error: "method_not_allowed" });
+        sendMethodNotAllowed(res, "POST");
         return;
       }
       if (!isPreviewEnabled(env)) {
