@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+
+// Engine gate for Wayselect (TOG-5728).
+//
+// Fails fast when the running Node does not satisfy the `engines.node`
+// range in package.json (currently `>=20`). CI runs this step before
+// `npm ci` on every matrix leg so version drift surfaces as a clear
+// ENGINE-MISMATCH error instead of a confusing downstream failure.
+//
+// Stdlib only, no new dependencies.
+//
+// Usage:
+//   node bin/check-node-engines   # exit 0 = engine satisfied, exit 1 = mismatch
+
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+let pkg;
+try {
+  pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+} catch (error) {
+  process.stderr.write(`ENGINE-MISMATCH: cannot read package.json (${error.message})\n`);
+  process.exit(1);
+}
+
+const range = pkg.engines?.node ?? "";
+const rangeMatch = range.match(/(\d+)/);
+if (!rangeMatch) {
+  process.stderr.write("ENGINE-MISMATCH: package.json engines.node is missing or unparsable\n");
+  process.exit(1);
+}
+const minimumMajor = Number(rangeMatch[1]);
+
+const currentVersion = process.version;
+const currentMajor = Number(process.versions.node.split(".")[0]);
+
+if (!Number.isInteger(currentMajor) || currentMajor < minimumMajor) {
+  process.stderr.write(
+    `ENGINE-MISMATCH: node ${currentVersion} does not satisfy engines "${range}" (needs major >= ${minimumMajor})\n`,
+  );
+  process.exit(1);
+}
+
+process.stdout.write(`ENGINE-OK: node ${currentVersion} satisfies engines "${range}"\n`);
