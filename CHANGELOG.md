@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #95 (2026-09-27) TOG-6381: multi-seed eval stability — 3 tests
+  assert repeatability, v2/v3 shuffle-invariance, v3 goldens, and identical
+  CLI SUMMARY across one seed per shuffle class incl. 5492
+  (`test/search-prompt-multi-seed.test.js`, test-only, no prod change).
 - #88 (2026-09-27) TOG-6388: root `CONTRIBUTING.md` (setup, ground
   rules, branch/PR/gates, review-and-merge policy) + README link
   (`CONTRIBUTING.md`, `README.md`).
