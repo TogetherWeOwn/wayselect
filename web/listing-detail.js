@@ -10,6 +10,7 @@
 // unknown badges with fail-closed copy on unknown. Rendering never throws:
 // an evaluation failure degrades to unknown.
 
+import escapeHtmlLib from "escape-html";
 import {
   ELIGIBILITY_STATE,
   describeEligibility,
@@ -18,13 +19,13 @@ import {
 } from "./eligibility.js";
 import { VALID_CAPABILITIES, VALID_MODALITIES, emptyFilters } from "./filter.js";
 
+// HTML escaping delegates to the `escape-html` library (`&<>"'` entity
+// encoding, output-identical to the previous hand-rolled version). The
+// library form matters: CodeQL's js/reflected-xss query models it as a
+// sanitizer, while a custom replaceAll chain is flagged (PR #33 CodeQL).
+// Wrapper keeps existing call sites unchanged and coerces to string.
 function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return escapeHtmlLib(String(value));
 }
 
 function capabilityRow(label, value) {
