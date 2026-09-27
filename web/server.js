@@ -188,6 +188,50 @@ function loadServerVersion() {
 
 export const SERVER_VERSION = loadServerVersion();
 
+// Slow-header/slow-body caps (TOG-6713): Node's defaults (headersTimeout 60s,
+// requestTimeout 300s) let a slowloris-style drip hold a socket for minutes —
+// the only timers that existed here were the fragment-delay test knob, which
+// delays a response that was already fully received and protects nothing.
+// headersTimeout caps header receipt; requestTimeout caps headers + body.
+// headersTimeout stays below requestTimeout, as the Node docs recommend.
+// requestTimeout only fires on stalled receipt (no data moving) — it never
+// kills a slow-but-progressing handler, so the
+// WAYSELECT_DETAIL_FRAGMENT_DELAY_MS dev knob (post-receipt delay) is
+// unaffected, and neither timer touches idle keep-alive sockets.
+export const HTTP_TIMEOUT_DEFAULTS = Object.freeze({
+  headersTimeout: 10_000,
+  requestTimeout: 120_000,
+});
+
+// Override ceiling: anything above Node's own 5-minute requestTimeout default
+// re-opens the slowloris window these defaults close.
+const HTTP_TIMEOUT_MAX_MS = 300_000;
+
+export function configureHttpTimeouts(server, overrides = {}) {
+  const {
+    headersTimeout = HTTP_TIMEOUT_DEFAULTS.headersTimeout,
+    requestTimeout = HTTP_TIMEOUT_DEFAULTS.requestTimeout,
+  } = overrides ?? {};
+  for (const [name, value] of [
+    ["headersTimeout", headersTimeout],
+    ["requestTimeout", requestTimeout],
+  ]) {
+    if (!Number.isInteger(value) || value < 1 || value > HTTP_TIMEOUT_MAX_MS) {
+      throw new RangeError(
+        `Invalid ${name} ${JSON.stringify(value)}: expected an integer 1-${HTTP_TIMEOUT_MAX_MS} ms`,
+      );
+    }
+  }
+  if (headersTimeout > requestTimeout) {
+    throw new RangeError(
+      `Invalid http timeouts: headersTimeout (${headersTimeout} ms) must not exceed requestTimeout (${requestTimeout} ms)`,
+    );
+  }
+  server.headersTimeout = headersTimeout;
+  server.requestTimeout = requestTimeout;
+  return { headersTimeout, requestTimeout };
+}
+
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
   // Pending seller intents (TOG-4969): routeId -> frozen confirm model.
@@ -200,8 +244,13 @@ export function createApp(env = process.env, options = {}) {
   // string env counts as unset. Documented in rate-limit.js; no prod use.
   const rawTrusted = options.trustedProxyIp ?? env.WAYSELECT_TRUSTED_PROXY_IP ?? null;
   const trustedProxyIp = rawTrusted === null || String(rawTrusted).trim() === "" ? null : String(rawTrusted).trim();
-  // Async handler: the seller intake route awaits the strict JSON body gate.
-  return createServer(async (req, res) => {
+  // Slowloris guard (TOG-6713): cap header/body receipt on every server this
+  // factory builds — test and prod share the path, so the pin cannot drift.
+  // No `clientError` listener is registered anywhere, so an expired socket
+  // gets Node's default 408 + destroy. Tightened per server via
+  // `httpTimeouts: { headersTimeout, requestTimeout }` (see
+  // configureHttpTimeouts for the bounds).
+  const server = createServer(async (req, res) => {
     // TOG-5726: /healthz is the orchestrator liveness probe. It answers
     // before rate limiting (a saturated limiter must not look like a dead
     // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
@@ -547,6 +596,8 @@ export function createApp(env = process.env, options = {}) {
     }
     sendJson(res, 404, { error: "not_found" });
   });
+  configureHttpTimeouts(server, options.httpTimeouts);
+  return server;
 }
 
 const isMainModule =
@@ -617,9 +668,13 @@ if (isMainModule) {
   const server = createApp();
   installShutdownHandlers(server);
   server.listen(port, host, () => {
+    // TOG-6713: log the slowloris caps at startup so the values are visible
+    // to operators without reading source (and asserted in
+    // test/preview-http-timeouts.test.js).
     // eslint-disable-next-line no-console
     console.log(
-      `wayselect preview server on http://${host}:${port} (preview=${isPreviewEnabled() ? "on" : "off"})`,
+      `wayselect preview server on http://${host}:${port} (preview=${isPreviewEnabled() ? "on" : "off"}) ` +
+        `(headersTimeout=${server.headersTimeout}ms requestTimeout=${server.requestTimeout}ms)`,
     );
   });
 }
