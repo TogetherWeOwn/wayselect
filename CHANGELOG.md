@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #149 (2026-09-27) TOG-7315: debt-marker introduction gate — `bin/check-no-todo-markers`
+  (stdlib-only, case-sensitive whole-word match, PNG-safe, skips
+  `.git`/`node_modules`/`coverage`) runs as the `marker-gate` CI job
+  without `npm ci`; newly added marker words fail the run
+  (`bin/check-no-todo-markers`, `test/no-todo-markers.test.js`,
+  `.github/workflows/ci.yml`, CI-only).
 - #148 (2026-09-27) TOG-6708: `Vary: Accept` on content-negotiated routes — seller-intake,
   seller-confirm, listing-detail shell/fragment, and the 404 fallback
   negotiate HTML vs JSON on `Accept`, so every variant carries

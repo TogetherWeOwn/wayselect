@@ -49,6 +49,18 @@ jobs:
       - run: npm ci
       - run: npm run check:search-index
 
+  marker-gate:
+    # TOG-7315: debt-marker introduction gate. Stdlib only, so no `npm ci`:
+    # any newly added tracked marker word (see the word list in the script)
+    # fails the run. This comment avoids spelling them: the gate scans it too.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node bin/check-no-todo-markers
+
   e2e-staging-acceptance:
     # TOG-5722: CLI e2e staging acceptance, fixture-only, no network/credentials.
     # WAYSELECT_STAGING_ENDPOINT is intentionally unset so the publish step
