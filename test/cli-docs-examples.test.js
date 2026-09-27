@@ -19,64 +19,16 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { readFixture, evaluationNow } from "../support/helpers.js";
+import {
+  exampleCommands,
+  fencedBlocks,
+  normalizeTimestamps,
+  substituteClock,
+} from "../support/cliDocsExamples.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = new URL("..", import.meta.url);
 const DOCS_PATH = new URL("../docs/cli.md", import.meta.url);
-
-function normalizeTimestamps(value) {
-  return value.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<TIMESTAMP>");
-}
-
-// Split the doc into an ordered list of fenced blocks: { lang, body }.
-function fencedBlocks(markdown) {
-  const blocks = [];
-  const pattern = /```(\w+)\n(.*?)```/gs;
-  let match;
-  while ((match = pattern.exec(markdown)) !== null) {
-    blocks.push({ lang: match[1], body: match[2] });
-  }
-  return blocks;
-}
-
-// Extract runnable `node bin/wayselect select|explain ...` commands from an sh
-// block: join continuations, cut `; echo ...` suffixes, skip help/version and
-// error-path examples covered by cli.test.js.
-function exampleCommands(shBody) {
-  const joined = shBody.replace(/\\\n/g, " ");
-  const commands = [];
-  for (const rawLine of joined.split("\n")) {
-    const line = rawLine.trim();
-    if (!line.startsWith("node bin/wayselect")) {
-      continue;
-    }
-    const argv = line
-      .split(";")[0]
-      .trim()
-      .split(/\s+/)
-      .slice(2);
-    if (argv.includes("--help") || argv.includes("--version")) {
-      continue;
-    }
-    if (line.includes("missing.json") || line.includes("--nope") || line.includes("frobnicate")) {
-      continue;
-    }
-    if (argv[argv.length - 1] === "--operation") {
-      continue; // missing-value usage error, covered by cli.test.js
-    }
-    if (argv[0] !== "select" && argv[0] !== "explain") {
-      continue;
-    }
-    commands.push(argv);
-  }
-  return commands;
-}
-
-function substituteClock(argv, evaluationTime) {
-  return argv.map((token, index) =>
-    argv[index - 1] === "--evaluation-time" ? evaluationTime : token,
-  );
-}
 
 async function runCli(argv) {
   try {
