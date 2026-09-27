@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
+  routes wrong-method refusals through the shared `sendMethodNotAllowed`
+  helper (RFC 9110 §15.5.6) instead of raw `sendJson`; HEAD-contract pin
+  updated for the intake path (`web/server.js`,
+  `test/seller-intake-405.test.js`, `test/head-method-contract.test.js`).
 - TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
   read deadline (`MAX_JSON_BODY_READ_MS`) that fails closed with
   `body_timeout` (408 at the seller route, retryable; drains the stream

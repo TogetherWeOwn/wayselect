@@ -11,8 +11,9 @@
 //   - GET-only routes (/healthz, /listings, /listings/, detail incl. misses):
 //     405 with `Allow: GET` via sendMethodNotAllowed.
 //   - Purchase route: 405 with `Allow: POST`.
-//   - Seller intake + confirm routes: 405 with NO `Allow` header (they answer
-//     via sendJson, not sendMethodNotAllowed) — pinned, not endorsed.
+//   - Seller intake route: 405 with `Allow: POST` via sendMethodNotAllowed
+//     (TOG-6707). Seller confirm route: 405 with NO `Allow` header (still
+//     answers via sendJson, not sendMethodNotAllowed) — pinned, not endorsed.
 //   - Unknown paths: 404 with no `Allow` header.
 //
 // node:test, zero dependencies.
@@ -74,16 +75,24 @@ describe("HEAD method contract (TOG-6709)", () => {
     strictEqual(res.text, "", "HEAD purchase: no body on HEAD");
   });
 
-  it("HEAD on seller routes is 405 with no `Allow` header (pinned as-is)", async () => {
+  it("HEAD on the seller intake route is 405 with `Allow: POST` (TOG-6707)", async () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
-    for (const path of ["/sellers/submissions", "/sellers/submissions/x/y/confirm"]) {
-      const res = await head(base, path);
-      strictEqual(res.status, 405, `HEAD ${path}`);
-      strictEqual(res.allow, null, `HEAD ${path}: no Allow header`);
-      strictEqual(res.contentType, JSON_CT, `HEAD ${path}: content-type`);
-      strictEqual(res.nosniff, "nosniff", `HEAD ${path}: security headers`);
-      strictEqual(res.text, "", `HEAD ${path}: no body on HEAD`);
-    }
+    const res = await head(base, "/sellers/submissions");
+    strictEqual(res.status, 405, "HEAD /sellers/submissions");
+    strictEqual(res.allow, "POST", "HEAD /sellers/submissions: Allow header");
+    strictEqual(res.contentType, JSON_CT, "HEAD /sellers/submissions: content-type");
+    strictEqual(res.nosniff, "nosniff", "HEAD /sellers/submissions: security headers");
+    strictEqual(res.text, "", "HEAD /sellers/submissions: no body on HEAD");
+  });
+
+  it("HEAD on the seller confirm route is 405 with no `Allow` header (pinned as-is)", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await head(base, "/sellers/submissions/x/y/confirm");
+    strictEqual(res.status, 405, "HEAD confirm");
+    strictEqual(res.allow, null, "HEAD confirm: no Allow header");
+    strictEqual(res.contentType, JSON_CT, "HEAD confirm: content-type");
+    strictEqual(res.nosniff, "nosniff", "HEAD confirm: security headers");
+    strictEqual(res.text, "", "HEAD confirm: no body on HEAD");
   });
 
   it("HEAD on unknown paths stays 404 with no `Allow` header", async () => {
