@@ -6,6 +6,11 @@
 //                                            `{status:"ok",version}` JSON,
 //                                            ungated by WAYSELECT_PREVIEW
 //                                            and exempt from rate limiting
+//   GET /favicon.ico                         — 204 No Content (TOG-6369):
+//                                            ungated by WAYSELECT_PREVIEW;
+//                                            pins the browser-requested icon
+//                                            path so page loads stop emitting
+//                                            404 log noise
 //   GET /listings                          — stub listing index (flag-gated)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
@@ -165,6 +170,8 @@ function sendMethodNotAllowed(res, allow) {
 // index, route templates for detail/purchase, and a fallback for 404s so
 // scanners cannot burn the budget of real routes (or vice versa).
 function routeBucket(method, pathname) {
+  // NOTE: /favicon.ico and /healthz answer before the limiter (see the
+  // handler), so they never reach a bucket — do not add entries for them.
   if (method === "GET" && (pathname === "/listings" || pathname === "/listings/")) {
     return "GET /listings";
   }
@@ -233,6 +240,21 @@ export function createApp(env = process.env, options = {}) {
     }
     if (probePathname === "/healthz") {
       sendMethodNotAllowed(res, "GET");
+      return;
+    }
+
+    // TOG-6369: the favicon path answers before rate limiting (every page
+    // load requests it, so it must never read as a dead route under a
+    // saturated limiter) and regardless of WAYSELECT_PREVIEW: 204 No
+    // Content by design — there is no icon asset to serve. Non-GET methods
+    // are 405 with `Allow: GET` per the TOG-6364 convention.
+    if (probePathname === "/favicon.ico") {
+      if (req.method !== "GET") {
+        sendMethodNotAllowed(res, "GET");
+        return;
+      }
+      res.writeHead(204, { ...SECURITY_HEADERS });
+      res.end();
       return;
     }
 
