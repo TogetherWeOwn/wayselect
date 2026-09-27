@@ -1,0 +1,272 @@
+#!/usr/bin/env node
+
+// Executable acceptance script for the Wayselect catalog search/filter slice
+// (TOG-5051).
+//
+// Spec: docs/wayselect-search-filter-acceptance.md (§2 filter contract, §3
+// expected-results table).
+//
+// Usage: node bin/accept-wayselect-search-filter
+//   (or: npm run accept:search-filter)
+// Zero dependencies: Node standard library only, plus the real
+// src/catalog.js normalization boundary. Reads
+// fixtures/catalog.synthetic.json, runs the §2 reference filter, and checks
+// every row of the §3 table. No backend change, no network access.
+// Exit 0 on zero failures, 1 otherwise. Budget: under 5 minutes.
+
+import { readFile } from "node:fs/promises";
+import { normalizeCatalog } from "../src/catalog.js";
+
+const BUDGET_MS = 5 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function routes(list) {
+  return list.map((entry) => entry.routeId);
+}
+
+function sameRoutes(actual, expected) {
+  return (
+    actual.length === expected.length &&
+    actual.every((routeId, index) => routeId === expected[index])
+  );
+}
+
+function checkRoutes(actualEntries, expected, id, label) {
+  const actual = routes(actualEntries);
+  return check(
+    sameRoutes(actual, expected),
+    id,
+    label,
+    `expected [${expected.join(", ")}], got [${actual.join(", ")}]`,
+  );
+}
+
+// ---- §2 reference filter (the executable contract) ----
+const VALID_CAPABILITIES = ["attachment", "reasoning", "toolUse", "structuredOutput"];
+
+function validOperations(entries) {
+  return [...new Set(entries.flatMap((entry) => entry.catalogOperations))].sort();
+}
+
+function filterEntries(entries, coverageByRoute, filters = {}) {
+  const { q = "", capabilities = [], modalities = [], operations = [] } = filters;
+
+  for (const name of capabilities) {
+    if (!VALID_CAPABILITIES.includes(name)) {
+      throw new Error(`unknown capability: ${name} (valid: ${VALID_CAPABILITIES.join(", ")})`);
+    }
+  }
+  const ops = validOperations(entries);
+  for (const name of operations) {
+    if (!ops.includes(name)) {
+      throw new Error(`unknown operation: ${name} (valid: ${ops.join(", ")})`);
+    }
+  }
+
+  const query = String(q).trim().toLowerCase();
+  return entries.filter((entry) => {
+    if (query) {
+      const haystacks = [entry.name, entry.routeId, entry.providerId].map((s) =>
+        String(s).toLowerCase(),
+      );
+      if (!haystacks.some((haystack) => haystack.includes(query))) {
+        return false;
+      }
+    }
+    // Null/missing capability data fails closed: only literal true keeps.
+    if (!capabilities.every((name) => entry.capabilities?.[name] === true)) {
+      return false;
+    }
+    const coverage = coverageByRoute.get(entry.routeId) ?? [];
+    if (!modalities.every((name) => coverage.includes(name))) {
+      return false;
+    }
+    if (!operations.every((name) => entry.catalogOperations.includes(name))) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function checkThrows(fn, mustName, id, label) {
+  let message = "";
+  try {
+    fn();
+  } catch (error) {
+    message = String(error?.message ?? error);
+  }
+  return check(
+    message !== "" && mustName.every((name) => message.includes(name)),
+    id,
+    label,
+    message === "" ? "expected an error, none was thrown" : `error did not name valid values: ${message}`,
+  );
+}
+
+// ---- load fixtures through the real boundary ----
+const fixtureUrl = new URL("../fixtures/catalog.synthetic.json", import.meta.url);
+const fixture = JSON.parse(await readFile(fixtureUrl, "utf8"));
+const catalog = normalizeCatalog(fixture.catalog, fixture.provenance);
+const { entries } = catalog;
+
+// Raw modality coverage per route (union of input ∪ output), carried alongside
+// normalized entries because the R-mod contract matches against it.
+const coverageByRoute = new Map();
+for (const [providerId, provider] of Object.entries(fixture.catalog)) {
+  for (const [modelId, model] of Object.entries(provider.models)) {
+    const input = model.modalities?.input ?? [];
+    const output = model.modalities?.output ?? [];
+    coverageByRoute.set(`${providerId}/${modelId}`, [...new Set([...input, ...output])]);
+  }
+}
+
+const ALL_SIX = [
+  "legacy/old-chat",
+  "northstar/alpha-chat",
+  "northstar/image-lite",
+  "northstar/unknown-tools",
+  "orbit/orbit-chat",
+  "orbit/retired-chat",
+];
+const f = (filters) => filterEntries(entries, coverageByRoute, filters);
+
+// ---- A: fixture load + normalized order ----
+check(
+  entries.length === 6 &&
+    catalog.provenance.source === "synthetic://wayselect/fixture-v1" &&
+    Number.isFinite(Date.parse(catalog.provenance.snapshotTimestamp)) &&
+    /^sha256:[a-f0-9]{64}$/.test(catalog.provenance.snapshotHash),
+  "A1",
+  "fixture loads: 6 entries with intact provenance",
+  `got ${entries.length} entries, source=${catalog.provenance?.source}`,
+);
+checkRoutes(entries, ALL_SIX, "A2", "normalized order is lexicographic routeId (no re-ranking)");
+
+// ---- Q: text query ----
+checkRoutes(f({}), ALL_SIX, "Q1", "no params returns all 6");
+checkRoutes(f({ q: "alpha" }), ["northstar/alpha-chat"], "Q2", "q=alpha matches one entry");
+checkRoutes(
+  f({ q: "CHAT" }),
+  ["legacy/old-chat", "northstar/alpha-chat", "orbit/orbit-chat", "orbit/retired-chat"],
+  "Q3",
+  "q is case-insensitive across name, routeId, providerId",
+);
+checkRoutes(
+  f({ q: "orbit" }),
+  ["orbit/orbit-chat", "orbit/retired-chat"],
+  "Q4",
+  "q=orbit matches provider and name",
+);
+checkRoutes(f({ q: "  " }), ALL_SIX, "Q5", "blank q disables text filtering");
+
+// ---- C: capability filters (all-named-true, null fails closed) ----
+checkRoutes(
+  f({ capabilities: ["toolUse"] }),
+  ["legacy/old-chat", "northstar/alpha-chat", "orbit/orbit-chat", "orbit/retired-chat"],
+  "C1",
+  "capability=toolUse keeps literal-true entries only",
+);
+checkRoutes(f({ capabilities: ["attachment"] }), ["northstar/image-lite"], "C2", "capability=attachment");
+checkRoutes(f({ capabilities: ["reasoning"] }), ["orbit/orbit-chat"], "C3", "capability=reasoning");
+checkRoutes(
+  f({ capabilities: ["structuredOutput"] }),
+  ["northstar/alpha-chat", "orbit/orbit-chat"],
+  "C4",
+  "capability=structuredOutput",
+);
+checkRoutes(
+  f({ capabilities: ["toolUse", "structuredOutput"] }),
+  ["northstar/alpha-chat", "orbit/orbit-chat"],
+  "C5",
+  "repeatable capabilities are AND",
+);
+checkRoutes(
+  f({ capabilities: ["attachment", "toolUse"] }),
+  [],
+  "C6",
+  "no match returns an empty list, not an error",
+);
+check(
+  ["toolUse", "attachment", "reasoning", "structuredOutput"].every(
+    (name) => !routes(f({ capabilities: [name] })).includes("northstar/unknown-tools"),
+  ),
+  "C7",
+  "null capability data (unknown-tools) fails closed everywhere",
+);
+
+// ---- M: modality filters (open vocabulary) ----
+checkRoutes(f({ modalities: ["image"] }), ["northstar/image-lite"], "M1", "modality=image");
+checkRoutes(f({ modalities: ["text"] }), ALL_SIX, "M2", "modality=text covers all 6");
+checkRoutes(
+  f({ modalities: ["image", "text"] }),
+  ["northstar/image-lite"],
+  "M3",
+  "repeatable modalities are AND",
+);
+checkRoutes(f({ modalities: ["audio"] }), [], "M4", "outside-vocabulary modality is empty, not an error");
+
+// ---- O: operation filters ----
+checkRoutes(
+  f({ operations: ["chat"] }),
+  ["legacy/old-chat", "northstar/alpha-chat", "northstar/unknown-tools", "orbit/orbit-chat", "orbit/retired-chat"],
+  "O1",
+  "operation=chat excludes image-lite",
+);
+checkRoutes(f({ operations: ["vision-chat"] }), ["northstar/image-lite"], "O2", "operation=vision-chat");
+
+// ---- X: combined filters (AND across dimensions) ----
+checkRoutes(
+  f({ q: "chat", capabilities: ["toolUse"] }),
+  ["legacy/old-chat", "northstar/alpha-chat", "orbit/orbit-chat", "orbit/retired-chat"],
+  "X1",
+  "q x capability is AND",
+);
+checkRoutes(
+  f({ q: "image", capabilities: ["attachment"], modalities: ["image"] }),
+  ["northstar/image-lite"],
+  "X2",
+  "q x capability x modality is AND",
+);
+checkRoutes(
+  f({ q: "chat", capabilities: ["attachment"] }),
+  [],
+  "X3",
+  "combined filters can match nothing without erroring",
+);
+
+// ---- F: unknown values fail closed with valid values named ----
+checkThrows(
+  () => f({ capabilities: ["nope"] }),
+  VALID_CAPABILITIES,
+  "F1",
+  "unknown capability errors naming the valid values",
+);
+checkThrows(
+  () => f({ operations: ["telepathy"] }),
+  validOperations(entries),
+  "F2",
+  "unknown operation errors naming the valid values",
+);
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(`SUMMARY: ${pass} pass, ${fail} fail — ${elapsedS}s (budget 5m)\n`);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 5-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;
