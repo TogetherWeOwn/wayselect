@@ -30,6 +30,7 @@
     "preview:health": "node bin/check-preview-health",
     "refresh": "node bin/refresh-catalog-fixtures",
     "refresh:check": "node bin/refresh-catalog-fixtures --check",
+    "eval:search-prompts": "node bin/eval-wayselect-search-prompts --seed 5492",
     "accept:fixture-refresh": "node bin/accept-fixture-refresh"
   },
   "dependencies": {

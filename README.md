@@ -125,6 +125,21 @@ node bin/refresh-catalog-fixtures --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 npm run refresh:check && npm test
 ```
 
+## Search-prompt regression eval (TOG-5492)
+
+```sh
+npm run eval:search-prompts
+```
+
+Compares two storefront search-prompt versions over 20 fixed queries
+(`evals/search-prompt-regression/queries.json`) against the 3 stub listings
+and records top-1 relevance before/after in
+`evals/search-prompt-regression/results.md`: v1-baseline (raw substring
+pass-through, shipped S2 rule) vs v2-cue-extraction (deterministic
+interpret-then-match). Stdlib only, no network, no credentials; seed 5492
+recorded for the shuffle-invariance self-check. Today: before 12/20, after
+20/20 — 8 fixed, 0 regressed.
+
 ## Library boundaries
 
 - `src/catalog.js` validates a narrow provider-keyed, models.dev-shaped fixture subset and preserves provenance. Unknown fields are rejected at the boundary.
