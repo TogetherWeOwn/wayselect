@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #151 (2026-09-27) TOG-7286: concurrent slow-fragment load budget —
+  12 parallel listing-detail JSON-fragment hits with
+  `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` set all return 200 with intact
+  content inside a 2000ms batch budget
+  (`test/concurrent-slow-fragment-budget.test.js`, test-only, no source change).
 - #150 (2026-09-27) TOG-7277: gateway 401 contract pin — missing/wrong
   bearer key returns byte-identical status/body/headers with
   `WWW-Authenticate: Bearer`
