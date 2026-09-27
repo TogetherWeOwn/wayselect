@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #119 (2026-09-27) TOG-6394: badge color-contrast guard — WCAG AA
+  evidence for the five badge classes (on/granted 8.62, off 7.35,
+  blocked 8.49, unknown 7.73), pinned as a failing-if-regressed test
+  (`test/badge-contrast.test.js`, test-only).
 - #116 (2026-09-27) TOG-6384: purchase refusal body contract — exact
   403 `{error: "preview_only", message}` body pinned (keys, message
   verbatim, flag-on/off, trailing slash, 404-first boundary)
