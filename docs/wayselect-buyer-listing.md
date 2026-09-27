@@ -68,8 +68,9 @@ the stub receipt (B7).
    into a frozen intent (`src/purchase.js`); `confirm:false` rejects with `unconfirmed`. No charge
    in any path (§7 R-Q4).
 4. **Receipt.** Stub receipt carries route, price as-quoted, timestamp, and
-   `provenance.source`/`fetchedAt` plus the dry-run disclaimer. `POST …/purchase` always refuses
-   `403 preview_only` — no backend writes, no charge, no payment fields on the intent shape.
+   `provenance.source`/`fetchedAt` plus the dry-run disclaimer. `POST …/purchase` never writes:
+   unknown listings → `404 listing_not_found` ([TOG-5710](/TOG/issues/TOG-5710)); known listings →
+   `403 preview_only`. No charge, no payment fields on the intent shape.
    Full receipt surfaces: [TOG-5123](/TOG/issues/TOG-5123).
 
 ## 4. Acceptance script

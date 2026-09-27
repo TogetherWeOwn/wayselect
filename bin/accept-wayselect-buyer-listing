@@ -257,6 +257,14 @@ try {
     "POST …/purchase refuses 403 preview_only (no backend writes, no charge)",
     `got ${res.status}`,
   );
+  const unknown = await fetch(`${base}/listings/a/b/purchase`, { method: "POST" });
+  const unknownBody = await unknown.json().catch(() => null);
+  check(
+    unknown.status === 404 && unknownBody?.error === "listing_not_found",
+    "B6e",
+    "POST …/purchase on an unknown listing 404s first (TOG-5710)",
+    `got ${unknown.status}`,
+  );
 } finally {
   await close(server);
 }
