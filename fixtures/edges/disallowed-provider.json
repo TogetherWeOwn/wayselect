@@ -1,0 +1,20 @@
+{
+  "description": "Disallowed providers: only 'legacy' is allowlisted, so every northstar/orbit candidate is excluded with provider-not-allowed while the allowlisted legacy route is stale.",
+  "configuration": null,
+  "selection": {
+    "operation": "chat",
+    "requiredCapabilities": ["toolUse"],
+    "providerAllowlist": ["legacy"]
+  },
+  "evaluationTime": "2026-09-24T12:00:00.000Z",
+  "maxEvidenceAgeHours": 72,
+  "expect": {
+    "status": "no-eligible-route",
+    "selectedRouteId": null,
+    "reasonIncludes": {
+      "northstar/alpha-chat": ["provider-not-allowed"],
+      "orbit/orbit-chat": ["provider-not-allowed"],
+      "legacy/old-chat": ["stale-evidence"]
+    }
+  }
+}

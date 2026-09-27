@@ -1,0 +1,18 @@
+{
+  "description": "No eligible route: required capability 'vision' is unknown to every candidate, so selection fails closed with per-candidate reasons.",
+  "configuration": null,
+  "selection": {
+    "operation": "chat",
+    "requiredCapabilities": ["vision"],
+    "providerAllowlist": ["northstar", "orbit"]
+  },
+  "evaluationTime": "2026-09-24T12:00:00.000Z",
+  "maxEvidenceAgeHours": 72,
+  "expect": {
+    "status": "no-eligible-route",
+    "selectedRouteId": null,
+    "reasonIncludes": {
+      "northstar/alpha-chat": ["missing-capability:vision"]
+    }
+  }
+}
