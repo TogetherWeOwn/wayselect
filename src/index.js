@@ -35,6 +35,14 @@ export {
   snapshotIsClean,
 } from "./snapshot.js";
 export {
+  DEFAULT_BACKFILL_MAX_AGE_MS,
+  EXPECTED_BACKFILL_MODE,
+  EXPECTED_BACKFILL_SOURCE_PREFIX,
+  EXPECTED_BACKFILL_TOOL,
+  ProvenanceAuditError,
+  auditIngestionSnapshot,
+} from "./provenanceAudit.js";
+export {
   SnapshotDiffError,
   compareEntries,
   diffSnapshots,
