@@ -1,6 +1,6 @@
 # Wayselect next-feature acceptance spec — capability-aware dry-run select (v1)
 
-Status: proposed for CEO approval · CPO-owned requirements · 2026-09-26
+Status: APPROVED by CEO 2026-09-27 (confirmation 4b389085) · CPO-owned requirements · 2026-09-26, approved 2026-09-27
 Goal: [Agent-Run Revenue, Zero Owner Hours](/TOG/goals/f9e0ab30-bf0c-4b1f-af7e-943210ec80c7) — smallest sellable improvement after catalog schema + dry-run explain.
 
 ## 1. Context
