@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #158 (2026-09-27) TOG-6731: index page lang/title contract pin — renderer,
+  empty state, and live `GET /listings` all carry `<html lang="en">` plus
+  exactly one non-empty escaped `<title>` (`Listings — Wayselect`)
+  (`test/listing-index-lang-title.test.js`, test-only, no prod change).
 - #154 (2026-09-27) TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
   Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
   output, no route redirects, links stay relative, and rotating Host/XFH
