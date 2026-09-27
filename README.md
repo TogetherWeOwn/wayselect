@@ -180,6 +180,30 @@ fixture refreshes without edits.
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.
 
+A selection request may also carry an optional `requirements` object with typed
+constraints, evaluated after the legacy boolean checks in fixed field order so
+the dry-run explanation is deterministic:
+
+- `inputModalities: ["text", "image"]` / `outputModalities: ["text"]` — every
+  listed modality must appear in the candidate's normalized `modalities`.
+  Otherwise `missing-modality:input:<value>` (or `output:`).
+- `minContextWindow: 8000` — the candidate's `limits.contextWindow` must meet
+  it. Unknown limits report `missing-capability:contextWindow`; a short limit
+  reports `insufficient-context-window`.
+- `maxOutputTokens: 2000` — same shape against `limits.maxOutputTokens`
+  (`missing-capability:maxOutputTokens` / `insufficient-max-output-tokens`).
+- `toolCalling: true`, `structuredOutput: true`, `reasoning: true` — checked
+  against the normalized `toolUse`, `structuredOutput`, and `reasoning` flags
+  with the existing `missing-capability:` / `unsupported-capability:`
+  vocabulary. `false` means no constraint.
+
+Missing or unknown data always fails closed with an explicit reason; reasons
+never repeat (overlapping legacy and typed checks dedupe). Absent
+`requirements` leaves legacy behavior untouched. The catalog fixture accepts
+optional per-model `context_window` / `max_output_tokens` counts (absent means
+unknown, malformed means rejected); normalized entries expose frozen
+`modalities` and `limits` alongside `capabilities`.
+
 ## Explicit non-goals
 
 This slice does not include live provider calls, endpoint discovery, credentials, HTTP servers, paid inference, real usage or billing data, third-party catalog redistribution, production deployment, universal compatibility, or a savings claim. Future transport or live-conformance work requires separate provenance, security, access, and review decisions.

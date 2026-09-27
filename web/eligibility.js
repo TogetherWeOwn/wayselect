@@ -65,8 +65,12 @@ const FALLBACK_SUPPORT_CONTEXT = Object.freeze({
 
 // Reasons that mean "we do not know", not "we know it is excluded". Any
 // evaluation carrying one of these renders as unknown with fail-closed copy.
+// TOG-4794: typed-requirement reasons. Missing data (modality, limit) is
+// unknown; insufficient limits are known exclusions (blocked), like
+// unsupported-capability.
 const UNKNOWN_REASON_SIGNALS = Object.freeze([
   "missing-capability:",
+  "missing-modality:",
   "missing-evidence",
   "invalid-evidence",
   "future-evidence",
@@ -112,6 +116,8 @@ export function candidateFromStubListing(listing) {
   const routeId = `${listing.providerId}/${listing.modelId}`;
   const support = PREVIEW_SUPPORT_CONTEXT[routeId] ?? FALLBACK_SUPPORT_CONTEXT;
   const modalities = listing.entry?.modalities ?? { input: [], output: [] };
+  // TOG-4794: raw modalities and nullable limits ride along (same shape as
+  // normalizeCatalog output) so typed requirements evaluate without guessing.
   const candidate = {
     routeId,
     providerId: listing.providerId,
@@ -120,6 +126,22 @@ export function candidateFromStubListing(listing) {
     catalogOperations: catalogOperationsFor(modalities),
     configuredOperations: [...support.operations],
     capabilities: capabilitiesFor(listing.entry ?? {}, modalities),
+    modalities: {
+      input: [...(modalities?.input ?? [])],
+      output: [...(modalities?.output ?? [])],
+    },
+    limits: {
+      contextWindow:
+        Number.isInteger(listing.entry?.context_window) &&
+        listing.entry.context_window >= 0
+          ? listing.entry.context_window
+          : null,
+      maxOutputTokens:
+        Number.isInteger(listing.entry?.max_output_tokens) &&
+        listing.entry.max_output_tokens >= 0
+          ? listing.entry.max_output_tokens
+          : null,
+    },
     evidence: support.observedAt ? { observedAt: support.observedAt } : null,
   };
   if (listing.entry?.cost !== undefined) {
