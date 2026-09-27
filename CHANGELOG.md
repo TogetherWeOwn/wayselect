@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #110 (2026-09-27) TOG-6376: 429 body shape contract test — exact
+  `{error: "rate_limited", retryAfterSec}` body pinned (keys, types,
+  header agreement) via stubbed-verdict + live-limiter tests
+  (`test/rate-limit-body-contract.test.js`, test-only, no prod change).
 - #100 (2026-09-27) TOG-6386: automated dep-update PRs via Dependabot
   (monthly npm + github-actions, free tier, no auto-merge) + Automation
   section in policy doc (`.github/dependabot.yml`,
