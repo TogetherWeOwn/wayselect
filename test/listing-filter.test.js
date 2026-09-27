@@ -4,6 +4,7 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  LISTINGS_MAX_QUERY_LENGTH,
   VALID_CAPABILITIES,
   VALID_LISTINGS_QUERY_PARAMS,
   VALID_MODALITIES,
@@ -74,6 +75,38 @@ describe("parseListingsQuery", () => {
     strictEqual(parsed.ok, true);
     strictEqual(parsed.paging.limit, 5);
     strictEqual(parsed.paging.offset, 1);
+  });
+
+  it("pins the q length bound at 200 (TOG-6370)", () => {
+    strictEqual(LISTINGS_MAX_QUERY_LENGTH, 200);
+  });
+
+  it("accepts q at exactly the bound (TOG-6370)", () => {
+    const parsed = parseListingsQuery(params(`?q=${"a".repeat(LISTINGS_MAX_QUERY_LENGTH)}`));
+    strictEqual(parsed.ok, true);
+    strictEqual(parsed.filters.q.length, LISTINGS_MAX_QUERY_LENGTH);
+  });
+
+  it("fails closed on q over the bound, naming the limit (TOG-6370)", () => {
+    const parsed = parseListingsQuery(params(`?q=${"a".repeat(LISTINGS_MAX_QUERY_LENGTH + 1)}`));
+    strictEqual(parsed.ok, false);
+    strictEqual(parsed.kind, "q");
+    deepStrictEqual(parsed.valid, [`at most ${LISTINGS_MAX_QUERY_LENGTH} characters`]);
+  });
+
+  it("truncates the echoed over-long q so the 400 page stays bounded (TOG-6370)", () => {
+    const parsed = parseListingsQuery(params(`?q=${"b".repeat(10000)}`));
+    strictEqual(parsed.ok, false);
+    strictEqual(parsed.kind, "q");
+    ok(parsed.value.length <= 64, `echoed value bounded, got ${parsed.value.length}`);
+  });
+
+  it("fails closed on over-long q even with otherwise-valid filters (TOG-6370)", () => {
+    const parsed = parseListingsQuery(
+      params(`?q=${"c".repeat(LISTINGS_MAX_QUERY_LENGTH + 1)}&capability=tool_call`),
+    );
+    strictEqual(parsed.ok, false);
+    strictEqual(parsed.kind, "q");
   });
 });
 
@@ -178,6 +211,15 @@ describe("filter-bar rendering", () => {
     ok(html.includes("No listings match these filters."));
     ok(html.includes('href="/listings"'));
     ok(!html.includes("<ul>"));
+  });
+
+  it("caps the q input with maxlength matching the server bound (TOG-6370)", () => {
+    const html = renderListingIndex(STUB_LISTINGS, undefined, emptyFilters());
+    ok(
+      html.includes(`name="q" value="" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"`) ||
+        html.includes(`maxlength="${LISTINGS_MAX_QUERY_LENGTH}"`),
+      "q input carries the server bound as a client-side hint",
+    );
   });
 
   it("renders the invalid-filter page naming the valid values", () => {
