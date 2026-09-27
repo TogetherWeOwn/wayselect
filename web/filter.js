@@ -76,11 +76,16 @@ function parsePagingParam(raw, fallback) {
 }
 
 // Validate raw query params. Returns `{ ok: true, filters, paging }` or
-// `{ ok: false, kind, value, valid }` for the 400 invalid-filter page.
+// `{ ok: false, errors }` for the 400 invalid-filter page, where `errors`
+// collects EVERY problem (TOG-6374, Gap A4) so the HTML page can present
+// them all instead of just the first. Each entry is
+// `{ kind, value, valid }`. The top-level `kind`/`value`/`valid` mirror the
+// first error for backward compatibility with existing callers/tests.
 export function parseListingsQuery(searchParams) {
+  const errors = [];
   for (const key of new Set(searchParams.keys())) {
     if (!QUERY_PARAM_SET.has(key)) {
-      return { ok: false, kind: "query", value: key, valid: VALID_LISTINGS_QUERY_PARAMS };
+      errors.push({ kind: "query", value: key, valid: VALID_LISTINGS_QUERY_PARAMS });
     }
   }
   const filters = normalizeFilters({
@@ -91,35 +96,43 @@ export function parseListingsQuery(searchParams) {
   // Fail closed on oversize q: the echoed value is truncated so the 400
   // page itself stays bounded no matter how large the input is.
   if (filters.q.length > LISTINGS_MAX_QUERY_LENGTH) {
-    return {
-      ok: false,
+    errors.push({
       kind: "q",
       value: filters.q.slice(0, 64),
       valid: [`at most ${LISTINGS_MAX_QUERY_LENGTH} characters`],
-    };
+    });
   }
   for (const name of filters.capabilities) {
     if (!CAPABILITY_SET.has(name)) {
-      return { ok: false, kind: "capability", value: name, valid: VALID_CAPABILITIES };
+      errors.push({ kind: "capability", value: name, valid: VALID_CAPABILITIES });
     }
   }
   for (const name of filters.modalities) {
     if (!MODALITY_SET.has(name)) {
-      return { ok: false, kind: "modality", value: name, valid: VALID_MODALITIES };
+      errors.push({ kind: "modality", value: name, valid: VALID_MODALITIES });
     }
   }
   const limit = parsePagingParam(searchParams.get("limit"), LISTINGS_DEFAULT_LIMIT);
   if (!limit.ok || limit.value < 1 || limit.value > LISTINGS_MAX_LIMIT) {
-    return {
-      ok: false,
+    errors.push({
       kind: "limit",
       value: limit.ok ? String(limit.value) : (limit.raw ?? ""),
       valid: [`1-${LISTINGS_MAX_LIMIT}`],
-    };
+    });
   }
   const offset = parsePagingParam(searchParams.get("offset"), LISTINGS_DEFAULT_OFFSET);
   if (!offset.ok) {
-    return { ok: false, kind: "offset", value: offset.raw ?? "", valid: ["0 or greater"] };
+    errors.push({ kind: "offset", value: offset.raw ?? "", valid: ["0 or greater"] });
+  }
+  if (errors.length > 0) {
+    const [first] = errors;
+    return {
+      ok: false,
+      kind: first.kind,
+      value: first.value,
+      valid: first.valid,
+      errors,
+    };
   }
   return { ok: true, filters, paging: { limit: limit.value, offset: offset.value } };
 }

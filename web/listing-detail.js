@@ -411,9 +411,23 @@ ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 </form>`;
 }
 
-export function renderInvalidFilter({ kind, value, valid }, options) {
+function invalidFilterLine({ kind, value, valid }) {
+  return `Unknown ${escapeHtml(kind)} &quot;${escapeHtml(value)}&quot;. Valid values: ${valid.map(escapeHtml).join(", ")}.`;
+}
+
+// TOG-6374 (Gap A4): the 400 page presents every error, not just the
+// first. A single error keeps the legacy paragraph copy byte-identical
+// (spec-pinned in docs/wayselect-onboarding-spec.md); two or more render
+// as a list so no problem is hidden. `errors` is optional — callers with
+// the legacy `{ kind, value, valid }` shape still render.
+export function renderInvalidFilter({ kind, value, valid, errors }, options) {
+  const list = Array.isArray(errors) && errors.length > 0 ? errors : [{ kind, value, valid }];
+  const detail =
+    list.length === 1
+      ? `<p>${invalidFilterLine(list[0])}</p>`
+      : `<p>${list.length} invalid filters:</p>\n<ul>\n${list.map((entry) => `<li>${invalidFilterLine(entry)}</li>`).join("\n")}\n</ul>`;
   const body = `<h1>Invalid filter</h1>
-<p>Unknown ${escapeHtml(kind)} &quot;${escapeHtml(value)}&quot;. Valid values: ${valid.map(escapeHtml).join(", ")}.</p>
+${detail}
 <a class="back" href="/listings">Back to listings</a>`;
   return layout({ title: "Invalid filter", body, cspNonce: pageNonce(options) });
 }
