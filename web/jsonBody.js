@@ -103,8 +103,11 @@ export function readJsonBody(req, options = {}) {
     // trickling-body case and the declared-`Content-Length`-never-arrives
     // case, where no `data` event ever fires. On expiry the stream is
     // drained so the socket stays reusable, and the late `end` (if any) is
-    // ignored via `settled`. The timer is unref'd so a pending read never
-    // holds the process open on its own.
+    // ignored via `settled`. The timer stays ref'd (no `unref`): a pending
+    // read must keep the loop alive until it settles — an unref'd timer
+    // lets the loop drain with the promise unsettled (bare loops exit
+    // before the deadline; Node 20 fails the test outright). Cleared on
+    // settle, so a finished read holds nothing.
     const deadline = timers.setTimeout(() => {
       settle({
         ok: false,
@@ -113,7 +116,6 @@ export function readJsonBody(req, options = {}) {
       });
       req.resume?.();
     }, readTimeoutMs);
-    deadline?.unref?.();
 
     req.on("data", (chunk) => {
       if (settled) {
