@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+
+// Debt-marker introduction gate for Wayselect (TOG-7315).
+//
+// Fails loudly when text files under the repo root contain any of the four
+// tracked debt-marker words. The words are assembled at runtime in
+// MARKER_WORDS (never spelled literally in this source) so the gate's own
+// implementation scans clean. Matching is case-sensitive whole-word only,
+// so longer tokens never trip it: MYTODOS, HACKSAW, lowercase notes, and
+// the mktemp templates in scripts/acceptance.sh
+// (wayselect-acceptance-XXXXXX — no word boundary inside an X run) all
+// scan clean. Those two mktemp lines are the only naive-substring hits in
+// the tree; they are grandfathered by construction and pinned by
+// test/no-todo-markers.test.js — not by an allowlist.
+//
+// Scope: content only — no workflow or permission change. Stdlib only, no
+// new dependencies, no network, no credentials. CI runs this as the
+// marker-gate job (no `npm ci` needed); contributors can run it directly.
+//
+// Usage:
+//   node bin/check-no-todo-markers
+//   node bin/check-no-todo-markers --root <dir>   # scan a scratch tree (tests)
+//
+// Exit codes: 0 when no marker lines are found, 1 when any are found,
+// 2 on usage errors. Matches print as <relpath>:<line>: <excerpt>;
+// success prints a MARKER-GATE-OK summary with the file count.
+
+import { readdirSync, readFileSync, lstatSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// Assembled from fragments so this file never contains a literal marker.
+const MARKER_WORDS = ["TO" + "DO", "FIX" + "ME", "X".repeat(3), "HA" + "CK"];
+const MARKER_RE = new RegExp(`\\b(?:${MARKER_WORDS.join("|")})\\b`);
+const MAX_SCAN_BYTES = 8 * 1024 * 1024;
+const MAX_REPORTED_HITS = 50;
+
+// Directories never scanned: version control, installed dependencies,
+// coverage output, and ephemeral Paperclip runtime scratch.
+const SKIP_DIRS = new Set([".git", "node_modules", "coverage", ".paperclip-runtime"]);
+
+function parseArgs(argv) {
+  let root = ROOT;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--root") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("--")) {
+        process.stderr.write("usage: node bin/check-no-todo-markers [--root <dir>]\n");
+        process.exit(2);
+      }
+      root = resolve(value);
+      i += 1;
+    } else if (arg === "--help" || arg === "-h") {
+      process.stdout.write("usage: node bin/check-no-todo-markers [--root <dir>]\n");
+      process.exit(0);
+    } else {
+      process.stderr.write(`unknown argument: ${arg}\nusage: node bin/check-no-todo-markers [--root <dir>]\n`);
+      process.exit(2);
+    }
+  }
+  return root;
+}
+
+function collectFiles(dir, out) {
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    // Skip symlinks entirely: never follow them out of the tree, never
+    // double-count linked files.
+    if (entry.isSymbolicLink()) continue;
+    const abs = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      collectFiles(abs, out);
+    } else if (entry.isFile()) {
+      out.push(abs);
+    }
+  }
+  return out;
+}
+
+function scanFile(abs, root) {
+  let buffer;
+  try {
+    const stat = lstatSync(abs);
+    if (stat.size > MAX_SCAN_BYTES) return [];
+    buffer = readFileSync(abs);
+  } catch {
+    return [];
+  }
+  // Binary heuristic (same spirit as grep -I): a NUL byte means this is
+  // not scanned text (e.g. the checked-in preview PNGs).
+  if (buffer.includes(0)) return [];
+  const rel = relative(root, abs).split(sep).join("/");
+  const hits = [];
+  const lines = buffer.toString("utf8").split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    if (MARKER_RE.test(lines[i])) {
+      hits.push(`${rel}:${i + 1}: ${lines[i].trim().slice(0, 160)}`);
+    }
+  }
+  return hits;
+}
+
+const root = parseArgs(process.argv.slice(2));
+const files = collectFiles(root, []);
+let hits = [];
+for (const abs of files) {
+  hits = hits.concat(scanFile(abs, root));
+  if (hits.length >= MAX_REPORTED_HITS) break;
+}
+
+const wordList = MARKER_WORDS.join("/");
+if (hits.length === 0) {
+  process.stdout.write(`MARKER-GATE-OK: scanned ${files.length} files, no ${wordList} markers\n`);
+  process.exit(0);
+}
+
+for (const hit of hits.slice(0, MAX_REPORTED_HITS)) {
+  process.stdout.write(`${hit}\n`);
+}
+const fileCount = new Set(hits.map((hit) => hit.split(":")[0])).size;
+process.stdout.write(`MARKER-GATE-FAIL: ${hits.length}${hits.length >= MAX_REPORTED_HITS ? "+" : ""} marker line(s) in ${fileCount} file(s)\n`);
+process.exit(1);
