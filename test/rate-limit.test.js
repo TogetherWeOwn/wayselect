@@ -129,8 +129,11 @@ describe("preview server rate limiting", () => {
   async function start(env, options) {
     const server = createApp(env, options);
     servers.push(server);
-    await new Promise((resolve) => server.listen(0, resolve));
-    return `http://localhost:${server.address().port}`;
+    // Bind IPv4 loopback explicitly: `localhost` may resolve to ::1 on CI,
+    // which would make the peer address environment-dependent. Pinning
+    // 127.0.0.1 keeps the trust-boundary tests deterministic.
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return `http://127.0.0.1:${server.address().port}`;
   }
   after(() => Promise.all(servers.map((s) => new Promise((r) => s.close(r)))));
 
