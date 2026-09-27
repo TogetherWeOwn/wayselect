@@ -16,7 +16,7 @@ describe("listing a11y shell (TOG-5717)", () => {
     // The skeleton chrome stays silent so SR users hear one announcement.
     const chrome = html
       .replaceAll(/<noscript>[\s\S]*?<\/noscript>/gi, "")
-      .replaceAll(/<script>[\s\S]*?<\/script>/gi, "");
+      .replaceAll(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
     ok(!chrome.includes('aria-live="polite"'), "no duplicate live region in chrome");
   });
 
