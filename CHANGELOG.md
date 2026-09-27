@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #146 (2026-09-27) TOG-6371: IPv6-mapped IPv4 normalization pin —
+  `resolveClientIp` trusted-proxy matching and XFF client identity share
+  one bucket across plain/mapped/upper/translated/loopback spellings
+  (`test/ipv6-mapped-resolve-pin.test.js`, test-only, no source change).
 - TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
   read deadline (`MAX_JSON_BODY_READ_MS`) that fails closed with
   `body_timeout` (408 at the seller route, retryable; drains the stream
