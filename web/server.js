@@ -10,6 +10,16 @@
 //                                            unknown listings, 403 for known
 //                                            listings (no backend writes)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
+//
+// Security headers (TOG-5731):
+//   - Every response carries `X-Content-Type-Options: nosniff` (HTML and
+//     JSON alike, including the 429 rate-limit refusal below).
+//   - HTML responses additionally deny framing (`X-Frame-Options: DENY`
+//     plus `frame-ancestors 'none'`) and carry a minimal CSP. The pages
+//     use an inline `<style>` block and (on the detail shell) an inline
+//     `<script>` that same-origin fetches the JSON fragment, so the
+//     policy allows `'unsafe-inline'` for style/script while keeping
+//     everything else same-origin: no external resources exist.
 
 import { createServer } from "node:http";
 import { isPreviewEnabled } from "./preview.js";
@@ -35,8 +45,27 @@ const SECURITY_HEADERS = {
   "referrer-policy": "no-referrer",
 };
 
+// HTML-only hardening (TOG-5731): deny framing both the legacy
+// (`X-Frame-Options`) and the standard (`frame-ancestors`) way, and lock
+// the page to same-origin resources with a minimal CSP. `style-src` and
+// `script-src` keep `'unsafe-inline'` because every page carries an inline
+// `<style>` block and the detail shell carries an inline `<script>` that
+// same-origin fetches its JSON fragment; `form-action 'self'` covers the
+// filter GET form and the purchase POST form.
+const HTML_SECURITY_HEADERS = {
+  "x-frame-options": "DENY",
+  "content-security-policy":
+    "default-src 'self'; frame-ancestors 'none'; " +
+    "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; " +
+    "img-src 'self'; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'self'",
+};
+
 function sendHtml(res, status, html) {
-  res.writeHead(status, { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS });
+  res.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    ...SECURITY_HEADERS,
+    ...HTML_SECURITY_HEADERS,
+  });
   res.end(html);
 }
 
@@ -80,6 +109,7 @@ export function createApp(env = process.env, options = {}) {
     if (!verdict.allowed) {
       res.writeHead(429, {
         "content-type": "application/json; charset=utf-8",
+        ...SECURITY_HEADERS,
         "retry-after": String(verdict.retryAfterSec),
       });
       res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));
