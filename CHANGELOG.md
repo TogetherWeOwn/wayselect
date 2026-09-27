@@ -18,6 +18,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #93 (2026-09-27) TOG-6365: 400 on unknown /listings query params
+  (kind=query naming the valid keys) so typos fail closed (`web/filter.js`,
+  `test/listing-filter.test.js`, `test/listing-empty-error-states.test.js`).
 - #92 (2026-09-27) TOG-6449: "Updating this glossary" checklist for new
   reason codes — Meaning + Display (Blocked/Unknown) + remediation,
   backticked `<placeholder>` templates, out-of-scope labels
