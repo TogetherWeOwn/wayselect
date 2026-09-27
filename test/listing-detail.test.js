@@ -11,7 +11,7 @@ import {
   renderNotFound,
   renderPreviewDisabled,
 } from "../web/listing-detail.js";
-import { createApp } from "../web/server.js";
+import { createApp, resolvePort } from "../web/server.js";
 
 describe("preview flag", () => {
   it("is off by default and on for truthy values", () => {
@@ -162,6 +162,67 @@ describe("malformed percent-encoding on detail route", () => {
       strictEqual(after.status, 200);
     } finally {
       await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+describe("serving hardening (TOG-5475)", () => {
+  it("returns 405 for POST on detail routes", async () => {
+    const server = createApp({ WAYSELECT_PREVIEW: "1" });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const base = `http://127.0.0.1:${server.address().port}`;
+      const res = await fetch(`${base}/listings/northstar/alpha-chat`, { method: "POST" });
+      strictEqual(res.status, 405);
+      deepStrictEqual(await res.json(), { error: "method_not_allowed" });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("sends nosniff and referrer-policy headers", async () => {
+    const server = createApp({ WAYSELECT_PREVIEW: "1" });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const base = `http://127.0.0.1:${server.address().port}`;
+      const html = await fetch(`${base}/listings`);
+      strictEqual(html.headers.get("x-content-type-options"), "nosniff");
+      strictEqual(html.headers.get("referrer-policy"), "no-referrer");
+      const json = await fetch(`${base}/nope`);
+      strictEqual(json.headers.get("x-content-type-options"), "nosniff");
+      strictEqual(json.headers.get("referrer-policy"), "no-referrer");
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("URL-encodes path segments in rendered form actions and index links", () => {
+    const evil = getStubListing("northstar", "alpha-chat");
+    const tricky = {
+      ...evil,
+      providerId: "a/b c?",
+      modelId: "m&m",
+      entry: { ...evil.entry, name: "Tricky" },
+    };
+    const html = renderListingDetail(tricky);
+    ok(html.includes("/listings/a%2Fb%20c%3F/m%26m/purchase"));
+    const index = renderListingIndex([tricky]);
+    ok(index.includes("/listings/a%2Fb%20c%3F/m%26m"));
+    ok(!index.includes("/listings/a/b"));
+  });
+
+  it("validates PORT instead of throwing NaN downstream", () => {
+    strictEqual(resolvePort("3000"), 3000);
+    strictEqual(resolvePort(" 3000 "), 3000);
+    strictEqual(resolvePort("3.5"), 3); // parseInt truncation, conventional for PORT
+    for (const bad of ["abc", "", "0", "70000", "-1"]) {
+      let threw = false;
+      try {
+        resolvePort(bad);
+      } catch {
+        threw = true;
+      }
+      ok(threw, `PORT=${JSON.stringify(bad)} should throw`);
     }
   });
 });

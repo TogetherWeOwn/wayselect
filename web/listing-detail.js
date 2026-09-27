@@ -190,7 +190,7 @@ ${capabilityRow("Structured output", entry.structured_output)}
 </table>
 <p><small>Synthetic list-price estimates only; not actual cost or savings. Modalities covered: ${escapeHtml(modalities.join(", "))}.</small></p>
 <div class="cta">
-<form method="post" action="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}/purchase">
+<form method="post" action="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}/purchase">
 <button type="submit" disabled aria-disabled="true" title="Disabled in preview">Purchase (stub — disabled in preview)</button>
 </form>
 <p>No backend writes: the purchase endpoint refuses with <code>403 preview_only</code> while the flag gates this page.</p>
@@ -355,7 +355,10 @@ export function renderListingIndex(listings, evaluationsOverride, filters) {
             const described = describeEligibility(
               evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
             );
-            return `<li><a href="/listings/${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+            // S2 (TOG-5475, preserved through the main rebase): path
+            // segments are URL-encoded inside the HTML escape so ids with
+            // reserved characters keep working hrefs without XSS.
+            return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
           })
           .join("\n")}\n</ul>`;
   const body = `<div class="preview-banner" role="note">Preview build: stub data only.</div>
