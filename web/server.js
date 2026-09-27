@@ -1,15 +1,20 @@
-// Minimal preview web server for the Wayselect listing-detail slice (TOG-4882).
+// Minimal preview web server for the Wayselect listing-detail slice (TOG-4882)
+// with the shell-first loading state (TOG-5499).
 //
 // Zero dependencies: Node built-in http only. Routes:
 //   GET /listings                          — stub listing index (flag-gated)
-//   GET /listings/:provider/:model         — listing-detail page (flag-gated)
+//   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
+//                                            `Accept: application/json` returns
+//                                            the `{ html }` content fragment)
 //   POST /listings/:provider/:model/purchase — stub CTA target, always 403 (no backend writes)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
 
 import { createServer } from "node:http";
 import { isPreviewEnabled } from "./preview.js";
 import {
-  renderListingDetail,
+  listingDetailFragment,
+  renderListingDetailError,
+  renderListingDetailShell,
   renderListingIndex,
   renderNotFound,
   renderPreviewDisabled,
@@ -80,10 +85,43 @@ export function createApp(env = process.env) {
       }
       const listing = getStubListing(decodedProviderId, decodedModelId);
       if (!listing) {
+        // TOG-5499: fragment callers (the shell's inline fetch) negotiate
+        // JSON, so misses degrade to an error payload the shell renders as
+        // the alert panel — never a JSON parse crash on an HTML page.
+        if (String(req.headers?.accept ?? "").includes("application/json")) {
+          sendJson(res, 404, { error: "listing_not_found" });
+          return;
+        }
         sendHtml(res, 404, renderNotFound(providerId, modelId));
         return;
       }
-      sendHtml(res, 200, renderListingDetail(listing));
+      // TOG-5499: the shell's inline fetch negotiates this fragment.
+      // Test/dev slow-network knob: delays the fragment only, never the
+      // shell first paint. Unset or non-positive means no delay.
+      if (String(req.headers?.accept ?? "").includes("application/json")) {
+        const sendFragment = () => {
+          try {
+            sendJson(res, 200, listingDetailFragment(listing));
+          } catch {
+            sendHtml(res, 500, renderListingDetailError(decodedProviderId, decodedModelId));
+          }
+        };
+        const fragmentDelayMs = Number.parseInt(
+          String(env.WAYSELECT_DETAIL_FRAGMENT_DELAY_MS ?? "0"),
+          10,
+        );
+        if (Number.isFinite(fragmentDelayMs) && fragmentDelayMs > 0) {
+          setTimeout(sendFragment, fragmentDelayMs);
+        } else {
+          sendFragment();
+        }
+        return;
+      }
+      try {
+        sendHtml(res, 200, renderListingDetailShell(listing));
+      } catch {
+        sendHtml(res, 500, renderListingDetailError(decodedProviderId, decodedModelId));
+      }
       return;
     }
 
