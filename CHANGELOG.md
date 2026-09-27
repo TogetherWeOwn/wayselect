@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
+  invalid `--now` exits 1 with empty stdout, exact
+  `CatalogFreshnessError` bytes, `--out` dir never created, and no
+  `--report` file written (fail-before-any-IO)
+  (`test/cli-errors.test.js`, test-only).
 - #137 (2026-09-27) TOG-5744: visible-focus + reduced-motion polish —
   skip-link transition disabled under `prefers-reduced-motion`, seller
   pages to focus-ring parity (`a`/`button`/`input` + forced-colors),
