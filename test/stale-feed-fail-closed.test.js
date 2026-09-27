@@ -15,6 +15,18 @@ import { loadConfiguredCandidates, readFixture } from "../support/helpers.js";
 const execFileAsync = promisify(execFile);
 const repoRoot = new URL("..", import.meta.url);
 const MAX_CATALOG_AGE_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Refresh-proof clock: derived from the live fixture snapshot so provenance
+// refreshes never break these tests. Stays inside the 72h evidence window
+// (freshest observedAt is 22h behind the snapshot) so the gate under test is
+// catalog staleness, not evidence.
+async function staleEvaluationTime() {
+  const catalog = await readFixture("catalog.synthetic.json");
+  return new Date(
+    Date.parse(catalog.provenance.snapshotTimestamp) + DAY_MS + 1000,
+  ).toISOString();
+}
 
 // TOG-5117 (leaf of TOG-4791 ingestion slice): an expired catalog snapshot
 // must refuse routing, not serve stale data. The fail-closed implementation
@@ -62,13 +74,13 @@ test("TOG-5117: expired snapshot refuses routing at the library layer", async ()
   );
 });
 
-async function runDemoStale() {
+async function runDemoStale(extraArgs = []) {
   const workDir = await fs.mkdtemp(join(tmpdir(), "wayselect-tog5117-"));
   try {
     const baseRequest = await readFixture("request.synthetic.json");
     await fs.writeFile(
       join(workDir, "request.json"),
-      JSON.stringify({ ...baseRequest, evaluationTime: "2026-09-25T10:00:01.000Z" }),
+      JSON.stringify({ ...baseRequest, evaluationTime: await staleEvaluationTime() }),
     );
     const { stdout } = await execFileAsync(
       process.execPath,
@@ -80,6 +92,7 @@ async function runDemoStale() {
         "fixtures/configuration.synthetic.json",
         "--request",
         join(workDir, "request.json"),
+        ...extraArgs,
       ],
       { cwd: repoRoot },
     );
@@ -90,9 +103,8 @@ async function runDemoStale() {
 }
 
 test("TOG-5117: expired snapshot serves no route and performs no transport", async () => {
-  // Catalog snapshot 2026-09-24T10Z + 24h limit => stale after 2026-09-25T10Z.
-  // EvaluationTime stays inside the 72h evidence window (observedAt
-  // 2026-09-23T12Z) so the gate under test is catalog staleness, not evidence.
+  // Snapshot + 24h limit + 1s => stale; inside the 72h evidence window so the
+  // gate under test is catalog staleness, not evidence.
   const result = await runDemoStale();
 
   assert.equal(result.selection.status, "no-eligible-route");
@@ -110,39 +122,14 @@ test("TOG-5117: expired snapshot serves no route and performs no transport", asy
 });
 
 test("TOG-5117: routing CLI honors explicit --max-catalog-age-hours override", async () => {
-  // Same stale timestamp (2026-09-25T10:00:01Z > 24h after 2026-09-24T10Z),
-  // but a 48h window keeps the snapshot fresh. Evidence stays inside the 72h
-  // window (observedAt 2026-09-23T12Z => 46h age), so selection proves the
-  // override reaches the catalog gate rather than masking evidence.
-  const workDir = await fs.mkdtemp(join(tmpdir(), "wayselect-tog5117-"));
-  try {
-    const baseRequest = await readFixture("request.synthetic.json");
-    await fs.writeFile(
-      join(workDir, "request.json"),
-      JSON.stringify({ ...baseRequest, evaluationTime: "2026-09-25T10:00:01.000Z" }),
-    );
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      [
-        "bin/wayselect",
-        "--catalog",
-        "fixtures/catalog.synthetic.json",
-        "--configuration",
-        "fixtures/configuration.synthetic.json",
-        "--request",
-        join(workDir, "request.json"),
-        "--max-catalog-age-hours",
-        "48",
-      ],
-      { cwd: repoRoot },
-    );
-    const result = JSON.parse(stdout);
+  // Same stale timestamp (snapshot + 24h1s), but a 48h window keeps the
+  // snapshot fresh. Evidence stays inside the 72h window (~46h age), so
+  // selection proves the override reaches the catalog gate rather than
+  // masking evidence.
+  const result = await runDemoStale(["--max-catalog-age-hours", "48"]);
 
-    assert.equal(result.selection.status, "selected");
-    assert.equal(result.selection.selected.routeId, "northstar/alpha-chat");
-  } finally {
-    await fs.rm(workDir, { recursive: true, force: true });
-  }
+  assert.equal(result.selection.status, "selected");
+  assert.equal(result.selection.selected.routeId, "northstar/alpha-chat");
 });
 
 test("TOG-5117: routing CLI rejects a non-numeric staleness override", async () => {
@@ -159,6 +146,10 @@ test("TOG-5117: routing CLI rejects a non-numeric staleness override", async () 
 test("TOG-5117: snapshot CLI writes no file for an expired snapshot", async () => {
   const base = await fs.mkdtemp(join(tmpdir(), "wayselect-tog5117-snap-"));
   const outDir = join(base, "out");
+  const catalog = await readFixture("catalog.synthetic.json");
+  const stale = new Date(
+    Date.parse(catalog.provenance.snapshotTimestamp) + 30 * DAY_MS,
+  ).toISOString();
   try {
     await assert.rejects(
       execFileAsync(
@@ -168,7 +159,7 @@ test("TOG-5117: snapshot CLI writes no file for an expired snapshot", async () =
           "--out",
           outDir,
           "--now",
-          "2026-10-24T12:00:00.000Z",
+          stale,
           "--max-catalog-age-hours",
           "24",
         ],

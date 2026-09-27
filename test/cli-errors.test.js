@@ -17,6 +17,30 @@ import {
 
 const execFileAsync = promisify(execFile);
 const repoRoot = new URL("..", import.meta.url);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Refresh-proof clocks: derived from the live fixture snapshot so provenance
+// refreshes never break these tests. Offsets are whole days, so the rendered
+// age is an exact millisecond count and the expected bytes stay literal — a
+// wording change in src/cliErrors.js still fails the pin.
+async function fixtureSnapshotMs() {
+  const fixture = JSON.parse(
+    await fs.readFile(new URL("../fixtures/catalog.synthetic.json", import.meta.url), "utf8"),
+  );
+  return Date.parse(fixture.provenance.snapshotTimestamp);
+}
+
+async function staleNow() {
+  return new Date((await fixtureSnapshotMs()) + 30 * DAY_MS).toISOString();
+}
+
+async function futureNow() {
+  return new Date((await fixtureSnapshotMs()) - 25 * DAY_MS).toISOString();
+}
+
+async function freshNow() {
+  return new Date((await fixtureSnapshotMs()) + 2 * 60 * 60 * 1000).toISOString();
+}
 
 // TOG-5058: every CLI failure path renders one deterministic line on stderr,
 // `<Name>: <message>\n`, with exit code 1 and empty stdout. Copy lives in
@@ -175,11 +199,11 @@ test("wayselect-snapshot: stale catalog renders exact bytes and writes no file",
         "--out",
         outDir,
         "--now",
-        "2026-10-24T12:00:00.000Z",
+        await staleNow(),
         "--max-catalog-age-hours",
         "24",
       ]),
-      "Error: refusing stale staging snapshot: age 2599200000ms exceeds limit 86400000ms\n",
+      "Error: refusing stale staging snapshot: age 2592000000ms exceeds limit 86400000ms\n",
     );
     assert.deepEqual(await fs.readdir(outDir).catch(() => []), []);
   } finally {
@@ -195,11 +219,11 @@ test("wayselect-snapshot: future-dated catalog renders exact bytes", async () =>
         "--out",
         outDir,
         "--now",
-        "2026-09-01T12:00:00.000Z",
+        await futureNow(),
         "--max-catalog-age-hours",
         "24",
       ]),
-      "Error: refusing future-dated staging snapshot: age -1980000000ms exceeds limit 86400000ms\n",
+      "Error: refusing future-dated staging snapshot: age -2160000000ms exceeds limit 86400000ms\n",
     );
   } finally {
     await fs.rm(join(outDir, ".."), { recursive: true, force: true });
@@ -243,11 +267,12 @@ test("wayselect-snapshot: --fail-on-gaps renders exact bytes", async () => {
   try {
     // Green run first to read the live gap count; the failure line then pins
     // the exact bytes for that count.
+    const fresh = await freshNow();
     const green = await runCli("bin/wayselect-snapshot", [
       "--out",
       join(base, "green"),
       "--now",
-      "2026-09-24T12:00:00.000Z",
+      fresh,
       "--max-catalog-age-hours",
       "24",
     ]);
@@ -258,7 +283,7 @@ test("wayselect-snapshot: --fail-on-gaps renders exact bytes", async () => {
         "--out",
         join(base, "gaps"),
         "--now",
-        "2026-09-24T12:00:00.000Z",
+        fresh,
         "--max-catalog-age-hours",
         "24",
         "--fail-on-gaps",
@@ -291,23 +316,24 @@ test("wayselect-snapshot: invalid --now renders exact bytes", async () => {
 
 test("wayselect-snapshot: identical input yields identical failure bytes", async () => {
   const args = ["--out", await fs.mkdtemp(join(tmpdir(), "wayselect-cli-errors-"))];
+  const stale = await staleNow();
   const first = await runCli("bin/wayselect-snapshot", [
     ...args,
     "--now",
-    "2026-10-24T12:00:00.000Z",
+    stale,
     "--max-catalog-age-hours",
     "24",
   ]);
   const second = await runCli("bin/wayselect-snapshot", [
     ...args,
     "--now",
-    "2026-10-24T12:00:00.000Z",
+    stale,
     "--max-catalog-age-hours",
     "24",
   ]);
   assert.equal(first.stderr, second.stderr);
   assert.equal(
     first.stderr,
-    "Error: refusing stale staging snapshot: age 2599200000ms exceeds limit 86400000ms\n",
+    "Error: refusing stale staging snapshot: age 2592000000ms exceeds limit 86400000ms\n",
   );
 });

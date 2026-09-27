@@ -22,15 +22,24 @@ import {
 import { readFixture } from "../support/helpers.js";
 
 const execFileAsync = promisify(execFile);
-const NOW = "2026-09-24T12:00:00.000Z";
 const MAX_CATALOG_AGE_MS = 24 * 60 * 60 * 1000;
+
+// Refresh-proof clock: derived from the live fixture snapshot (same +2h
+// distance as the suite clock) so provenance refreshes never break these
+// tests.
+async function freshNow() {
+  const fixture = await readFixture("catalog.synthetic.json");
+  return new Date(
+    Date.parse(fixture.provenance.snapshotTimestamp) + 2 * 60 * 60 * 1000,
+  ).toISOString();
+}
 
 async function fixtureSnapshot(overrides = {}) {
   const fixture = await readFixture("catalog.synthetic.json");
   const catalog = overrides.catalog ?? fixture.catalog;
   const provenance = overrides.provenance ?? fixture.provenance;
   return buildSnapshot(catalog, provenance, {
-    now: overrides.now ?? NOW,
+    now: overrides.now ?? (await freshNow()),
     maxCatalogAgeMs: MAX_CATALOG_AGE_MS,
   });
 }
@@ -161,12 +170,13 @@ test("snapshot CLI writes two consecutive green snapshots with a readable diff",
     execFileAsync(process.execPath, ["bin/wayselect-snapshot", ...args], {
       cwd: new URL("..", import.meta.url),
     });
+  const now = await freshNow();
 
   const first = await runCli([
     "--out",
     outDir,
     "--now",
-    NOW,
+    now,
     "--max-catalog-age-hours",
     "24",
   ]);
@@ -179,7 +189,7 @@ test("snapshot CLI writes two consecutive green snapshots with a readable diff",
     "--out",
     outDir,
     "--now",
-    NOW,
+    now,
     "--max-catalog-age-hours",
     "24",
     "--previous",
@@ -199,6 +209,10 @@ test("snapshot CLI writes two consecutive green snapshots with a readable diff",
 });
 
 test("snapshot CLI fails closed on a stale catalog", async () => {
+  const fixture = await readFixture("catalog.synthetic.json");
+  const stale = new Date(
+    Date.parse(fixture.provenance.snapshotTimestamp) + 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
   await assert.rejects(
     execFileAsync(
       process.execPath,
@@ -207,7 +221,7 @@ test("snapshot CLI fails closed on a stale catalog", async () => {
         "--out",
         await fs.mkdtemp(join(tmpdir(), "wayselect-snapshots-")),
         "--now",
-        "2026-10-24T12:00:00.000Z",
+        stale,
         "--max-catalog-age-hours",
         "24",
       ],
@@ -252,11 +266,12 @@ test("malformed snapshot/diff inputs fail closed with typed errors", async () =>
   assert.throws(() => formatDiffReport(null), SnapshotDiffError);
 
   const fixture = await readFixture("catalog.synthetic.json");
+  const now = await freshNow();
   assert.throws(
     () =>
       buildSnapshot(fixture.catalog, fixture.provenance, {
         sourcePrefix: null,
-        now: NOW,
+        now,
       }),
     SnapshotError,
   );
