@@ -1,7 +1,7 @@
 // TOG-5858 (S2): deterministic ranking + tie-break per spec R5.
 //
 // All else equal, lower list price wins, then UTF-16 code-unit route-ID
-// order (src/routeId.js — never localeCompare; see TOG-5644). Identical
+// order (src/routeIds.js — never localeCompare; see TOG-5644). Identical
 // inputs produce byte-identical outputs across runs: no timestamp, locale,
 // or process-order leakage.
 import test from "node:test";
@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
-  compareRouteId,
+  compareRouteIds,
   computeCatalogSnapshotHash,
   selectRoute,
 } from "../src/index.js";
@@ -53,14 +53,14 @@ function eligibleOrder(result) {
   return result.candidates.filter((candidate) => candidate.eligible).map((candidate) => candidate.routeId);
 }
 
-test("compareRouteId uses code-unit order, not locale order", () => {
+test("compareRouteIds uses code-unit order, not locale order", () => {
   // Uppercase sorts before lowercase by code unit; several ICU locales
   // (including lt) collate the opposite way.
-  assert.equal(compareRouteId("p/B-chat", "p/a-chat"), -1);
-  assert.equal(compareRouteId("p/a-chat", "p/B-chat"), 1);
-  assert.equal(compareRouteId("p/k-chat", "p/y-chat"), -1);
-  assert.equal(compareRouteId("p/y-chat", "p/k-chat"), 1);
-  assert.equal(compareRouteId("p/same", "p/same"), 0);
+  assert.equal(compareRouteIds("p/B-chat", "p/a-chat"), -1);
+  assert.equal(compareRouteIds("p/a-chat", "p/B-chat"), 1);
+  assert.equal(compareRouteIds("p/k-chat", "p/y-chat"), -1);
+  assert.equal(compareRouteIds("p/y-chat", "p/k-chat"), 1);
+  assert.equal(compareRouteIds("p/same", "p/same"), 0);
 });
 
 test("equal-rate ties break by code-unit route id, independent of input order", () => {

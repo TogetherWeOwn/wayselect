@@ -11,6 +11,7 @@ import {
   hashRawText,
   ingestModelsDev,
   normalizeCatalog,
+  normalizeRequirements,
   selectRoute,
 } from "../src/index.js";
 import {
@@ -588,6 +589,18 @@ async function resolveSelectionInput(options) {
   // exact pre-S1 selection shape, so legacy behavior is untouched.
   const fileRequirements =
     fileSelection?.requirements !== undefined ? fileSelection.requirements : undefined;
+  // TOG-5946 Blocking 1: validate the raw file requirements BEFORE merging
+  // with flags. The per-dimension `?.`/`??` reads below would otherwise
+  // silently drop an unknown key or a non-object value whenever any typed
+  // flag is present (fail open). The library is the single source of truth
+  // for the shape; rethrow as InputError so the CLI exits 1.
+  if (fileRequirements !== undefined) {
+    try {
+      normalizeRequirements(fileRequirements);
+    } catch (error) {
+      throw new InputError(error.message);
+    }
+  }
   let requirements;
   if (wantsRequirementsFromFlags) {
     requirements = {

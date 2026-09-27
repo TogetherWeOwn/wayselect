@@ -921,6 +921,76 @@ test("select rejects unknown requirements in a request file with exit 1", async 
   }
 });
 
+// TOG-5946 Blocking 1: an unknown file key must still exit 1 when a typed
+// flag is present (the merge path must not silently drop it).
+test("select rejects unknown requirements in a request file with exit 1 even when flags are present", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-s1-"));
+  try {
+    const requestPath = await writeTempJson(dir, "request.json", {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+      requirements: { bogusDimension: true },
+    });
+    const { code, stdout, stderr } = await runCli(
+      [
+        "select",
+        "--request",
+        requestPath,
+        "--catalog",
+        "fixtures/catalog.synthetic.json",
+        "--configuration",
+        "fixtures/configuration.synthetic.json",
+        "--require-tools",
+        "--evaluation-time",
+        EVAL_ISO,
+      ],
+      { expectFailure: true },
+    );
+
+    assert.equal(code, 1);
+    assert.equal(stdout, "");
+    assert.match(stderr, /request\.requirements contains unknown requirement: bogusDimension/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// TOG-5946 Blocking 1: a non-object file requirements value must still
+// exit 1 when a typed flag is present.
+test("select rejects non-object requirements in a request file with exit 1 even when flags are present", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-s1-"));
+  try {
+    const requestPath = await writeTempJson(dir, "request.json", {
+      operation: "chat",
+      requiredCapabilities: [],
+      providerAllowlist: ["northstar"],
+      requirements: "just-a-string",
+    });
+    const { code, stdout, stderr } = await runCli(
+      [
+        "select",
+        "--request",
+        requestPath,
+        "--catalog",
+        "fixtures/catalog.synthetic.json",
+        "--configuration",
+        "fixtures/configuration.synthetic.json",
+        "--require-tools",
+        "--evaluation-time",
+        EVAL_ISO,
+      ],
+      { expectFailure: true },
+    );
+
+    assert.equal(code, 1);
+    assert.equal(stdout, "");
+    assert.match(stderr, /request\.requirements must be an object when present/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("select --help lists every typed-requirement flag", async () => {
   const { code, stdout } = await runCli(["select", "--help"]);
 
