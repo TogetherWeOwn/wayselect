@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #100 (2026-09-27) TOG-6386: automated dep-update PRs via Dependabot
+  (monthly npm + github-actions, free tier, no auto-merge) + Automation
+  section in policy doc (`.github/dependabot.yml`,
+  `docs/dependency-update-policy.md`).
 - #96 (2026-09-27) TOG-6382: adversarial search-prompt eval — 8 tests
   over a 19-query corpus (override fail-closed, negation robustness,
   KNOWN-GAP pins for n't/name/adjective limits)
