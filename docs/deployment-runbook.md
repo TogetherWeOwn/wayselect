@@ -29,8 +29,10 @@ What the `Dockerfile` pins:
   `404 {"error":"not_found"}` JSON contract — it passes whether
   `WAYSELECT_PREVIEW` is on or off.
 
-Expected result: the build exits 0. CI also builds this image on every PR
-(see the `docker-build` job in `.github/workflows/ci.yml`).
+Expected result: the build exits 0. No CI `docker-build` job exists yet —
+adding one needs `workflows` write scope, which this repo's GitHub-App
+credential lacks (TOG-5728 precedent); a follow-up card adds the job once
+that scope is granted. Until then, build verification is manual per §2.
 
 ## 2. Run (staging/preview only)
 
