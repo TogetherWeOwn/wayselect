@@ -306,6 +306,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
 - [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
+- [models.dev freshness-probe offline contract](docs/models-dev-freshness-probe-offline-contract.md) — what `bin/check-models-dev-freshness` reads, never touches, and how to verify zero network use.
 - [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
 - [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
 - [Buyer listing spec](docs/wayselect-buyer-listing.md) — listing fields + purchase acceptance (v2).
