@@ -8,7 +8,14 @@
         "sneaky-chat": {
           "id": "sneaky-chat",
           "name": "Sneaky Chat",
-          "modalities": { "input": ["text"], "output": ["text"] },
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
           "endpoint": "https://example.invalid/sneaky"
         }
       }
@@ -17,7 +24,7 @@
   "provenance": {
     "source": "synthetic://wayselect/edge-unknown-field",
     "snapshotTimestamp": "2026-09-24T10:00:00.000Z",
-    "snapshotHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    "snapshotHash": "sha256:de48793e63d254ff421c161cb474428297112490f4c0ef7ede758cab76804f7b"
   },
   "expect": {
     "errorName": "CatalogValidationError",

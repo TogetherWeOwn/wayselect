@@ -8,7 +8,14 @@
         "alpha-chat": {
           "id": "alpha-chat-typo",
           "name": "Alpha Chat",
-          "modalities": { "input": ["text"], "output": ["text"] }
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          }
         }
       }
     }
@@ -16,7 +23,7 @@
   "provenance": {
     "source": "synthetic://wayselect/edge-malformed",
     "snapshotTimestamp": "2026-09-24T10:00:00.000Z",
-    "snapshotHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    "snapshotHash": "sha256:53932d51583a822848ae50957398dc5bc5c9733dab02906335499723065967da"
   },
   "expect": {
     "errorName": "CatalogValidationError",

@@ -1,10 +1,15 @@
 {
-  "description": "Stale evidence: evaluation runs 36 days after the freshest observation, so every configured candidate fails closed with stale-evidence.",
+  "description": "Stale evidence: evaluation runs 36 days after the freshest observation, so every configured candidate fails closed with stale-evidence. maxCatalogAgeHours is relaxed so the catalog gate stays green and evidence staleness is the gate that fails closed.",
   "configuration": null,
   "selection": {
     "operation": "chat",
-    "requiredCapabilities": ["toolUse"],
-    "providerAllowlist": ["northstar", "orbit"]
+    "requiredCapabilities": [
+      "toolUse"
+    ],
+    "providerAllowlist": [
+      "northstar",
+      "orbit"
+    ]
   },
   "evaluationTime": "2026-10-30T12:00:00.000Z",
   "maxEvidenceAgeHours": 72,
@@ -12,8 +17,13 @@
     "status": "no-eligible-route",
     "selectedRouteId": null,
     "reasonIncludes": {
-      "northstar/alpha-chat": ["stale-evidence"],
-      "orbit/orbit-chat": ["stale-evidence"]
+      "northstar/alpha-chat": [
+        "stale-evidence"
+      ],
+      "orbit/orbit-chat": [
+        "stale-evidence"
+      ]
     }
-  }
+  },
+  "maxCatalogAgeHours": 8760
 }

@@ -3,15 +3,23 @@
   "configuration": null,
   "selection": {
     "operation": "chat",
-    "requiredCapabilities": ["toolUse"],
-    "providerAllowlist": ["northstar", "orbit"]
+    "requiredCapabilities": [
+      "toolUse"
+    ],
+    "providerAllowlist": [
+      "northstar",
+      "orbit"
+    ]
   },
-  "evaluationTime": "2026-09-24T12:00:00.000Z",
+  "evaluationTime": "2026-09-26T16:00:00.000Z",
   "maxEvidenceAgeHours": 72,
   "expect": {
     "status": "selected",
     "selectedRouteId": "northstar/alpha-chat",
-    "tiedRouteIds": ["northstar/alpha-chat", "orbit/orbit-chat"],
+    "tiedRouteIds": [
+      "northstar/alpha-chat",
+      "orbit/orbit-chat"
+    ],
     "tiedEstimatedRatePerMillion": 3
   }
 }
