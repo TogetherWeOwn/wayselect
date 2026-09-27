@@ -162,8 +162,13 @@ export function classifyEligibilityDisplay(evaluation) {
   ) {
     return ELIGIBILITY_STATE.UNKNOWN;
   }
+  // Defense-in-depth invariant (TOG-5298): the real evaluator guarantees
+  // eligible = reasons.length === 0, so eligible:true with non-empty reasons
+  // is forged or compromised output — fail closed to unknown, never granted.
   if (evaluation.eligible === true) {
-    return ELIGIBILITY_STATE.GRANTED;
+    return evaluation.reasons.length === 0
+      ? ELIGIBILITY_STATE.GRANTED
+      : ELIGIBILITY_STATE.UNKNOWN;
   }
   if (evaluation.reasons.length === 0) {
     return ELIGIBILITY_STATE.UNKNOWN;
