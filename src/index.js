@@ -50,6 +50,16 @@ export {
   formatDiffReport,
 } from "./catalogDiff.js";
 export {
+  DEFAULT_SEARCH_INDEX_SOURCE_PREFIX,
+  SEARCH_INDEX_MODE,
+  SEARCH_INDEX_TOOL,
+  SearchIndexError,
+  buildSearchIndex,
+  createRefreshQueue,
+  probeSearchIndexRefresh,
+  reloadSearchIndex,
+} from "./searchIndex.js";
+export {
   failOnGapsMessage,
   formatCliFailure,
   futureSnapshotMessage,

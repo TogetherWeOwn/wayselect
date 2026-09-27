@@ -1,0 +1,157 @@
+#!/usr/bin/env node
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import {
+  createRefreshQueue,
+  probeSearchIndexRefresh,
+  reloadSearchIndex,
+} from "../src/searchIndex.js";
+import {
+  formatCliFailure,
+  futureSnapshotMessage,
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  staleSnapshotMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
+
+function parseArguments(argv) {
+  const values = {
+    catalog: "fixtures/catalog.synthetic.json",
+    out: "search-index",
+    previous: null,
+    now: null,
+    maxCatalogAgeHours: null,
+    check: false,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--check") {
+      values.check = true;
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === undefined) {
+      throw new Error(missingValueMessage(flag));
+    }
+    if (flag === "--catalog") {
+      values.catalog = value;
+    } else if (flag === "--out") {
+      values.out = value;
+    } else if (flag === "--previous") {
+      values.previous = value;
+    } else if (flag === "--now") {
+      values.now = value;
+    } else if (flag === "--max-catalog-age-hours") {
+      values.maxCatalogAgeHours = value;
+    } else {
+      throw new Error(unknownArgumentMessage(flag));
+    }
+    index += 1;
+  }
+
+  return values;
+}
+
+function compactTimestamp(iso) {
+  return iso.replace(/[-:.]/g, "");
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+
+  let maxCatalogAgeMs;
+  if (args.maxCatalogAgeHours !== null) {
+    maxCatalogAgeMs = Number(args.maxCatalogAgeHours);
+    if (!Number.isFinite(maxCatalogAgeMs) || maxCatalogAgeMs < 0) {
+      throw new Error(invalidMaxCatalogAgeMessage());
+    }
+    maxCatalogAgeMs *= 60 * 60 * 1000;
+  }
+
+  const fixture = JSON.parse(await readFile(resolve(args.catalog), "utf8"));
+  const refreshOptions = {
+    ...(args.now !== null ? { now: args.now } : {}),
+    ...(maxCatalogAgeMs !== undefined ? { maxCatalogAgeMs } : {}),
+  };
+
+  if (args.check) {
+    const probe = probeSearchIndexRefresh(fixture.catalog, fixture.provenance, refreshOptions);
+    for (const entry of probe.checks) {
+      process.stdout.write(`${entry.ok ? "PASS" : "FAIL"}  ${entry.id} — ${entry.detail}\n`);
+    }
+    const passed = probe.checks.filter((entry) => entry.ok).length;
+    process.stdout.write(
+      `refresh-probe: ${passed}/${probe.checks.length} checks passed ` +
+        `(content ${probe.contentHash ?? "none"})\n`,
+    );
+    if (!probe.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  // The queued job: one enqueue, one drain. Identical pending requests dedup;
+  // the unit suite pins that behavior.
+  const queue = createRefreshQueue();
+  const job = queue.enqueue(fixture.catalog, fixture.provenance, refreshOptions);
+  queue.drain();
+  const index = queue.currentIndex();
+
+  if (index.freshness !== null && !index.freshness.fresh) {
+    const { ageMs, maxCatalogAgeMs: limitMs } = index.freshness;
+    throw new Error(
+      ageMs < 0 ? futureSnapshotMessage(ageMs, limitMs) : staleSnapshotMessage(ageMs, limitMs),
+    );
+  }
+
+  // Idempotent reload proof: rebuilding over the just-built index changes nothing.
+  const reload = reloadSearchIndex(index, fixture.catalog, fixture.provenance, refreshOptions);
+
+  let changedVsPrevious = null;
+  let previousContentHash = null;
+  if (args.previous !== null) {
+    const previous = JSON.parse(await readFile(resolve(args.previous), "utf8"));
+    const compared = reloadSearchIndex(
+      previous,
+      fixture.catalog,
+      fixture.provenance,
+      refreshOptions,
+    );
+    changedVsPrevious = compared.changed;
+    previousContentHash = compared.previousContentHash;
+  }
+
+  await mkdir(resolve(args.out), { recursive: true });
+  const shortHash = index.contentHash.slice("sha256:".length, "sha256:".length + 8);
+  const indexName = `search-index-${compactTimestamp(index.collectedAt)}-${shortHash}.json`;
+  const indexPath = join(resolve(args.out), indexName);
+  await writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`);
+
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        earlyDevelopment: true,
+        mode: "fixture-only",
+        networkUsed: false,
+        jobId: job.jobId,
+        deduped: job.deduped,
+        indexPath: indexName,
+        contentHash: index.contentHash,
+        routeCount: index.entries.length,
+        changedVsPrevious,
+        previousContentHash,
+        reloadChanged: reload.changed,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+main().catch((error) => {
+  process.stderr.write(formatCliFailure(error));
+  process.exitCode = 1;
+});

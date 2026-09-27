@@ -140,6 +140,33 @@ interpret-then-match). Stdlib only, no network, no credentials; seed 5492
 recorded for the shuffle-invariance self-check. Today: before 12/20, after
 20/20 — 8 fixed, 0 regressed.
 
+## Catalog search-index refresh
+
+Fixture-only automation with no network access and no production writes.
+`src/searchIndex.js` derives a frozen, searchable view over the fixture
+catalog through the same `normalizeCatalog` boundary the CLI uses, so the
+index can never describe routes the catalog boundary would reject. Refresh
+is a queued job (`createRefreshQueue`: FIFO, identical pending requests
+dedup instead of stacking) with an idempotent reload proof
+(`reloadSearchIndex` reports `changed:false` on identical input).
+Non-`synthetic://` sources are refused; stale or future-dated catalogs fail
+closed instead of writing an index.
+
+```sh
+npm run check:search-index
+node bin/wayselect-search-index-refresh --check --max-catalog-age-hours 24
+node bin/wayselect-search-index-refresh --max-catalog-age-hours 24 --out search-index
+```
+
+The probe (`--check`, five checks R1–R5) rebuilds twice and reloads: done
+criteria for TOG-5460 is the probe passing twice consecutively with the same
+content hash. Same-input refreshes over `--previous` report
+`changedVsPrevious:false`. The evaluation clock follows the same
+snapshot-derived pattern as the suite (`support/helpers.js`
+`evaluationNow()`): when no `--now` is given, the CLI evaluates two hours
+after the live fixture `snapshotTimestamp`, so the probe stays green across
+fixture refreshes without edits.
+
 ## Library boundaries
 
 - `src/catalog.js` validates a narrow provider-keyed, models.dev-shaped fixture subset and preserves provenance. Unknown fields are rejected at the boundary.
