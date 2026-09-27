@@ -34,7 +34,7 @@ import {
   renderNotFound,
   renderPreviewDisabled,
 } from "./listing-detail.js";
-import { applyListingsFilters, parseListingsQuery } from "./filter.js";
+import { applyListingsFilters, paginateListings, parseListingsQuery } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
 
 const LISTING_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/?$/;
@@ -140,10 +140,13 @@ export function createApp(env = process.env, options = {}) {
         sendHtml(res, 400, renderInvalidFilter(parsed));
         return;
       }
+      const filtered = applyListingsFilters(STUB_LISTINGS, parsed.filters);
+      // TOG-6028: bound the HTML render with limit/offset (fail-closed above).
+      const { page, total, limit, offset } = paginateListings(filtered, parsed.paging);
       sendHtml(
         res,
         200,
-        renderListingIndex(applyListingsFilters(STUB_LISTINGS, parsed.filters), undefined, parsed.filters),
+        renderListingIndex(page, undefined, parsed.filters, { total, limit, offset }),
       );
       return;
     }
