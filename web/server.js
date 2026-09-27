@@ -548,6 +548,15 @@ export function createApp(env = process.env, options = {}) {
       // TOG-5499: the shell's inline fetch negotiates this fragment.
       // Test/dev slow-network knob: delays the fragment only, never the
       // shell first paint. Unset or non-positive means no delay.
+      // TOG-6714: the delay must not outlive the client — an aborted
+      // stream otherwise leaves a pending timer whose send writes to a
+      // dead socket. `req` 'close' fires on client abort (it also fires
+      // on normal completion, so the fired-timer path removes its own
+      // listener — a completed fragment leaves zero pending timers and
+      // zero stray listeners behind). The fired path additionally skips
+      // the send when the socket is already gone: the abort can win the
+      // race after the delay elapses, and a dropped fragment sends
+      // nothing rather than writing to a destroyed socket.
       if (String(req.headers?.accept ?? "").includes("application/json")) {
         const sendFragment = () => {
           try {
@@ -567,7 +576,25 @@ export function createApp(env = process.env, options = {}) {
           10,
         );
         if (Number.isFinite(fragmentDelayMs) && fragmentDelayMs > 0) {
-          setTimeout(sendFragment, fragmentDelayMs);
+          const onFragmentAbort = () => clearTimeout(fragmentTimer);
+          const fragmentTimer = setTimeout(() => {
+            req.removeListener("close", onFragmentAbort);
+            // The abort may win the race after the delay elapses: writing
+            // to a destroyed socket throws, and the throw inside sendJson
+            // would escape through the timer (the inner catch's sendHtml
+            // throws again). A dropped fragment sends nothing — skip it.
+            if (!res.destroyed && !res.writableEnded) {
+              sendFragment();
+            }
+          }, fragmentDelayMs);
+          if (req.destroyed || req.closed) {
+            // The client was already gone before the timer was armed —
+            // 'close' already fired, so the listener below would never run
+            // and the timer would leak. Drop it immediately.
+            clearTimeout(fragmentTimer);
+          } else {
+            req.once("close", onFragmentAbort);
+          }
         } else {
           sendFragment();
         }
