@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #143 (2026-09-27) TOG-6713: cap slowloris header/body receipt —
+  `createApp()` pins `headersTimeout` 10s / `requestTimeout` 120s on every
+  server it builds (below Node's 60s/300s defaults), with a validated
+  `httpTimeouts` override; both values logged at startup
+  (`web/server.js`, `test/preview-http-timeouts.test.js`).
 - #142 (2026-09-27) TOG-6737: seller-intake vs purchase error-envelope
   parity note — §4A field table + rationale in the seller acceptance
   spec, pinning both HTTP envelopes and both validator vocabularies to
