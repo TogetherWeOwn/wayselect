@@ -1,0 +1,419 @@
+#!/usr/bin/env node
+
+// Staging deploy smoke for the Wayselect preview (TOG-5848).
+//
+// One script covering the two staging gates for the preview deploy:
+//   1. health  — the preview answers: index 200 with every stub listing and
+//                the preview banner, one detail page rendering its field
+//                contract, unknown listings 404, the purchase stub still
+//                refusing 403 preview_only, and the TOG-5731 security
+//                headers (nosniff everywhere; framing denial + CSP on HTML).
+//   2. buyer happy path — the first-value buyer walk from
+//                docs/wayselect-buyer-activation.md §1/§2/§4 that runs
+//                today: stub order, Granted/Blocked/Unknown badges,
+//                index<->detail badge consistency, verbatim exclusion
+//                reasons, disabled purchase CTA, flag-off gating.
+//
+// Target: a deployed staging preview via --base-url (or WAYSELECT_STAGING_URL).
+// No staging URL is declared anywhere in repo history yet (TOG-4873
+// precedent), so with no --base-url the script starts the real server from
+// web/server.js on an ephemeral port in-process and probes that instead —
+// the same command runs unchanged once a staging URL lands.
+//
+// File-side freshness: fixtures/catalog.synthetic.json provenance
+// snapshotTimestamp is checked with checkCatalogFreshness — stale or
+// future-dated snapshots FAIL (the stale-index alert).
+//
+// Zero dependencies: Node standard library only.
+//
+// Usage:
+//   node bin/smoke-wayselect-staging-preview [--base-url <url>]
+//     [--catalog <path>] [--now <ISO>] [--max-catalog-age-hours <n>]
+//   npm run smoke:staging-preview
+//   WAYSELECT_STAGING_URL=<url> npm run smoke:staging-preview
+//
+// Exit codes: 0 when every check passes (skips allowed), 1 on any failure
+// (including stale/future index or an unreachable base URL), 2 on usage
+// errors. Budget: under 15 minutes.
+
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { createApp } from "../web/server.js";
+import { checkCatalogFreshness } from "../src/index.js";
+import {
+  invalidMaxCatalogAgeMessage,
+  missingValueMessage,
+  unknownArgumentMessage,
+} from "../src/cliErrors.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 15 * 1000;
+const DEFAULT_CATALOG = "fixtures/catalog.synthetic.json";
+const DEFAULT_MAX_AGE_HOURS = 24;
+const startedAt = Date.now();
+const results = [];
+
+function parseArguments(argv) {
+  const values = {
+    baseUrl: process.env.WAYSELECT_STAGING_URL ?? null,
+    catalog: DEFAULT_CATALOG,
+    now: null,
+    maxCatalogAgeHours: String(DEFAULT_MAX_AGE_HOURS),
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--help" || flag === "-h") {
+      values.help = true;
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === undefined) {
+      throw new Error(missingValueMessage(flag));
+    }
+    if (flag === "--base-url") {
+      values.baseUrl = value;
+    } else if (flag === "--catalog") {
+      values.catalog = value;
+    } else if (flag === "--now") {
+      values.now = value;
+    } else if (flag === "--max-catalog-age-hours") {
+      values.maxCatalogAgeHours = value;
+    } else {
+      throw new Error(unknownArgumentMessage(flag));
+    }
+    index += 1;
+  }
+  return values;
+}
+
+function usage() {
+  return (
+    "Usage: node bin/smoke-wayselect-staging-preview [--base-url <url>]\n" +
+    "    [--catalog <path>] [--now <ISO>] [--max-catalog-age-hours <n>]\n" +
+    "  (or set WAYSELECT_STAGING_URL instead of --base-url)\n"
+  );
+}
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function skip(id, label, reason) {
+  record("skip", id, label, reason);
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolvePromise, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  return server;
+}
+
+function close(server) {
+  return new Promise((resolvePromise) => server.close(resolvePromise));
+}
+
+function finish() {
+  const elapsedMs = Date.now() - startedAt;
+  const elapsedS = (elapsedMs / 1000).toFixed(1);
+  const pass = results.filter((r) => r.status === "pass").length;
+  const fail = results.filter((r) => r.status === "fail").length;
+  const skipped = results.filter((r) => r.status === "skip").length;
+  const overBudget = elapsedMs > BUDGET_MS;
+  process.stdout.write(
+    `SUMMARY: ${pass} pass, ${fail} fail, ${skipped} skip — ${elapsedS}s (budget 15m)\n`,
+  );
+  if (overBudget) {
+    process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+  }
+  process.exitCode = fail === 0 && !overBudget ? 0 : 1;
+}
+
+async function request(base, path, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+    return { status: res.status, text, json, headers: res.headers };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Map each index <li> to its listing name + badge class (same rule as
+// bin/accept-wayselect-buyer: the buyer compares badges across views).
+function indexBadges(indexHtml) {
+  const items = indexHtml.match(/<li>[\s\S]*?<\/li>/g) ?? [];
+  const found = new Map();
+  for (const item of items) {
+    const name = item.match(/>([^<>]+) <code>/)?.[1]?.trim();
+    const badge = item.match(/badge-(granted|blocked|unknown)/)?.[1];
+    if (name && badge) {
+      found.set(name, badge);
+    }
+  }
+  return found;
+}
+
+function detailBadges(html) {
+  return {
+    granted: html.includes("badge-granted"),
+    blocked: html.includes("badge-blocked"),
+    unknown: html.includes("badge-unknown"),
+  };
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(usage());
+    return;
+  }
+
+  const maxCatalogAgeMs = Number(args.maxCatalogAgeHours) * 60 * 60 * 1000;
+  if (!Number.isFinite(maxCatalogAgeMs) || maxCatalogAgeMs < 0) {
+    throw new Error(invalidMaxCatalogAgeMessage());
+  }
+  const now = args.now ?? new Date().toISOString();
+  if (!Number.isFinite(Date.parse(now))) {
+    throw new Error("--now must be a valid ISO timestamp");
+  }
+
+  const remote = args.baseUrl !== null && args.baseUrl !== "";
+  let base = remote ? args.baseUrl.replace(/\/+$/, "") : null;
+  process.stdout.write(remote ? `TARGET: remote ${base}\n` : "TARGET: local ephemeral server\n");
+
+  let server = null;
+  let offServer = null;
+  if (!remote) {
+    server = await listen({ WAYSELECT_PREVIEW: "1" });
+    base = `http://127.0.0.1:${server.address().port}`;
+  }
+
+  try {
+    // ---- connectivity gate: an unreachable base URL fails, never crashes ----
+    let index;
+    try {
+      index = await request(base, "/listings");
+    } catch (error) {
+      const detail = error?.name === "AbortError" ? "request timed out" : String(error?.message ?? error);
+      check(false, "H0", "staging preview is reachable", `${base}/listings — ${detail}`);
+      finish();
+      return;
+    }
+    check(index.status === 200, "H0", "staging preview is reachable", `got ${index.status}`);
+
+    // ---- 1. health: index + banner ----
+    check(index.status === 200, "H1", "index returns 200", `got ${index.status}`);
+    check(
+      index.status === 200 &&
+        index.text.includes("Alpha Chat") &&
+        index.text.includes("Image Lite") &&
+        index.text.includes("Unknown Tools"),
+      "H1b",
+      "index lists every stub listing",
+    );
+    check(
+      index.status === 200 && index.text.includes("Preview build: stub data only"),
+      "H1c",
+      "index carries the preview banner",
+    );
+
+    // ---- 1. health: detail page + 404 + purchase-stub invariant ----
+    const detail = await request(base, "/listings/northstar/alpha-chat");
+    check(detail.status === 200, "H2", "detail returns 200", `got ${detail.status}`);
+    check(
+      detail.status === 200 &&
+        detail.text.includes("<h1>Alpha Chat</h1>") &&
+        detail.text.includes("<code>northstar/alpha-chat</code>") &&
+        detail.text.includes("Purchase (stub"),
+      "H2b",
+      "detail renders name, route line, and purchase stub",
+    );
+
+    const missing = await request(base, "/listings/northstar/nope");
+    check(
+      missing.status === 404 && missing.text.includes("Listing not found"),
+      "H3",
+      "unknown listing is a 404 not-found page",
+      `got ${missing.status}`,
+    );
+
+    const purchase = await request(base, "/listings/northstar/alpha-chat/purchase", {
+      method: "POST",
+    });
+    check(
+      purchase.status === 403 && purchase.json?.error === "preview_only",
+      "H4",
+      "purchase stub still refuses 403 preview_only",
+      `got ${purchase.status}`,
+    );
+
+    // ---- 1. health: TOG-5731 security headers ----
+    check(
+      index.headers?.get("x-content-type-options") === "nosniff" &&
+        detail.headers?.get("x-content-type-options") === "nosniff" &&
+        purchase.headers?.get("x-content-type-options") === "nosniff",
+      "H5",
+      "nosniff on index, detail, and purchase stub",
+    );
+    check(
+      index.headers?.get("x-frame-options") === "DENY" &&
+        detail.headers?.get("x-frame-options") === "DENY" &&
+        (index.headers?.get("content-security-policy") ?? "").includes("frame-ancestors 'none'"),
+      "H5b",
+      "HTML pages deny framing with a minimal CSP",
+    );
+
+    // ---- 2. buyer happy path: search baseline (B1–B4) ----
+    const alphaPos = index.text.indexOf("Alpha Chat");
+    const imagePos = index.text.indexOf("Image Lite");
+    const unknownPos = index.text.indexOf("Unknown Tools");
+    check(
+      alphaPos !== -1 && imagePos !== -1 && unknownPos !== -1 &&
+        alphaPos < imagePos && imagePos < unknownPos,
+      "B2",
+      "index preserves stub order (deterministic, no re-ranking)",
+    );
+    const badges = indexBadges(index.text);
+    check(badges.get("Alpha Chat") === "granted", "B3a", "Alpha Chat badge is Granted");
+    check(badges.get("Image Lite") === "blocked", "B3b", "Image Lite badge is Blocked");
+    check(
+      badges.get("Unknown Tools") === "unknown",
+      "B3c",
+      "Unknown Tools badge is Unknown (fail closed)",
+    );
+    check(
+      index.text.includes('href="/listings/northstar/alpha-chat"') &&
+        index.text.includes('href="/listings/northstar/image-lite"') &&
+        index.text.includes('href="/listings/northstar/unknown-tools"'),
+      "B4",
+      "every listing item links to its detail page",
+    );
+
+    // ---- 2. buyer happy path: compare (B5–B7) ----
+    const image = await request(base, "/listings/northstar/image-lite");
+    const unknown = await request(base, "/listings/northstar/unknown-tools");
+    check(
+      detail.text.includes("<h1>Alpha Chat</h1>") &&
+        image.status === 200 && image.text.includes("<h1>Image Lite</h1>") &&
+        unknown.status === 200 && unknown.text.includes("<h1>Unknown Tools</h1>"),
+      "B5",
+      "every index link opens its detail page with the matching h1",
+      `got ${detail.status}/${image.status}/${unknown.status}`,
+    );
+    const alphaBadges = detailBadges(detail.text);
+    const imageBadges = detailBadges(image.text);
+    const unknownBadges = detailBadges(unknown.text);
+    check(
+      alphaBadges.granted && imageBadges.blocked && unknownBadges.unknown,
+      "B6",
+      "detail badges match index badges (index never promises what detail retracts)",
+    );
+    check(
+      detail.text.includes('aria-label="Eligibility"') && !detail.text.includes("<ul>"),
+      "B7a",
+      "granted detail shows the Eligibility section with no exclusion reasons",
+    );
+    check(
+      image.text.includes("<code>unsupported-capability:toolUse</code>"),
+      "B7b",
+      "blocked detail names the verbatim exclusion reason in code",
+    );
+    check(
+      unknown.text.includes("<code>missing-capability:toolUse</code>") &&
+        unknown.text.includes("not selectable"),
+      "B7c",
+      "unknown detail names the verbatim reason with not-selectable copy",
+    );
+
+    // ---- 2. buyer happy path: terminal honesty (B8–B9) ----
+    check(
+      detail.text.includes("Purchase (stub") &&
+        detail.text.includes("disabled") &&
+        detail.text.includes('aria-disabled="true"'),
+      "B8",
+      "purchase CTA is disabled with aria-disabled (no buyer path ever charges)",
+    );
+    if (!remote) {
+      offServer = await listen({});
+      const offBase = `http://127.0.0.1:${offServer.address().port}`;
+      const offIndex = await request(offBase, "/listings");
+      const offDetail = await request(offBase, "/listings/northstar/alpha-chat");
+      check(
+        offIndex.status === 404 && offIndex.text.includes("Preview unavailable") &&
+          offIndex.text.includes("WAYSELECT_PREVIEW") &&
+          offDetail.status === 404 && offDetail.text.includes("Preview unavailable"),
+        "B9",
+        "flag off hides index and detail behind the preview-disabled page",
+        `got ${offIndex.status}/${offDetail.status}`,
+      );
+    } else {
+      skip("B9", "flag off hides index and detail", "remote base-url: flag-off gate not probeable");
+    }
+
+    // ---- 3. index freshness: catalog provenance snapshotTimestamp ----
+    let freshnessDetail = "";
+    let freshnessOk = false;
+    try {
+      const raw = await readFile(resolve(args.catalog), "utf8");
+      const fixture = JSON.parse(raw);
+      const probe = checkCatalogFreshness(fixture, { now, maxCatalogAgeMs });
+      const ageHours = (probe.ageMs / 3_600_000).toFixed(2);
+      const limitHours = (probe.maxCatalogAgeMs / 3_600_000).toFixed(2);
+      freshnessDetail =
+        `snapshot ${probe.snapshotTimestamp}, age ${ageHours}h (limit ${limitHours}h)`;
+      if (probe.fresh) {
+        freshnessOk = true;
+      } else {
+        freshnessDetail = probe.ageMs < 0
+          ? `FUTURE-DATED ${freshnessDetail}`
+          : `STALE ${freshnessDetail}`;
+      }
+    } catch (error) {
+      freshnessDetail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    }
+    check(freshnessOk, "F1", "catalog index is fresh (stale/future alerts)", freshnessDetail);
+  } finally {
+    if (server !== null) {
+      await close(server);
+    }
+    if (offServer !== null) {
+      await close(offServer);
+    }
+  }
+
+  finish();
+}
+
+main().catch((error) => {
+  const isUsage =
+    error instanceof Error &&
+    (/^Missing value for /.test(error.message) ||
+      /^Unknown argument: /.test(error.message) ||
+      /must be a non-negative number/.test(error.message) ||
+      /must be a valid ISO timestamp/.test(error.message));
+  if (isUsage) {
+    process.stderr.write(`${error.name}: ${error.message}\n${usage()}`);
+    process.exitCode = 2;
+    return;
+  }
+  process.stderr.write(`${error instanceof Error ? `${error.name}: ${error.message}` : error}\n`);
+  process.exitCode = 1;
+});
