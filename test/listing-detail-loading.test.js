@@ -29,7 +29,7 @@ describe("listing-detail shell", () => {
     // in the noscript/fragment render.
     const chrome = html
       .replaceAll(/<noscript>[\s\S]*?<\/noscript>/gi, "")
-      .replaceAll(/<script>[\s\S]*?<\/script>/gi, "");
+      .replaceAll(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
     ok(!chrome.includes("<form"), "no live form in shell chrome");
     ok(html.includes("disabled"), "noscript purchase stub stays disabled");
   });
