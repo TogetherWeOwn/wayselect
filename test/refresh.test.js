@@ -157,7 +157,7 @@ test("check verifies the recorded hash and rejects tampering", async () => {
   await writeFile(names.catalog, JSON.stringify(tampered, null, 2));
   await assert.rejects(
     runRefresh(["--check", "--catalog", names.catalog]),
-    /snapshotHash mismatch/,
+    /does not match provenance\.snapshotHash/,
   );
 });
 
