@@ -11,7 +11,11 @@
 //                                            pins the browser-requested icon
 //                                            path so page loads stop emitting
 //                                            404 log noise
-//   GET /listings                          — stub listing index (flag-gated)
+//   GET /listings                          — stub listing index (flag-gated;
+//                                            flag-on honors `Accept:
+//                                            application/json` with the paged
+//                                            result / invalid-filter error;
+//                                            flag-off stays HTML-only)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
 //                                            the `{ html }` content fragment)
@@ -47,12 +51,16 @@
 //     Effort was trivial: one `randomBytes` nonce per HTML response,
 //     stamped on the inline tags and allowlisted in the header.
 //
-// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375):
+// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375, index JSON TOG-7661):
 //   - Browser routes (index, detail incl. listing misses, flag-off pages):
 //     HTML by default; JSON only when the client explicitly negotiates
-//     `Accept: application/json` (the shell's fragment fetch). Flag-off
-//     JSON is `{error: "preview_disabled"}` so the shell renders its
-//     alert panel instead of choking on an HTML page.
+//     `Accept: application/json` (the shell's fragment fetch; index JSON
+//     callers likewise). Flag-off JSON is `{error: "preview_disabled"}`
+//     so the shell renders its alert panel instead of choking on an HTML
+//     page. Flag-on index JSON is the paged result
+//     `{listings, total, limit, offset}` (200, incl. empty states) or
+//     `{error: "invalid_filter", kind, value, valid, errors}` (400).
+//     The flag-off index stays HTML-only — it has no fragment shape.
 //   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
 //     always JSON.
 //   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
@@ -391,9 +399,18 @@ export function createApp(env = process.env, options = {}) {
       const sendPage = (status, html) => sendHtml(res, status, html, nonce);
       const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
+        // TOG-6375: the flag-off index stays HTML-only even under JSON
+        // negotiation — it has no fragment shape, flag-on or flag-off.
         sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
+      // TOG-7661: the flag-on index negotiates like the detail route —
+      // `Accept: application/json` gets the machine-readable result/error
+      // payload instead of the HTML page, so `fetch(...).json()` never
+      // parses HTML (the TOG-5499 failure mode on the detail side).
+      // `Vary: Accept` on every variant so a shared cache keys on it.
+      res.setHeader("vary", "Accept");
+      const wantsIndexJson = String(req.headers?.accept ?? "").includes("application/json");
       let params;
       try {
         params = new URL(req.url ?? "/", "http://localhost").searchParams;
@@ -403,12 +420,26 @@ export function createApp(env = process.env, options = {}) {
       }
       const parsed = parseListingsQuery(params);
       if (!parsed.ok) {
+        if (wantsIndexJson) {
+          sendJson(res, 400, {
+            error: "invalid_filter",
+            kind: parsed.kind,
+            value: parsed.value,
+            valid: parsed.valid,
+            errors: parsed.errors,
+          });
+          return;
+        }
         sendPage(400, renderInvalidFilter(parsed, pageOpts));
         return;
       }
       const filtered = applyListingsFilters(STUB_LISTINGS, parsed.filters);
       // TOG-6028: bound the HTML render with limit/offset (fail-closed above).
       const { page, total, limit, offset } = paginateListings(filtered, parsed.paging);
+      if (wantsIndexJson) {
+        sendJson(res, 200, { listings: page, total, limit, offset });
+        return;
+      }
       sendPage(
         200,
         renderListingIndex(page, undefined, parsed.filters, { total, limit, offset }, pageOpts),
@@ -611,8 +642,9 @@ export function createApp(env = process.env, options = {}) {
         // flag-off fragment request degrades to a JSON error the shell
         // renders as its alert panel — never an HTML page that breaks
         // `res.json()`. Flag check precedes listing lookup, so unknown
-        // listings gate identically. Index stays HTML-only: it has no
-        // fragment shape, flag-on or flag-off.
+        // listings gate identically. The flag-off index stays HTML-only
+        // (TOG-6375): it has no fragment shape — only the flag-on index
+        // negotiates JSON (TOG-7661).
         if (String(req.headers?.accept ?? "").includes("application/json")) {
           sendJson(res, 404, { error: "preview_disabled" });
           return;
