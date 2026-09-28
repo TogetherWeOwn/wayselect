@@ -18,6 +18,21 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-8327: snapshot backup/restore + catalog rollback procedure —
+  `docs/snapshot-backup-restore.md` (backup, scratch-copy restore, bad-ingestion
+  diff detection, byte-restore rollback, reviewer walk) with one-command drill
+  `bin/accept-snapshot-restore` (`npm run accept:snapshot-restore`, 5/5 checks
+  incl. full suite, proven on scratch), wiring (`package.json` script, README
+  index, `docs/bin-operator-catalog.md` row), pinned by
+  `test/snapshot-backup-restore.test.js`.
+- TOG-8429: deep-nesting DoS fix — `assertNoLocationFields` in
+  `src/sellerSubmission.js` and `src/purchase.js` recursed one frame per
+  nesting level, so a single 6000-deep `provenance.nested` body (~36KB, under
+  the 64KB gate) escaped the typed-error catch as an uncaught RangeError and
+  killed the preview process; both scanners are now explicit-stack loops that
+  visit the same nodes in the same order and fail closed with the same typed
+  errors, pinned by `test/intake-deep-nesting.test.js` (unit at 6000/10000
+  depth plus live 400 + `/healthz` + valid-intake survival).
 - #187 (2026-09-28) TOG-7302: catalog import --json pinned to the v1 machine
   schema — the schema is now a `command`-dispatched union (`select`/`explain`
   plus the `catalog import` shape), enforced fail-closed via
