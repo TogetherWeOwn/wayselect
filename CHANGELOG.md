@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #198 (2026-09-28) TOG-6725: drift-check CLI exit-code contract pin —
+  `bin/check-provenance-drift` asserts 0 clean, 1 on drift, 2 on usage
+  error in one place (`test/drift-exit-code-contract.test.js`, test-only,
+  no source change).
 - #167 (2026-09-28) TOG-7283: POST intake rate-limit coverage audit pin — every POST
   intake route (`/listings/:provider/:model/purchase`,
   `/sellers/submissions`,
