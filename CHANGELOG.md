@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7302: catalog import --json pinned to the v1 machine schema — the
+  schema is now a `command`-dispatched union (`select`/`explain` plus the
+  `catalog import` shape), enforced fail-closed via `src/validate-cli-json.js`,
+  with live output pinned byte-for-byte to
+  `test/fixtures/cli-json-catalog-import.v1.json` so any machine-shape drift
+  fails (`schema/cli-json/v1.json`, `src/validate-cli-json.js`,
+  `test/cli-json-contract.test.js`,
+  `test/fixtures/cli-json-catalog-import.v1.json`,
+  `docs/cli-json-contract.md`).
 - TOG-7299: search-index queue dedup single-flight pin — 8 overlapping
   identical enqueues collapse to one pending job (`deduped:true`, same
   `jobId`, `pendingCount()===1`, single drain result), distinct refreshes
