@@ -231,14 +231,21 @@ test("G9 image content parts return 400 unsupported_modality", async (context) =
   assert.equal(globalThis.fetch.mock.callCount(), 0);
 });
 
-test("G10 stream:true returns 400 (non-streaming only in this slice)", async (context) => {
+test("G10 stream:true returns SSE with deltas and a [DONE] terminator", async (context) => {
+  // Phase 2 (TOG-5956) replaced the Phase-1 fail-closed 400 with SSE per
+  // spec §1.5. Full byte-shape coverage lives in test/gateway-phase2.test.js
+  // (OS1–OS5); this pin keeps the G-series green on the new contract.
   noNetwork(context);
   const result = await handleChatCompletionsRequest(
     chatRequest({ candidates: await candidates(), body: chatBody({ stream: true }) }),
   );
 
-  assert.equal(result.httpStatus, 400);
-  assert.equal(result.body.error.type, "invalid_request_error");
+  assert.equal(result.httpStatus, 200);
+  assert.deepStrictEqual(result.headers, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+  });
+  assert.ok(result.body.endsWith("data: [DONE]\n\n"));
   assert.equal(globalThis.fetch.mock.callCount(), 0);
 });
 

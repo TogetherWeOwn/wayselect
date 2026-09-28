@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-5956: Anthropic surface + streaming SSE (fake-backed, $0) —
+  `handleMessagesRequest` plus SSE on both surfaces from one normalized
+  delta stream with retry only before the first byte, `tools`+`stream` 400s,
+  Phase-2 conformance suite, stranded Phase-1 stream pins updated
+  (`src/gateway.js`, `src/index.js`, `test/gateway-phase2.test.js`,
+  `test/gateway.test.js`, `test/operator-key-audit.test.js`,
+  `bin/accept-wayselect-gateway-phase1`, `README.md`,
+  `docs/bin-operator-catalog.md`).
 - #215 (2026-09-28) TOG-8334: production incident runbook — new `docs/incident-runbook.md`
   with executable staging rollback (mirrors `docs/deployment-runbook.md` §5),
   dormant production steps with CEO/CISO gates, health-check commands (§2),
