@@ -376,3 +376,8 @@ merge): [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
 - Keep README claims accurate to merged behavior only — no compatibility, cost, or savings language.
 
 License: MIT — see [LICENSE](LICENSE).
+
+## Security
+
+Found a vulnerability? See [SECURITY.md](SECURITY.md) for how to report it
+privately, scope, and response SLA. There is no bug-bounty program.

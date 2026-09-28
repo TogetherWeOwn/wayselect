@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #209 (2026-09-28) TOG-8345: security policy for open-sourcing — new `SECURITY.md`
+  with private GitHub-Advisory reporting, 72h-ack / 7d-assess / 30d-fix SLA,
+  fixture-only scope with explicit out-of-scope list, and a no-bounty statement;
+  README gains a Security section pointer (`SECURITY.md`, `README.md`).
+
 - #204 (2026-09-28) TOG-7290: empty-input `select` CLI UX pin — empty catalog (empty body +
   empty configuration) prints the zero-candidate `no-eligible-route` page
   (human + `--json`, exit 3), empty configuration excludes every fixture
