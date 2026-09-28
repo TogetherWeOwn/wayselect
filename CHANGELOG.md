@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- #TBD (2026-09-28) TOG-8752: purchase validator deep-nesting fail-closed —
+- #226 (2026-09-28) TOG-8752: purchase validator deep-nesting fail-closed —
   `assertNoLocationFields` in `src/purchase.js` recursed one frame per
   nesting level, so a ~100k-deep submission threw an uncaught RangeError
   instead of a typed `PurchaseSubmissionError`; the walk is now an
