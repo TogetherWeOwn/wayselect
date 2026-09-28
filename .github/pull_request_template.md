@@ -1,5 +1,11 @@
 <!-- One PR per card — one reviewable slice. Full conventions: CONTRIBUTING.md. -->
 
+## PR title
+
+<!-- Conventional Commits header (enforced by the `pr-lint` check): `type(scope): summary`, max 100 chars, no trailing period. Types: feat, fix, perf, refactor, test, docs, build, ci, chore, revert, style, security. Example: `fix(auth): refuse expired sessions`. Put the card ID in the body (`Refs:` / `Closes TOG-____` below), never in the title. Squash-merge only: the PR title becomes the single commit on main. -->
+
+- [ ] Title is a Conventional Commits header, ≤ 100 chars, no trailing period
+
 ## What changed
 
 -

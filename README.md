@@ -424,6 +424,7 @@ merge): [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
 - Fixture policy: fixtures under `fixtures/` are synthetic and checked in. Add or edit them as data files; refresh stamped provenance through `bin/refresh-catalog-fixtures`, never by hand-editing. Keep unknown fields rejected at the `src/catalog.js` boundary and never guess missing capability data.
 - Node 20+ ESM; keep `bin/wayselect` thin and `src/` boundaries intact. Run `npm run accept:fixture-refresh` + `npm run check:drift` after each refresh. No new runtime dependencies without a CTO note.
 - Keep README claims accurate to merged behavior only — no compatibility, cost, or savings language.
+- Be kind: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) applies in every project space.
 
 License: MIT — see [LICENSE](LICENSE).
 
