@@ -47,6 +47,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   test asserting the doc seed matches the script default, npm script, and
   recorded SUMMARY (`docs/search-prompt-eval-seed-rerun.md`,
   `test/search-prompt-eval-seed-rerun.test.js`, `README.md`, docs+test only).
+- #159 (2026-09-27) TOG-6052: `check-models-dev-freshness`
+  no-network contract doc — what `--input` reads, what the script never
+  touches (single `globalThis.fetch` call site gated behind `--fetch`),
+  and the operator offline-verification steps, proven by
+  `test/models-dev-freshness-offline-contract.test.js`
+  (`docs/models-dev-freshness-probe-offline-contract.md`, README docs index,
+  docs-only, no source change).
 - #158 (2026-09-27) TOG-6731: index page lang/title contract pin — renderer,
   empty state, and live `GET /listings` all carry `<html lang="en">` plus
   exactly one non-empty escaped `<title>` (`Listings — Wayselect`)
