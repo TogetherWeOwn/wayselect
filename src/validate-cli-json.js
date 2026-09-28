@@ -25,6 +25,13 @@ function formatErrors(errors) {
 }
 
 function crossFieldError(payload) {
+  // TOG-7302: the `catalog import` branch carries no ranked candidates, so
+  // the selection invariants below do not apply to it. The dispatch on
+  // `payload.command` mirrors the schema's oneOf: only select/explain
+  // payloads reach the rank/eligibility checks.
+  if (payload.command === "catalog import") {
+    return null;
+  }
   if (payload.status === "selected" && payload.selectedRouteId === null) {
     return "status is selected but selectedRouteId is null";
   }
@@ -55,12 +62,13 @@ function crossFieldError(payload) {
 }
 
 /**
- * Validate a `select --json` / `explain --json` payload, fail-closed.
+ * Validate a `select --json` / `explain --json` / `catalog import --json`
+ * payload, fail-closed.
  *
- * Structural shape comes from schema/cli-json/v1.json (additionalProperties
- * is false at every level, so undeclared fields are rejected); the
- * status/selectedRouteId/rank/eligibility invariants the structural schema
- * cannot express are checked explicitly.
+ * Structural shape comes from schema/cli-json/v1.json (a `command`-dispatched
+ * union; additionalProperties is false at every level, so undeclared fields
+ * are rejected); the select/explain status/selectedRouteId/rank/eligibility
+ * invariants the structural schema cannot express are checked explicitly.
  *
  * @returns {{ ok: true } | { ok: false, error: string }}
  */
