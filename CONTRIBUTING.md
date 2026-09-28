@@ -72,7 +72,9 @@ one local gate per CI job, so green pre-push predicts green CI. Optional per-clo
 `cp docs/pre-push-hook.sample .git/hooks/pre-push`. Details:
 `docs/pre-push-check.md`. CI itself (`.github/workflows/ci.yml` plus
 `.github/workflows/acceptance.yml`) runs `npm test`, the fixture-only
-ingestion smoke, the search-index probe, the marker gate, and e2e staging
+ingestion smoke, the search-index probe, the marker gate, the dependency
+audit gate (`npm audit --audit-level=high`, CI-only: it needs the npm
+registry), and e2e staging
 acceptance on push, PR, and nightly.
 
 ## Reason codes and docs that must move together

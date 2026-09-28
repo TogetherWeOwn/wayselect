@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7280: npm audit CI gate — the `audit` job runs
+  `npm audit --audit-level=high` after `npm ci`, so a new high/critical
+  advisory reds CI; registry-dependent, so CI-only by design with the
+  exclusion documented in `bin/pre-push-check`, `docs/pre-push-check.md`,
+  and `CONTRIBUTING.md` and pinned by `test/npm-audit-gate.test.js`
+  (`.github/workflows/ci.yml`, `test/npm-audit-gate.test.js`,
+  `bin/pre-push-check`, `docs/pre-push-check.md`, `CONTRIBUTING.md`,
+  `test/pre-push-parity.test.js`).
+
 - #170 (2026-09-28) TOG-6044: trailing-slash canonical pin — `/listings` vs `/listings/`
   (and detail `.../p/m` vs `.../p/m/`) both stay 200 with identical bodies
   and carry `<link rel="canonical">` to the slashless path (index, detail
