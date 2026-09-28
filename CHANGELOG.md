@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- #TBD (2026-09-28) TOG-8613: hand-edited snapshot tamper-reason pin — new
+- #221 (2026-09-28) TOG-8613: hand-edited snapshot tamper-reason pin — new
   test asserts the stable `contentHash: recomputed hash does not match the
   recorded hash` + `backfill may be tampered or edited by hand` reason for a
   tampered snapshot entry (library audit + `bin/check-ingestion-provenance`
