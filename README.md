@@ -344,4 +344,4 @@ merge): [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
 - Node 20+ ESM; keep `bin/wayselect` thin and `src/` boundaries intact. Run `npm run accept:fixture-refresh` + `npm run check:drift` after each refresh. No new runtime dependencies without a CTO note.
 - Keep README claims accurate to merged behavior only — no compatibility, cost, or savings language.
 
-License: not yet chosen.
+License: MIT — see [LICENSE](LICENSE).
