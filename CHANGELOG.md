@@ -100,6 +100,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   empty state, and live `GET /listings` all carry `<html lang="en">` plus
   exactly one non-empty escaped `<title>` (`Listings — Wayselect`)
   (`test/listing-index-lang-title.test.js`, test-only, no prod change).
+- #157 (2026-09-27) TOG-6045: CLI --help/--version golden output pin — exact-byte
+  tests for global, select, explain, catalog, and catalog-import help plus
+  --version against package.json (`test/cli-golden.test.js`, test-only, no
+  source change).
 - #155 (2026-09-27) TOG-7319: pre-push vs CI parity audit — `bin/pre-push-check` grows from
   5 to 8 gates (engine, marker, smoke + search-index probe, e2e + demo),
   P2/P3/P4 go recursive and multi-file, and `test/pre-push-parity.test.js`
