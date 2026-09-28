@@ -135,6 +135,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   HTML-only (`web/server.js`, `test/listing-index-json.test.js`,
   `test/vary-accept.test.js`, `test/preview-disabled-json.test.js`,
   `test/preview-route-table.test.js`, `docs/preview-server.openapi.json`).
+- #175 (2026-09-28) TOG-7292: empty-q vs missing-q filter contract pin —
+  absent `q`, `?q=`, and bare `?q` all parse `ok:true` to identical `q: ""`
+  filters, match the full stub catalog in stub order, and serve identical
+  200 index bodies (nonce-normalized)
+  (`test/empty-q-filter-contract.test.js`, test-only, no source change:
+  empty q already folds to no text filtering).
 - #131 (2026-09-27) TOG-6910: deploy-on-merge to Coolify staging +
   reviewer-gated production — `deploy-staging`/`deploy-production` jobs in
   `.github/workflows/ci.yml` (self-hosted runners, bearer-header transport
