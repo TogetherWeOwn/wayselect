@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #191 (2026-09-28) TOG-6043: README deploy section matches landed runbook — new
+  "Deploying the preview server (staging only)" section (Docker build/run,
+  health-probe verify, three-variable env contract, merge-to-main staging
+  deploy, reviewer-gated production, rollback pointer) plus the runbook link
+  in the docs index (`README.md`).
+
 - #199 (2026-09-28) TOG-7294: purchase-route 405 `Allow` header pin — every non-POST method
   on `/listings/:provider/:model/purchase` 405s with `Allow: POST`
   (status + Allow + content-type + nosniff + exact
