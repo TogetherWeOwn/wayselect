@@ -210,6 +210,10 @@ function listingDetailBody(listing, evaluationOverride) {
 ${eligibilitySection(listing, evaluationOverride)}
 <h2>Capabilities</h2>
 <table>
+<caption>Capabilities</caption>
+<thead>
+<tr><th scope="col">Capability</th><th scope="col">Support</th></tr>
+</thead>
 <tbody>
 ${capabilityRow("Attachments", entry.attachment)}
 ${capabilityRow("Reasoning", entry.reasoning)}
@@ -221,6 +225,10 @@ ${capabilityRow("Structured output", entry.structured_output)}
 </table>
 <h2>List-price estimate</h2>
 <table>
+<caption>List-price estimate</caption>
+<thead>
+<tr><th scope="col">Price component</th><th scope="col">Estimate</th></tr>
+</thead>
 <tbody>
 <tr><th scope="row">Input (per 1M tokens)</th><td>${costCell(entry.cost, "input")}</td></tr>
 <tr><th scope="row">Output (per 1M tokens)</th><td>${costCell(entry.cost, "output")}</td></tr>

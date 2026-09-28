@@ -246,12 +246,20 @@ function confirmBody(model) {
 <p>${escapeHtml(model.priceLabel)}</p>
 <h2>Normalized capabilities</h2>
 <table>
+<caption>Normalized capabilities</caption>
+<thead>
+<tr><th scope="col">Capability</th><th scope="col">Support</th></tr>
+</thead>
 <tbody>
 ${capabilityRows(model)}
 </tbody>
 </table>
 <h2>Support &amp; evidence</h2>
 <table>
+<caption>Support and evidence</caption>
+<thead>
+<tr><th scope="col">Field</th><th scope="col">Value</th></tr>
+</thead>
 <tbody>
 <tr><th scope="row">Support state</th><td><code>${escapeHtml(model.supportState)}</code></td></tr>
 <tr><th scope="row">Derived operations</th><td>${model.operations.length > 0 ? escapeHtml(model.operations.join(", ")) : "none"}</td></tr>
@@ -285,6 +293,10 @@ export function renderSellerReceipt(model, timestamp, options) {
 <p>Route <code>${escapeHtml(model.routeId)}</code> · entry <code>${escapeHtml(model.entryId)}</code>.</p>
 <h2>What was recorded</h2>
 <table>
+<caption>Recorded listing intent</caption>
+<thead>
+<tr><th scope="col">Field</th><th scope="col">Value</th></tr>
+</thead>
 <tbody>
 <tr><th scope="row">Price as quoted</th><td>${escapeHtml(model.priceLabel)}</td></tr>
 <tr><th scope="row">Support state</th><td><code>${escapeHtml(model.supportState)}</code></td></tr>
@@ -317,6 +329,10 @@ export function renderSellerSubmissionError({ code, key, source, message }, opti
 <h1>Submission rejected</h1>
 <p>The submission was rejected before anything rendered.</p>
 <table>
+<caption>Rejection details</caption>
+<thead>
+<tr><th scope="col">Field</th><th scope="col">Value</th></tr>
+</thead>
 <tbody>
 <tr><th scope="row">Reason code</th><td><code>${escapeHtml(code ?? "invalid-submission")}</code></td></tr>
 <tr><th scope="row">Offending key</th><td><code>${escapeHtml(key ?? "submission")}</code></td></tr>
