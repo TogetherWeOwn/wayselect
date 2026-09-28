@@ -18,6 +18,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7281: warn-only large-catalog benchmark CI job — the `large-catalog-bench`
+  job runs `node bin/benchmark-large-catalog` and uploads the timings JSON as
+  the `large-catalog-timings` artifact; a budget miss annotates `::warning::`
+  and never reds (budgets stay enforced by
+  `test/large-catalog-benchmark.test.js`), with a P9 local mirror in
+  `bin/pre-push-check` pinned by `test/pre-push-parity.test.js`
+  (`.github/workflows/ci.yml`, `bin/pre-push-check`,
+  `test/pre-push-parity.test.js`, `docs/pre-push-check.md`,
+  `docs/large-catalog-benchmark.md`, `CONTRIBUTING.md`,
+  `.github/pull_request_template.md`).
 - #131 (2026-09-27) TOG-6910: deploy-on-merge to Coolify staging +
   reviewer-gated production — `deploy-staging`/`deploy-production` jobs in
   `.github/workflows/ci.yml` (self-hosted runners, bearer-header transport
