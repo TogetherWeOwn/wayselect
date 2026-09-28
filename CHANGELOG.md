@@ -25,6 +25,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   CLI), independent of the TOG-7660 declared-hash bug (test-only, no source
   change: `src/provenanceAudit.js` already emits the reason)
   (`test/snapshot-tamper-reason.test.js`).
+- #218 (2026-09-28) TOG-8619: Dockerfile non-root USER + healthcheck pin — new
+  contract test pins the effective runtime user as `node` (no `USER root`/`0`),
+  pins `HEALTHCHECK` on `/wayselect-healthz` expecting its 404, and proves the
+  target working with a live-server 404 check with preview on and off
+  (`test/dockerfile-user-healthcheck.test.js`, test-only, no source change).
 - #205 (2026-09-28) TOG-7309: forced-colors badge treatment audit — the eligibility/
   capability badges (`.badge-*`) were the one author-colored surface with
   no `forced-colors: active` rule (focus rings got theirs in #137), so
