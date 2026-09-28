@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #187 (2026-09-28) TOG-7302: catalog import --json pinned to the v1 machine
+  schema — the schema is now a `command`-dispatched union (`select`/`explain`
+  plus the `catalog import` shape), enforced fail-closed via
+  `src/validate-cli-json.js`, with live output pinned byte-for-byte to
+  `test/fixtures/cli-json-catalog-import.v1.json` so any machine-shape drift
+  fails (`schema/cli-json/v1.json`, `src/validate-cli-json.js`,
+  `test/cli-json-contract.test.js`,
+  `test/fixtures/cli-json-catalog-import.v1.json`,
+  `docs/cli-json-contract.md`).
 - #172 (2026-09-28) TOG-7278: staging smoke probes the gateway — 401 on
   missing/wrong key (byte-identical, WWW-Authenticate, no transport call)
   and auto-route dry run (200, dryRun+synthetic, one FakeTransport call),
