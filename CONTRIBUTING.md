@@ -107,4 +107,4 @@ No paid services, no credentials, no model pins, no production activation,
 no live transport. Future live-conformance work needs separate provenance,
 security, access, and review decisions.
 
-License: not yet chosen.
+License: MIT — see [LICENSE](LICENSE).

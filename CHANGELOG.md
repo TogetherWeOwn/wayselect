@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-8639: open-source front-door slice — CI + MIT
+  badges at the top of `README.md` (badge URLs verified 200), new
+  `docs/export-control.md` (public-availability basis, SHA-256/nonce-only
+  crypto inventory, no controlled technology) linked from the README docs
+  index, and `CONTRIBUTING.md` license line corrected from "not yet chosen"
+  to MIT; header audit finds all 211 code files without per-file headers,
+  recorded in the card comment rather than added (`README.md`,
+  `docs/export-control.md`, `CONTRIBUTING.md`).
 - #TBD (2026-09-28) TOG-8618: explain --json doctests — `docs/cli.md`
   gains the canonical `explain --json` example (mirror of the `select
   --json` payload under `"command": "explain"`, previously prose-only) and
