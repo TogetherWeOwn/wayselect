@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-7307: gateway intake-limits enforcement matrix pin — `src/intakeLimits.js`
+- #180 (2026-09-28) TOG-7307: gateway intake-limits enforcement matrix pin — `src/intakeLimits.js`
   gains `MAX_GATEWAY_MESSAGES` (32), `MAX_GATEWAY_MESSAGE_CHARS` (16k), and
   `MAX_GATEWAY_TOTAL_CHARS` (64k), enforced fail-closed in `src/gateway.js`
   with 400 `too_many_messages` / `message_too_large` / `messages_too_large`,
