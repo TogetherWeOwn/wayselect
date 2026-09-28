@@ -197,6 +197,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `applySupportConfiguration` (`SupportConfigurationError`), so a duplicated
   feed can never reach selection (`test/ingest-duplicate-route-id.test.js`,
   test-only).
+- #129 (2026-09-27) TOG-6377: 500 render-throw fallback contract — shell
+  and fragment render throws pinned as 500 HTML with matching per-response
+  nonce CSP plus a 200 control (`test/render-throw-fallback.test.js`,
+  test-only).
 - #127 (2026-09-27) TOG-6720: filter text-match case behavior — mixed-case
   `q` against mixed-case stub names pinned as case-insensitive (exact
   match sets, case-variant equivalence, verbatim-at-parse/fold-at-match)
