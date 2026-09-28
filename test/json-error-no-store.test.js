@@ -65,14 +65,14 @@ describe("JSON error no-store (TOG-6367)", () => {
     strictEqual(res.cacheControl, NO_STORE, "403 preview_only: no-store");
   });
 
-  it("sends no-store on 405s (helper and direct sendJson)", async () => {
+  it("sends no-store on 405s (helper routes incl. seller confirm)", async () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
     // Via sendMethodNotAllowed (Allow header present).
     const helper = await cacheControl(base, "/listings/northstar/alpha-chat/purchase");
     strictEqual(helper.status, 405);
     strictEqual(helper.cacheControl, NO_STORE, "helper 405: no-store");
-    // Via direct sendJson 405 (seller confirm route uses sendJson, not the
-    // helper — no Allow header).
+    // TOG-5739: seller confirm now funnels through the helper too, so the
+    // 405 carries `Allow: GET, POST` alongside no-store.
     const direct = await (async () => {
       const res = await fetch(`${base}/sellers/submissions/northstar/alpha-chat/confirm`, {
         method: "DELETE",
@@ -85,8 +85,8 @@ describe("JSON error no-store (TOG-6367)", () => {
       };
     })();
     strictEqual(direct.status, 405);
-    strictEqual(direct.allow, null, "direct 405: no Allow header");
-    strictEqual(direct.cacheControl, NO_STORE, "direct 405: no-store");
+    strictEqual(direct.allow, "GET, POST", "seller confirm 405: Allow header");
+    strictEqual(direct.cacheControl, NO_STORE, "seller confirm 405: no-store");
   });
 
   it("sends no-store on 400/413 seller-intake rejections", async () => {
