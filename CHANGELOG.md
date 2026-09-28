@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-7280: npm audit CI gate — the `audit` job runs
+- #178 (2026-09-28) TOG-7280: npm audit CI gate — the `audit` job runs
   `npm audit --audit-level=high` after `npm ci`, so a new high/critical
   advisory reds CI; registry-dependent, so CI-only by design with the
   exclusion documented in `bin/pre-push-check`, `docs/pre-push-check.md`,
