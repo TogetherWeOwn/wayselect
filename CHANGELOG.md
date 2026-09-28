@@ -60,6 +60,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   to the fragment; skeleton/fetch/retry inert), README docs-index link, pinned
   offline by `test/listing-detail-no-js.test.js` (docs + test only, no source
   change: the noscript branch already renders `listingDetailBody`).
+- TOG-7275: /listings pagination nav semantics — Previous/Next links carry
+  `rel="prev"`/`rel="next"`, numbered page links name each page with
+  `aria-current="page"` on the current one (first/last/first±2 windowed),
+  pinned offline by `test/listing-pagination-semantics.test.js`
+  (`web/listing-detail.js`, `test/listing-pagination-semantics.test.js`).
 - #192 (2026-09-28) TOG-7281: warn-only large-catalog benchmark CI job — the `large-catalog-bench`
   job runs `node bin/benchmark-large-catalog` and uploads the timings JSON as
   the `large-catalog-timings` artifact; a budget miss annotates `::warning::`
