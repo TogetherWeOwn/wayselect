@@ -87,7 +87,7 @@ split.)
 ```sh
 git log --oneline -3 origin/main          # what shipped recently?
 npm ci && npm run smoke                   # does the tree pass locally? expect smoke: 7/7 passed
-npm run pre-push                          # expect: SUMMARY: 5 pass, 0 fail — pre-push READY
+npm run pre-push                          # expect: SUMMARY: 8 pass, 0 fail — pre-push READY
 ```
 
 - Local green + staging red → suspect env drift or platform: compare
