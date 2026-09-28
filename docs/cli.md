@@ -169,6 +169,120 @@ node bin/wayselect select --operation chat --require toolUse \
 }
 ```
 
+`explain --json` runs the same selection and reports it under
+`"command": "explain"` — every other field matches `select --json` for the
+same inputs:
+
+```sh
+node bin/wayselect explain --operation chat --require toolUse \
+  --allow northstar,orbit --evaluation-time 2026-09-26T16:00:00.000Z --json
+```
+
+```json
+{
+  "command": "explain",
+  "dryRun": true,
+  "dryRunLabel": "dry-run / synthetic estimate — no live model calls, credentials, or network use",
+  "status": "selected",
+  "selectedRouteId": "northstar/alpha-chat",
+  "policy": "lowest-synthetic-estimated-rate-then-lexicographic-route-id",
+  "rateDisclaimer": "Synthetic/list-price estimates only; not actual cost or savings.",
+  "provenance": {
+    "source": "synthetic://wayselect/fixture-v1",
+    "snapshotTimestamp": "2026-09-26T14:00:00.000Z",
+    "snapshotHash": "sha256:4c3fc1cff7c83871b4f0600b0688cb87fe27cb82f6f42672460dd2dadb2a2e5d",
+    "fetchedAt": "2026-09-26T16:00:00.000Z"
+  },
+  "request": {
+    "operation": "chat",
+    "requiredCapabilities": [
+      "toolUse"
+    ],
+    "providerAllowlist": [
+      "northstar",
+      "orbit"
+    ],
+    "requirements": {}
+  },
+  "evaluationTime": "2026-09-26T16:00:00.000Z",
+  "maxEvidenceAgeHours": 72,
+  "rankedCandidates": [
+    {
+      "rank": 1,
+      "routeId": "northstar/alpha-chat",
+      "providerId": "northstar",
+      "modelId": "alpha-chat",
+      "supportState": "configured",
+      "eligible": true,
+      "estimatedRatePerMillion": 3,
+      "reasons": []
+    },
+    {
+      "rank": 2,
+      "routeId": "orbit/orbit-chat",
+      "providerId": "orbit",
+      "modelId": "orbit-chat",
+      "supportState": "conformance-tested",
+      "eligible": true,
+      "estimatedRatePerMillion": 3,
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "routeId": "legacy/old-chat",
+      "providerId": "legacy",
+      "modelId": "old-chat",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 2,
+      "reasons": [
+        "provider-not-allowed",
+        "stale-evidence"
+      ]
+    },
+    {
+      "rank": 4,
+      "routeId": "northstar/image-lite",
+      "providerId": "northstar",
+      "modelId": "image-lite",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 2,
+      "reasons": [
+        "operation-not-catalogued",
+        "operation-not-configured",
+        "unsupported-capability:toolUse"
+      ]
+    },
+    {
+      "rank": 5,
+      "routeId": "northstar/unknown-tools",
+      "providerId": "northstar",
+      "modelId": "unknown-tools",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 0.75,
+      "reasons": [
+        "missing-capability:toolUse"
+      ]
+    },
+    {
+      "rank": 6,
+      "routeId": "orbit/retired-chat",
+      "providerId": "orbit",
+      "modelId": "retired-chat",
+      "supportState": "unsupported",
+      "eligible": false,
+      "estimatedRatePerMillion": 0.2,
+      "reasons": [
+        "support-state:unsupported",
+        "operation-not-configured"
+      ]
+    }
+  ]
+}
+```
+
 `rankedCandidates` lists all six routes; eligible candidates sort lowest synthetic
 rate first, then lexicographic route ID; excluded routes retain catalog order.
 The example includes every v1 field. `provenance.fetchedAt` above is illustrative:

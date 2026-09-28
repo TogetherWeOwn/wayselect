@@ -18,6 +18,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-8618: explain --json doctests — `docs/cli.md`
+  gains the canonical `explain --json` example (mirror of the `select
+  --json` payload under `"command": "explain"`, previously prose-only) and
+  new `test/explain-json-doctests.test.js` executes every documented
+  `explain --json` invocation against fixtures, validating against the v1
+  contract and comparing normalized output byte-for-byte so doc/code drift
+  fails CI; distinct from TOG-5725 human-output doctests and TOG-5734
+  machine-contract snapshots (`docs/cli.md`,
+  `test/explain-json-doctests.test.js`).
+
 - #TBD (2026-09-28) TOG-8752: purchase validator deep-nesting fail-closed —
   `assertNoLocationFields` in `src/purchase.js` recursed one frame per
   nesting level, so a ~100k-deep submission threw an uncaught RangeError
