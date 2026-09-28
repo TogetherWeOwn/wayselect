@@ -18,6 +18,17 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- (2026-09-28) TOG-8061: buyer trust-signals slice — stub ratings (T1 index
+  line, T2 detail section), guarantee copy (T3), dispute entry link (T4, no
+  second form per F8), single-builder fragment parity (T5), JSON-only
+  disputes stub routes (D2–D10, `invalid_dispute` fail-closed, in-memory
+  per-listing ids), `bin/accept-wayselect-trust` + `npm run accept:trust`
+  (22 pass, zero skips). Files: web/stub-listing.js,
+  web/listing-detail.js, web/disputes.js, web/server.js,
+  bin/accept-wayselect-trust, test/buyer-trust-signals.test.js,
+  test/preview-route-table.test.js, test/env-var-matrix.test.js,
+  docs/preview-server.openapi.json, docs/wayselect-env-var-matrix.md,
+  docs/bin-operator-catalog.md, package.json.
 - #172 (2026-09-28) TOG-7278: staging smoke probes the gateway — 401 on
   missing/wrong key (byte-identical, WWW-Authenticate, no transport call)
   and auto-route dry run (200, dryRun+synthetic, one FakeTransport call),

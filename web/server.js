@@ -103,6 +103,7 @@ import {
   sortListings,
 } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
+import { createDisputeStore, validateDisputeBody } from "./disputes.js";
 import { readJsonBody } from "./jsonBody.js";
 import {
   confirmModel,
@@ -116,6 +117,7 @@ import { SellerSubmissionError, validateSellerSubmission } from "../src/sellerSu
 
 const LISTING_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/?$/;
 const PURCHASE_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/purchase\/?$/;
+const DISPUTES_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/disputes\/?$/;
 const SELLER_INTAKE_ROUTE = /^\/sellers\/submissions\/?$/;
 const SELLER_CONFIRM_ROUTE = /^\/sellers\/submissions\/([^/]+)\/([^/]+)\/confirm\/?$/;
 
@@ -275,6 +277,9 @@ function routeBucket(method, pathname) {
   if (PURCHASE_ROUTE.test(pathname)) {
     return `${method} /listings/:provider/:model/purchase`;
   }
+  if (DISPUTES_ROUTE.test(pathname)) {
+    return `${method} /listings/:provider/:model/disputes`;
+  }
   if (SELLER_CONFIRM_ROUTE.test(pathname)) {
     return `${method} /sellers/submissions/:provider/:model/confirm`;
   }
@@ -372,6 +377,10 @@ export function createApp(env = process.env, options = {}) {
   // Expired entries 404 as missing on read and are swept on intake, so
   // unread stale intents cannot grow the map.
   const sellerIntents = new Map();
+  // Buyer trust-signal disputes (TOG-8061): routeId -> filed stub reports.
+  // In-memory only — restart clears, ids restart at `dispute-1` per
+  // listing. Filing never charges, refunds, or writes beyond this map.
+  const disputes = createDisputeStore();
   // Reads the live intent for a route: null when never staged or expired.
   // Expired entries are deleted on read so a stale confirm never revives.
   function getLiveIntent(routeId) {
@@ -571,6 +580,68 @@ export function createApp(env = process.env, options = {}) {
         200,
         renderListingIndex(page, undefined, parsed.filters, { total, limit, offset }, pageOpts),
       );
+      return;
+    }
+
+    // Buyer trust-signal disputes (TOG-8061, spec §5 D2–D9 + shape §6):
+    // JSON-only stub routes, flag-gated (flag off → 404). GET lists the
+    // filed reports for one real stub listing; POST files one after the
+    // strict body gate. Unknown listings 404 as misses; only real stubs
+    // take reports. Filing never touches purchase (D10).
+    const disputesMatch = pathname.match(DISPUTES_ROUTE);
+    if (disputesMatch) {
+      if (req.method !== "GET" && req.method !== "POST") {
+        sendMethodNotAllowed(res, "GET, POST");
+        return;
+      }
+      if (!isPreviewEnabled(env)) {
+        sendJson(res, 404, { error: "preview_disabled" });
+        return;
+      }
+      const [, rawDisputeProvider, rawDisputeModel] = disputesMatch;
+      let disputeProviderId;
+      let disputeModelId;
+      try {
+        disputeProviderId = decodeURIComponent(rawDisputeProvider);
+        disputeModelId = decodeURIComponent(rawDisputeModel);
+      } catch {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      const disputeListing = getStubListing(disputeProviderId, disputeModelId);
+      if (!disputeListing) {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      const routeId = `${disputeProviderId}/${disputeModelId}`;
+      if (req.method === "GET") {
+        sendJson(res, 200, { listing: routeId, disputes: disputes.list(routeId) });
+        return;
+      }
+      const disputeBody = await readJsonBody(req);
+      if (!disputeBody.ok) {
+        const status = disputeBody.code === "body_too_large" ? 413
+          : disputeBody.code === "body_timeout" ? 408
+          : 400;
+        sendJson(res, status, {
+          error: "invalid_dispute",
+          message: `Stub dispute rejected: ${disputeBody.code}.`,
+          validReasons: ["not_as_described", "never_delivered", "billing_issue", "other"],
+        });
+        return;
+      }
+      const validated = validateDisputeBody(disputeBody.value);
+      if (!validated.ok) {
+        sendJson(res, 400, {
+          error: "invalid_dispute",
+          message: validated.message,
+          validReasons: ["not_as_described", "never_delivered", "billing_issue", "other"],
+        });
+        return;
+      }
+      // Evil buyer input (D8) is accepted as data: it rides JSON-encoded and
+      // any future HTML view must escape it like every other dynamic value.
+      sendJson(res, 201, disputes.file(routeId, validated.value));
       return;
     }
 

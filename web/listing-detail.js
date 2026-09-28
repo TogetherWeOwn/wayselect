@@ -186,6 +186,73 @@ function eligibilitySection(listing, override) {
 ${reasons}</section>`;
 }
 
+// Buyer trust signals (TOG-8061, spec docs/wayselect-buyer-trust-signals.md
+// §2–§3): display-only stub ratings, preview-honest guarantee copy, and the
+// dispute entry point. Copy is pinned in the spec — no word changes without
+// a Code Reviewer pass on that doc. Every dynamic value is HTML-escaped
+// (the web-spec XSS rule binds T1–T4).
+//
+// Fail-closed rating validation: `average` must be a finite number in 0–5
+// inclusive, `sales` an integer ≥ 0; anything else renders the unrated copy
+// and the page still 200s — never a default score, never stars without a
+// count.
+function validRating(rating) {
+  if (rating === null || typeof rating !== "object" || Array.isArray(rating)) {
+    return null;
+  }
+  const { average, sales } = rating;
+  if (typeof average !== "number" || !Number.isFinite(average) || average < 0 || average > 5) {
+    return null;
+  }
+  if (!Number.isInteger(sales) || sales < 0) {
+    return null;
+  }
+  return { average, sales };
+}
+
+// T1 rating line for the index (`★ {avg} · {n} sales`, `{avg}` one decimal)
+// or the unrated copy. Renders after the eligibility badge, never before it,
+// and never re-ranks index order.
+function ratingLine(rating) {
+  const valid = validRating(rating);
+  if (!valid) {
+    return "No ratings yet";
+  }
+  return `★ ${valid.average.toFixed(1)} · ${valid.sales} sales`;
+}
+
+// T2 seller-rating section: aggregate line + stub disclaimer, or the
+// unrated body verbatim.
+function ratingSection(listing) {
+  const valid = validRating(listing.rating);
+  const body = valid
+    ? `<p>★ ${escapeHtml(valid.average.toFixed(1))} from ${escapeHtml(valid.sales)} stub sales. Stub ratings: synthetic sales history for preview only. Not real buyers.</p>`
+    : `<p>No ratings yet. This listing has no stub sales history — nothing is hidden, there is just nothing to show.</p>`;
+  return `<section aria-label="Seller rating">
+<h2>Seller rating</h2>
+${body}</section>`;
+}
+
+// T3 purchase-guarantee section: pinned preview-honest copy — disabled
+// purchases first, the launch-intent `full refund` only when buying opens.
+function guaranteeSection() {
+  return `<section aria-label="Purchase guarantee">
+<h2>Purchase guarantee</h2>
+<p>Preview build: purchases are disabled, so you can never be charged here. When buying opens, every purchase is covered — if a listing is materially not as described, report it and get a full refund.</p></section>`;
+}
+
+// T4 dispute entry point: entry copy plus a link to the §6 disputes route.
+// A link, not a form: docs/wayselect-web-acceptance.md F8 pins exactly one
+// `<form>` (the purchase stub) on detail pages, so a second form would fail
+// the web and checkout acceptance scripts.
+function reportSection(listing) {
+  const href = `/listings/${encodeURIComponent(listing.providerId)}/${encodeURIComponent(listing.modelId)}/disputes`;
+  return `<section aria-label="Report a problem">
+<h2>Report a problem</h2>
+<p>Something wrong with this listing? File a stub report — nothing leaves this preview, and filing never charges or refunds anything.</p>
+<p><a href="${escapeHtml(href)}">Report a problem (stub)</a></p></section>`;
+}
+
 function costCell(cost, key) {
   const value = cost?.[key];
   return typeof value === "number" && Number.isFinite(value) ? `$${escapeHtml(value)}` : "unknown";
@@ -204,10 +271,17 @@ function listingDetailBody(listing, evaluationOverride) {
     (value, index, all) => all.indexOf(value) === index,
   );
 
+  // T2–T4 (TOG-8061): fixed order Eligibility → Seller rating → Purchase
+  // guarantee → Report a problem → Capabilities. One builder feeds the shell,
+  // the `<noscript>` branch, and the JSON fragment, so shell/noscript/async
+  // can never drift (T5).
   return `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
 <h1>${escapeHtml(entry.name)}</h1>
 <p>Listing <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code> from ${escapeHtml(listing.providerName)}.</p>
 ${eligibilitySection(listing, evaluationOverride)}
+${ratingSection(listing)}
+${guaranteeSection()}
+${reportSection(listing)}
 <h2>Capabilities</h2>
 <table>
 <tbody>
@@ -574,7 +648,9 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
           // S2 (TOG-5475, preserved through the main rebase): path
           // segments are URL-encoded inside the HTML escape so ids with
           // reserved characters keep working hrefs without XSS.
-          return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+          // T1 (TOG-8061): the rating line follows the eligibility badge so
+          // it can never move before or override the badge state.
+          return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)} ${escapeHtml(ratingLine(listing.rating))}</li>`;
         })
         .join("\n")}\n</ul>\n${pageNav(active, total, limit, offset, listings.length)}</section>`;
   }
