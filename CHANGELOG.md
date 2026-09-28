@@ -26,6 +26,17 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   still-200 valid intake afterward; audit found the cap
   (`MAX_JSON_BODY_BYTES`) and mapping already landed, so test-only, no
   source change (`test/oversized-body-413-contract.test.js`).
+- #213 (2026-09-28) TOG-8061: buyer trust-signals slice — stub ratings (T1 index
+  line, T2 detail section), guarantee copy (T3), dispute entry link (T4, no
+  second form per F8), single-builder fragment parity (T5), JSON-only
+  disputes stub routes (D2–D10, `invalid_dispute` fail-closed, in-memory
+  per-listing ids), `bin/accept-wayselect-trust` + `npm run accept:trust`
+  (22 pass, zero skips). Files: web/stub-listing.js,
+  web/listing-detail.js, web/disputes.js, web/server.js,
+  bin/accept-wayselect-trust, test/buyer-trust-signals.test.js,
+  test/preview-route-table.test.js, test/env-var-matrix.test.js,
+  docs/preview-server.openapi.json, docs/wayselect-env-var-matrix.md,
+  docs/bin-operator-catalog.md, package.json.
 - #210 (2026-09-28) TOG-8331: reduced-motion audit pin on preview pages — audit
   found no offenders (both preview layouts already disable the skip-link
   slide and skeleton pulse under `prefers-reduced-motion`); extends the

@@ -187,6 +187,86 @@
         }
       }
     },
+    "/listings/{provider}/{model}/disputes": {
+      "summary": "Buyer trust-signal dispute stub (TOG-8061): JSON-only stub reports, in-memory per listing (restart clears, ids restart at dispute-1); flag-gated; filing never charges or refunds (D10)",
+      "parameters": [
+        { "name": "provider", "in": "path", "required": true, "description": "Provider id; exact case-sensitive match, uppercase variants 404 as unknown listings", "schema": { "type": "string" } },
+        { "name": "model", "in": "path", "required": true, "description": "Model id; exact case-sensitive match", "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "listDisputes",
+        "summary": "Lists the filed stub reports for one real stub listing; always JSON",
+        "responses": {
+          "200": {
+            "description": "Dispute log: { listing, disputes: [] } fresh, or the filed reports after POSTs (success JSON carries no request id)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DisputeList" } } }
+          },
+          "404": {
+            "description": "Flag off ({ error: preview_disabled, requestId }); undecodable segments or unknown listing ({ error: not_found, requestId })",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/PreviewDisabled" }, { "$ref": "#/components/schemas/NotFound" }] } } }
+          },
+          "405": {
+            "description": "Any method other than GET/POST; Allow: GET, POST",
+            "headers": { "Allow": { "schema": { "type": "string", "example": "GET, POST" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RateLimited" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "fileDispute",
+        "summary": "Files one stub report after the strict JSON body gate ({buyer 1-120 chars, reason enum}, exact keys); always JSON",
+        "parameters": [
+          { "name": "Content-Type", "in": "header", "required": true, "description": "Must be application/json; anything else is 400 invalid_dispute", "schema": { "type": "string", "example": "application/json" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Dispute envelope (exact keys buyer + reason only); body capped at 64KB with a 10s total read deadline",
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DisputeBody" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Filed report: { id: dispute-N, listing, buyer, reason, status: open } (success JSON carries no request id)",
+            "content": { "application/json": { "$ref": "#/components/schemas/DisputeFiled" } }
+          },
+          "400": {
+            "description": "Body gate or validator rejection: { error: invalid_dispute, message, validReasons } plus the triage requestId",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InvalidDispute" } } }
+          },
+          "404": {
+            "description": "Flag off ({ error: preview_disabled, requestId }); undecodable segments or unknown listing ({ error: not_found, requestId })",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/PreviewDisabled" }, { "$ref": "#/components/schemas/NotFound" }] } } }
+          },
+          "405": {
+            "description": "Any method other than GET/POST; Allow: GET, POST",
+            "headers": { "Allow": { "schema": { "type": "string", "example": "GET, POST" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          },
+          "408": {
+            "description": "Body read deadline exceeded: { error: invalid_dispute, message, validReasons }",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InvalidDispute" } } }
+          },
+          "413": {
+            "description": "Body over 64KB: { error: invalid_dispute, message, validReasons }",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InvalidDispute" } } }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RateLimited" } } }
+          }
+        }
+      }
+    },
     "/sellers/submissions": {
       "summary": "Seller intake (TOG-4969): strict JSON body gate, then fail-closed seller validator; flag-gated; trailing slash is the same route; Vary: Accept",
       "post": {
@@ -325,9 +405,9 @@
     "format": "^[0-9a-f]{32}$"
   },
   "x-cross-cutting": {
-    "rateLimitBucketShapes": ["GET /listings", "{METHOD} /listings/:provider/:model", "{METHOD} /listings/:provider/:model/purchase", "{METHOD} /sellers/submissions", "{METHOD} /sellers/submissions/:provider/:model/confirm", "{METHOD} other"],
+    "rateLimitBucketShapes": ["GET /listings", "{METHOD} /listings/:provider/:model", "{METHOD} /listings/:provider/:model/purchase", "{METHOD} /listings/:provider/:model/disputes", "{METHOD} /sellers/submissions", "{METHOD} /sellers/submissions/:provider/:model/confirm", "{METHOD} other"],
     "methodNotAllowed": "Known route shapes answer 405 { error: method_not_allowed, requestId } with an Allow header naming the supported methods (seller-confirm POST path excepted: no Allow header, pinned). Unknown paths stay 404 with no Allow.",
-    "flagGating": "GET /healthz, /favicon.ico and POST /listings/:provider/:model/purchase are ungated. GET /listings, GET /listings/:provider/:model, POST /sellers/submissions and both seller-confirm methods 404 when WAYSELECT_PREVIEW is off (HTML page or JSON preview_disabled depending on Accept; see each operation).",
+    "flagGating": "GET /healthz, /favicon.ico and POST /listings/:provider/:model/purchase are ungated. GET /listings, GET /listings/:provider/:model, POST /sellers/submissions, both seller-confirm methods and both disputes methods 404 when WAYSELECT_PREVIEW is off (HTML page or JSON preview_disabled depending on Accept; see each operation).",
     "intentTtl": "Staged seller intents expire 15 minutes after intake (SELLER_INTENT_TTL_MS); expired intents 404 as no_pending_intent and are dropped on read.",
     "caseSensitivity": "Stub listing lookup is an exact case-sensitive match (TOG-6711): uppercase provider/model segments 404 as misses (HTML miss page by default, JSON listing_not_found on fragment negotiation) instead of remapping to the lowercase listing.",
     "x-cacheable": "Cacheable success JSON (TOG-6050): GET /healthz, the flag-on index 200 JSON, and the detail 200 JSON fragment carry ETag (strong sha256 content hash of the exact response bytes) + Cache-Control: public, max-age=60. A matching If-None-Match (exact tag, *, or comma-list member; W/-prefixed weak tags compare by opaque value) answers 304 with an empty body and the validators repeated. HTML pages (per-response nonce CSP), error JSON (no-store), and seller-transactional JSON carry no validators."
@@ -483,6 +563,48 @@
           "key": { "type": "string", "example": "submission" },
           "source": { "type": ["string", "null"], "example": null },
           "message": { "type": "string" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "DisputeBody": {
+        "type": "object",
+        "required": ["buyer", "reason"],
+        "description": "Stub dispute envelope (TOG-8061, spec shape §6): exact keys buyer + reason only; unknown fields 400",
+        "properties": {
+          "buyer": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Trimmed 1-120 chars; accepted as data (evil input rides JSON-encoded, future HTML views must escape)", "example": "mia" },
+          "reason": { "type": "string", "enum": ["not_as_described", "never_delivered", "billing_issue", "other"] }
+        },
+        "additionalProperties": false
+      },
+      "DisputeFiled": {
+        "type": "object",
+        "required": ["id", "listing", "buyer", "reason", "status"],
+        "description": "Filed stub report: deterministic id per listing per process (dispute-1, ...); status is always open (no triage in v1). Success JSON carries no triage id.",
+        "properties": {
+          "id": { "type": "string", "example": "dispute-1" },
+          "listing": { "type": "string", "example": "northstar/alpha-chat" },
+          "buyer": { "type": "string", "example": "mia" },
+          "reason": { "type": "string", "example": "not_as_described" },
+          "status": { "type": "string", "example": "open" }
+        }
+      },
+      "DisputeList": {
+        "type": "object",
+        "required": ["listing", "disputes"],
+        "description": "Per-listing dispute log (in-memory; restart clears). Success JSON carries no triage id.",
+        "properties": {
+          "listing": { "type": "string", "example": "northstar/alpha-chat" },
+          "disputes": { "type": "array", "items": { "$ref": "#/components/schemas/DisputeFiled" } }
+        }
+      },
+      "InvalidDispute": {
+        "type": "object",
+        "required": ["error", "message", "validReasons", "requestId"],
+        "description": "Stub dispute rejection (TOG-8061, spec §5 D5/D7): error is always invalid_dispute; validReasons names the reason enum; requestId is the TOG-6717 triage id echoed from the x-request-id header",
+        "properties": {
+          "error": { "type": "string", "example": "invalid_dispute" },
+          "message": { "type": "string" },
+          "validReasons": { "type": "array", "items": { "type": "string" }, "example": ["not_as_described", "never_delivered", "billing_issue", "other"] },
           "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
         }
       },
