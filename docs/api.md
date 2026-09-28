@@ -24,7 +24,7 @@ Conventions across every export:
 - `options.now` pins the clock; `evaluationOptions` in `support/helpers.js`
   uses snapshot + 2h with `skipCatalogCheck: true`.
 
-The surface below is exactly the 88 names re-exported by `src/index.js`
+The surface below is exactly the 89 names re-exported by `src/index.js`
 (grouped by source module). Helpers that live in a source module but are
 *not* re-exported (e.g. `isRouteId`, `nowMs`, `SCHEMA_VERSION`) are
 intentionally omitted.
@@ -1011,6 +1011,14 @@ console.log(invalidKeepLastMessage());
 import { invalidPruneMaxAgeDaysMessage } from "./src/index.js";
 console.log(invalidPruneMaxAgeDaysMessage());
 // --max-age-days must be a non-negative number
+```
+
+### `invalidPruneDirMessage()`
+
+```js
+import { invalidPruneDirMessage } from "./src/index.js";
+console.log(invalidPruneDirMessage());
+// --dir must not contain .. segments
 ```
 
 ### `invalidPruneNowMessage()`
