@@ -18,11 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-7321: `WAYSELECT_*` env-var matrix operator doc — one ops table for
-  `WAYSELECT_PREVIEW`, `WAYSELECT_TRUSTED_PROXY_IP`,
+- #179 (2026-09-28) TOG-7321: `WAYSELECT_*` env-var matrix operator doc —
+  one ops table for `WAYSELECT_PREVIEW`, `WAYSELECT_TRUSTED_PROXY_IP`,
   `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS`, `WAYSELECT_ALLOW_NETWORK`
   (default, scope, who sets each, with source line refs per row), plus a
-  README docs-index link (`docs/wayselect-env-var-matrix.md`, `README.md`).
+  README docs-index link and an 8-test source-pin guard
+  (`docs/wayselect-env-var-matrix.md`, `test/env-var-matrix.test.js`,
+  `README.md`).
 - #176 (2026-09-28) TOG-6736: `bin/` operator catalog doc — one line per
   script (purpose, when to run, key flags) covering all 29 executables,
   plus a README docs-index link
