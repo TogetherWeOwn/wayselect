@@ -140,7 +140,12 @@ Only stamped values change in the files; formatting elsewhere is preserved.
 Rewinding the snapshot clock or introducing unknown fields fails closed and
 leaves every file untouched.
 
-Suggested daily schedule (writes only when the timestamp advances):
+Scheduled freshness probe (`.github/workflows/fixture-refresh-check.yml`,
+TOG-5745): a daily 07:23 UTC job runs the read-only `npm run refresh:check`
+and, on failure, opens a `fixture-staleness` issue (deduplicated against
+already-open ones) with the remediation commands. The job writes nothing,
+commits nothing, and needs no credentials beyond the default `GITHUB_TOKEN`
+for issue filing. Manual fallback, same commands the issue body carries:
 
 ```sh
 node bin/refresh-catalog-fixtures --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -189,6 +194,8 @@ interpret-then-match) vs v3-negation-scope (v2 plus negation scope).
 Stdlib only, no network, no credentials; seed 5492
 recorded for the shuffle-invariance self-check. Today: before 13/30, mid
 24/30, after 30/30 — v2 fixed 11, v3 fixed 6, 0 regressed.
+Seed, rerun steps, and expected determinism:
+[search-prompt eval seed-rerun contract](docs/search-prompt-eval-seed-rerun.md).
 
 ## Catalog search-index refresh
 
@@ -302,11 +309,16 @@ Acceptance specs and contracts live in `docs/`. Start here:
 
 - [Acceptance spec — capability-aware dry-run select](docs/acceptance-spec-capability-select.md) — next-feature acceptance for capability-aware selection (v1).
 - [CLI `--json` machine contract](docs/cli-json-contract.md) — versioned machine interface for `select --json` / `explain --json`.
+- [Preview server route table](docs/preview-server.openapi.json) — machine-readable OpenAPI route table for `web/server.js` (every route, method, params, status codes).
 - [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
+- [`bin/` operator catalog](docs/bin-operator-catalog.md) — one line per script: purpose, when to run, key flags.
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
 - [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
+- [models.dev freshness-probe offline contract](docs/models-dev-freshness-probe-offline-contract.md) — what `bin/check-models-dev-freshness` reads, never touches, and how to verify zero network use.
+- [Search-prompt eval seed-rerun contract](docs/search-prompt-eval-seed-rerun.md) — documented seed 5492, rerun steps, and expected determinism for the search-prompt regression eval.
 - [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
+- [Nightly ingestion-smoke triage runbook](docs/ingestion-smoke-triage-runbook.md) — where the `17 6 * * *` cron surfaces, who triages, first 5 commands, bug-card vs re-run rule.
 - [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
 - [Buyer listing spec](docs/wayselect-buyer-listing.md) — listing fields + purchase acceptance (v2).
 - [Eligibility-explain acceptance](docs/wayselect-eligibility-acceptance.md) — fail-closed eligibility paths on the CLI.
@@ -320,6 +332,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Snapshot retention policy](docs/snapshot-retention.md) — keep-last-10 + 30-day prune rule and `bin/wayselect-snapshot-prune` usage.
 - [Web acceptance](docs/wayselect-web-acceptance.md) — listing-detail + search/filter web slices.
 - [Slow-network knob](docs/wayselect-slow-network-knob.md) — `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` operator contract (fragment only, never the shell).
+- [`WAYSELECT_*` env-var matrix](docs/wayselect-env-var-matrix.md) — `WAYSELECT_PREVIEW`, `WAYSELECT_TRUSTED_PROXY_IP`, `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS`, `WAYSELECT_ALLOW_NETWORK` defaults, scope, and who sets each.
 
 ## Contributing
 

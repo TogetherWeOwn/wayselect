@@ -84,7 +84,10 @@ describe("favicon route contract (TOG-6369)", () => {
       strictEqual(res.allow, "GET", `${method}: Allow header`);
       strictEqual(res.contentType, JSON_CT, `${method}: content-type`);
       strictEqual(res.nosniff, "nosniff", `${method}: security headers`);
-      deepStrictEqual(JSON.parse(res.text), { error: "method_not_allowed" }, method);
+      // TOG-6717 rides alongside the error code: this pin owns the routing,
+      // not the envelope shape, so the triage id is stripped.
+      const { requestId: _requestId, ...methodBody } = JSON.parse(res.text);
+      deepStrictEqual(methodBody, { error: "method_not_allowed" }, method);
     }
   });
 
@@ -111,6 +114,8 @@ describe("favicon route contract (TOG-6369)", () => {
     const res = await request(base, "/favicon.ico/");
     strictEqual(res.status, 404);
     strictEqual(res.contentType, JSON_CT);
-    deepStrictEqual(JSON.parse(res.text), { error: "not_found" });
+    // TOG-6717 rides alongside the error code (see above).
+    const { requestId: _notFoundRequestId, ...notFoundBody } = JSON.parse(res.text);
+    deepStrictEqual(notFoundBody, { error: "not_found" });
   });
 });

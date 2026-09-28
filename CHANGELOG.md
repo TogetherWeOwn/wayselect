@@ -28,6 +28,152 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`scripts/check-deploy-target.mjs`, `scripts/wait-for-host-mirror.mjs`,
   `scripts/wait-for-staging-health.mjs`, `test/check-deploy-target.test.js`,
   `test/deploy-helpers.test.js`).
+- #181 (2026-09-28) TOG-6368: noindex on preview pages — every HTML page
+  carries `<meta name="robots" content="noindex, nofollow">` (both layouts)
+  and every HTML response carries `X-Robots-Tag: noindex, nofollow`;
+  JSON responses carry neither. 6-test guard
+  (`web/listing-detail.js`, `web/seller.js`, `web/server.js`,
+  `test/preview-noindex.test.js`).
+- #177 (2026-09-28) TOG-6040: preview-server route table — OpenAPI 3.1 doc
+  covering every route/method/params/status in `web/server.js` (incl.
+  `sort` vocabulary, `x-request-id` triage envelope, case-sensitive
+  lookup), linked from the README docs index, with static + live route
+  coverage (`docs/preview-server.openapi.json`,
+  `test/preview-route-table.test.js`, `README.md` docs index).
+- #179 (2026-09-28) TOG-7321: `WAYSELECT_*` env-var matrix operator doc —
+  one ops table for `WAYSELECT_PREVIEW`, `WAYSELECT_TRUSTED_PROXY_IP`,
+  `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS`, `WAYSELECT_ALLOW_NETWORK`
+  (default, scope, who sets each, with source line refs per row), plus a
+  README docs-index link and an 8-test source-pin guard
+  (`docs/wayselect-env-var-matrix.md`, `test/env-var-matrix.test.js`,
+  `README.md`).
+- #178 (2026-09-28) TOG-7280: npm audit CI gate — the `audit` job runs
+  `npm audit --audit-level=high` after `npm ci`, so a new high/critical
+  advisory reds CI; registry-dependent, so CI-only by design with the
+  exclusion documented in `bin/pre-push-check`, `docs/pre-push-check.md`,
+  and `CONTRIBUTING.md` and pinned by `test/npm-audit-gate.test.js`
+  (`.github/workflows/ci.yml`, `test/npm-audit-gate.test.js`,
+  `bin/pre-push-check`, `docs/pre-push-check.md`, `CONTRIBUTING.md`,
+  `test/pre-push-parity.test.js`).
+- #176 (2026-09-28) TOG-6736: `bin/` operator catalog doc — one line per
+  script (purpose, when to run, key flags) covering all 29 executables,
+  plus a README docs-index link
+  (`docs/bin-operator-catalog.md`, `README.md`).
+- #170 (2026-09-28) TOG-6044: trailing-slash canonical pin — `/listings` vs `/listings/`
+  (and detail `.../p/m` vs `.../p/m/`) both stay 200 with identical bodies
+  and carry `<link rel="canonical">` to the slashless path (index, detail
+  shell, legacy full render); no redirects
+  (`web/listing-detail.js`, `test/listings-canonical.test.js`).
+- #166 (2026-09-28) TOG-6717: request id on JSON errors — every JSON error
+  carries a crypto-random `x-request-id` header echoed as `requestId` in the
+  body (128-bit hex, distinct per response, header/body agree; success JSON
+  unchanged), so staging triage can match responses to logs
+  (`web/server.js`, `test/request-id-json-errors.test.js`, plus
+  `requestId` tolerance in 12 routing-test pins and updated key lists in
+  the 429/purchase-refusal shape contracts).
+- #168 (2026-09-28) TOG-6042: nightly ingestion-smoke failure-triage runbook — where the
+  `17 6 * * *` cron result surfaces, who triages, first 5 diagnostic
+  commands, and bug-card vs re-run rule, with a green-cron acceptance
+  check (`docs/ingestion-smoke-triage-runbook.md`, `README.md` docs index).
+- #162 (2026-09-27) TOG-7271: gateway operator-key handling audit pin — hostile
+  operator/wrong keys through every gateway error path (401 variants,
+  500 misconfig/transport branches, all 400 validators), success bodies,
+  transport records, and console capture assert zero key material; the
+  `timingSafeEqual` compare and the no-logging-sink shape stay pinned
+  statically, and tracked snapshots carry no bearer material
+  (`test/operator-key-audit.test.js`, test-only, no source change: every
+  error path already returns static messages and auth stays
+  byte-identical).
+- #161 (2026-09-27) TOG-6362: explicit `sort` param on `/listings` (gap G1) —
+  `default` keeps stub order; `price-asc` / `price-desc` order by the synthetic
+  list-price estimate with unknown prices last and code-unit route-ID tie-break;
+  `name-asc` / `route-asc` for alphabetical orders. Unknown values fail closed
+  (400 naming the valid sorts); sort rides the filter form as a native
+  `<select>` and survives Prev/Next page links (`web/filter.js`,
+  `web/listing-detail.js`, `web/server.js`, `test/listing-filter.test.js`,
+  `test/listing-filter-labels.test.js`, `test/listing-pagination.test.js`).
+- #160 (2026-09-27) TOG-6711: uppercase provider/model path contract pin —
+  `/listings/Northstar/Alpha-Chat` 404s (HTML miss page by default, JSON
+  `{error: "listing_not_found"}` on fragment negotiation) instead of
+  remapping to the lowercase listing; all case variants 404 identically
+  while the canonical lowercase path serves 200
+  (`test/listing-uppercase-path.test.js`, test-only, no source change).
+- #164 (2026-09-27) TOG-6051: index result-count live region — the
+  result-count paragraph carries explicit `aria-live="polite"` alongside
+  `role="status"` in all three index states so filter changes announce the
+  new count (copy unchanged, no visual change)
+  (`web/listing-detail.js`, `test/listing-a11y.test.js`).
+- #163 (2026-09-27) TOG-6047: search-prompt eval seed-rerun contract — documented
+  seed 5492 with reviewer rerun steps and expected determinism, plus a pin
+  test asserting the doc seed matches the script default, npm script, and
+  recorded SUMMARY (`docs/search-prompt-eval-seed-rerun.md`,
+  `test/search-prompt-eval-seed-rerun.test.js`, `README.md`, docs+test only).
+- #159 (2026-09-27) TOG-6052: `check-models-dev-freshness`
+  no-network contract doc — what `--input` reads, what the script never
+  touches (single `globalThis.fetch` call site gated behind `--fetch`),
+  and the operator offline-verification steps, proven by
+  `test/models-dev-freshness-offline-contract.test.js`
+  (`docs/models-dev-freshness-probe-offline-contract.md`, README docs index,
+  docs-only, no source change).
+- #158 (2026-09-27) TOG-6731: index page lang/title contract pin — renderer,
+  empty state, and live `GET /listings` all carry `<html lang="en">` plus
+  exactly one non-empty escaped `<title>` (`Listings — Wayselect`)
+  (`test/listing-index-lang-title.test.js`, test-only, no prod change).
+- #157 (2026-09-27) TOG-6045: CLI --help/--version golden output pin — exact-byte
+  tests for global, select, explain, catalog, and catalog-import help plus
+  --version against package.json (`test/cli-golden.test.js`, test-only, no
+  source change).
+- #155 (2026-09-27) TOG-7319: pre-push vs CI parity audit — `bin/pre-push-check` grows from
+  5 to 8 gates (engine, marker, smoke + search-index probe, e2e + demo),
+  P2/P3/P4 go recursive and multi-file, and `test/pre-push-parity.test.js`
+  pins every CI `run:` step to a local gate; docs (`docs/pre-push-check.md`,
+  `CONTRIBUTING.md`, PR template) move to `8 pass, 0 fail`
+  (`bin/pre-push-check`, `test/pre-push-parity.test.js`,
+  `docs/pre-push-check.md`, `CONTRIBUTING.md`,
+  `.github/pull_request_template.md`).
+- #154 (2026-09-27) TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
+  Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
+  output, no route redirects, links stay relative, and rotating Host/XFH
+  mints no rate-limit budget (XFH ignored even behind the trusted proxy)
+  (`test/host-header-audit.test.js`, test-only, no source change: the
+  server never reads Host/XFH).
+- #138 (2026-09-27) TOG-6716: seller-intent TTL — staged intents expire
+  15 min after intake (`SELLER_INTENT_TTL_MS`, injectable `options.now`);
+  expired confirms 404 as missing; intake sweeps stale entries
+  (`web/server.js`, `test/seller-intent-ttl.test.js`).
+- #151 (2026-09-27) TOG-7286: concurrent slow-fragment load budget —
+  12 parallel listing-detail JSON-fragment hits with
+  `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` set all return 200 with intact
+  content inside a 2000ms batch budget
+  (`test/concurrent-slow-fragment-budget.test.js`, test-only, no source change).
+- #150 (2026-09-27) TOG-7277: gateway 401 contract pin — missing/wrong
+  bearer key returns byte-identical status/body/headers with
+  `WWW-Authenticate: Bearer`
+  carried on the 401 result for a future HTTP binding to forward verbatim
+  (`src/gateway.js`, `test/gateway.test.js`,
+  `bin/accept-wayselect-gateway-phase1`).
+- #149 (2026-09-27) TOG-7315: debt-marker introduction gate — `bin/check-no-todo-markers`
+  (stdlib-only, case-sensitive whole-word match, PNG-safe, skips
+  `.git`/`node_modules`/`coverage`) runs as the `marker-gate` CI job
+  without `npm ci`; newly added marker words fail the run
+  (`bin/check-no-todo-markers`, `test/no-todo-markers.test.js`,
+  `.github/workflows/ci.yml`, CI-only).
+- #148 (2026-09-27) TOG-6708: `Vary: Accept` on content-negotiated routes — seller-intake,
+  seller-confirm, listing-detail shell/fragment, and the 404 fallback
+  negotiate HTML vs JSON on `Accept`, so every variant carries
+  `Vary: Accept` (one `res.setHeader` per route branch); non-negotiated
+  routes (healthz, purchase stub, index) stay without it
+  (`web/server.js`, `test/vary-accept.test.js`).
+- TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
+  routes wrong-method refusals through the shared `sendMethodNotAllowed`
+  helper (RFC 9110 §15.5.6) instead of raw `sendJson`; HEAD-contract pin
+  updated for the intake path (`web/server.js`,
+  `test/seller-intake-405.test.js`, `test/head-method-contract.test.js`).
+- #143 (2026-09-27) TOG-6713: cap slowloris header/body receipt —
+  `createApp()` pins `headersTimeout` 10s / `requestTimeout` 120s on every
+  server it builds (below Node's 60s/300s defaults), with a validated
+  `httpTimeouts` override; both values logged at startup
+  (`web/server.js`, `test/preview-http-timeouts.test.js`).
 - #142 (2026-09-27) TOG-6737: seller-intake vs purchase error-envelope
   parity note — §4A field table + rationale in the seller acceptance
   spec, pinning both HTTP envelopes and both validator vocabularies to
@@ -60,6 +206,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   with small newly-authored fixtures only, plus `accept:capability-select`
   (`test/capability-select-golden.test.js`,
   `bin/accept-wayselect-capability-select`, `package.json`, test-only).
+- #118 (2026-09-27) TOG-5722: wire search-index `--check` probe and e2e
+  staging acceptance into CI as fixture-only jobs, no network/credentials
+  (`.github/workflows/ci.yml`).
 - #120 (2026-09-27) TOG-6383: slow-network knob operator doc (gap T5) —
   `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` contract plus guard test
   (`docs/wayselect-slow-network-knob.md`,
@@ -101,6 +250,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`p`+`a/b` vs `p/a`+`b`) are kept by ingest/normalize but fail closed at
   `applySupportConfiguration` (`SupportConfigurationError`), so a duplicated
   feed can never reach selection (`test/ingest-duplicate-route-id.test.js`,
+  test-only).
+- #129 (2026-09-27) TOG-6377: 500 render-throw fallback contract — shell
+  and fragment render throws pinned as 500 HTML with matching per-response
+  nonce CSP plus a 200 control (`test/render-throw-fallback.test.js`,
   test-only).
 - #127 (2026-09-27) TOG-6720: filter text-match case behavior — mixed-case
   `q` against mixed-case stub names pinned as case-insensitive (exact
@@ -152,6 +305,42 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `{error: "rate_limited", retryAfterSec}` body pinned (keys, types,
   header agreement) via stubbed-verdict + live-limiter tests
   (`test/rate-limit-body-contract.test.js`, test-only, no prod change).
+- #102 (2026-09-27) chore(deps): bump `actions/checkout` 4 → 7
+  (`.github/workflows/ci.yml`, CI-only, no prod change).
+- #106 (2026-09-27) TOG-6732: index page skip-link + `#main-content`
+  parity test vs detail page (`test/listing-index-skiplink.test.js`,
+  test-only, no prod change).
+- #104 (2026-09-27) TOG-5737: README accuracy audit — 13 claim-level
+  fixes vs merged behavior (`README.md`, docs-only, no prod change).
+- #101 (2026-09-27) TOG-5749: transport executable-URL rejection fuzz —
+  seeded (0x5749) malicious route/catalog shapes all rejected
+  (`test/transport-fuzz.test.js`, test-only, no prod change).
+- #99 (2026-09-27) TOG-4969: seller intake + confirm + receipt (S7) —
+  POST `/sellers/submissions` fail-closed validation, confirm screen
+  restating price/capabilities/verdict, intent-only receipt
+  (`web/seller.js`, `web/server.js`, `test/seller-confirm.test.js`,
+  `scripts/seller-acceptance.sh`, `docs/seller-onboarding-spec-v1.md`).
+- #94 (2026-09-27) TOG-6336: large-catalog stress fixture (seeded
+  2000-route synthetic catalog) + refresh benchmark budget CLI
+  (`scripts/generate-large-catalog.mjs`, `bin/benchmark-large-catalog`,
+  `fixtures/catalog.large-synthetic.json`,
+  `test/large-catalog-benchmark.test.js`,
+  `docs/large-catalog-benchmark.md`, `package.json`).
+- #91 (2026-09-27) TOG-6379: concurrent-request test — shared limiter
+  budget, per-response nonce uniqueness, route isolation
+  (`test/concurrent-requests.test.js`, test-only, no prod change).
+- #89 (2026-09-27) TOG-5754: diff-report readability — gap-delta line
+  and empty-diff wording in `formatDiffReport` plus regenerated golden
+  samples (`src/catalogDiff.js`, `test/snapshot.test.js`,
+  `snapshots/diff-report-consecutive-green.md`,
+  `snapshots/sample-diff-with-changes.md`).
+- #86 (2026-09-27) TOG-6039: README docs index linking every `docs/`
+  acceptance spec (`README.md`, docs-only, no prod change).
+- #55 (2026-09-27) TOG-5857: S1 typed-requirement flags on
+  select/explain (R1, R2) — modalities, context/output bounds,
+  tool/structured/reasoning requirements, fail-closed file requirements
+  (`bin/wayselect`, `docs/cli.md`, `src/eligibility.js`, `src/index.js`,
+  `test/cli.test.js`, `test/ranking.test.js`).
 - #100 (2026-09-27) TOG-6386: automated dep-update PRs via Dependabot
   (monthly npm + github-actions, free tier, no auto-merge) + Automation
   section in policy doc (`.github/dependabot.yml`,

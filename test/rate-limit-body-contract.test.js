@@ -3,8 +3,9 @@
 // TOG-6033 pinned the `Retry-After` header; this file pins the body that
 // goes with it (the 429 path in web/server.js):
 //   - status 429 with the JSON content-type;
-//   - body is exactly `{ error: "rate_limited", retryAfterSec }` — no more,
-//     no fewer keys;
+//   - body is exactly `{ error: "rate_limited", retryAfterSec, requestId }`
+//     — no more, no fewer keys (`requestId` is the TOG-6717 triage id,
+//     32 lowercase hex, echoed from the `x-request-id` header);
 //   - `error` is the string "rate_limited";
 //   - `retryAfterSec` is a positive integer and matches the `Retry-After`
 //     header verbatim (`String(body.retryAfterSec)`).
@@ -42,7 +43,20 @@ describe("429 body shape contract (TOG-6376)", () => {
     strictEqual(limited.status, 429);
     strictEqual(limited.headers.get("content-type"), JSON_CT);
     strictEqual(limited.headers.get("retry-after"), "42");
-    deepStrictEqual(await limited.json(), { error: "rate_limited", retryAfterSec: 42 });
+    const stubbed = await limited.json();
+    strictEqual(stubbed.error, "rate_limited");
+    strictEqual(stubbed.retryAfterSec, 42);
+    ok(/^[0-9a-f]{32}$/.test(stubbed.requestId ?? ""), "requestId is 32 lowercase hex");
+    strictEqual(
+      limited.headers.get("x-request-id"),
+      stubbed.requestId,
+      "header and body agree",
+    );
+    deepStrictEqual(
+      Object.keys(stubbed).sort(),
+      ["error", "requestId", "retryAfterSec"],
+      "no extra fields",
+    );
   });
 
   it("pins keys, types, and header agreement on a live saturated limiter", async () => {
@@ -55,8 +69,13 @@ describe("429 body shape contract (TOG-6376)", () => {
     strictEqual(limited.status, 429);
     strictEqual(limited.headers.get("content-type"), JSON_CT);
     const body = await limited.json();
-    deepStrictEqual(Object.keys(body).sort(), ["error", "retryAfterSec"], "no extra fields");
+    deepStrictEqual(
+      Object.keys(body).sort(),
+      ["error", "requestId", "retryAfterSec"],
+      "no extra fields",
+    );
     strictEqual(body.error, "rate_limited");
+    ok(/^[0-9a-f]{32}$/.test(body.requestId ?? ""), "requestId is 32 lowercase hex");
     ok(
       Number.isInteger(body.retryAfterSec) && body.retryAfterSec >= 1,
       `retryAfterSec must be a positive integer, got ${body.retryAfterSec}`,

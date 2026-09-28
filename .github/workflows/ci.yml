@@ -28,7 +28,7 @@ jobs:
         node-version: [20, 24]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -53,12 +53,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
       - run: npm ci
       - run: npm run check:search-index
+
+  marker-gate:
+    # TOG-7315: debt-marker introduction gate. Stdlib only, so no `npm ci`:
+    # any newly added tracked marker word (see the word list in the script)
+    # fails the run. This comment avoids spelling them: the gate scans it too.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - run: node bin/check-no-todo-markers
+
+  audit:
+    # TOG-7280: dependency audit gate — fails on a new high/critical
+    # advisory. Needs the npm registry, so it is CI-only by design: the
+    # offline local gate documents the exclusion (see bin/pre-push-check)
+    # and test/pre-push-parity.test.js pins it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
 
   e2e-staging-acceptance:
     # TOG-5722: CLI e2e staging acceptance, fixture-only, no network/credentials.
@@ -70,7 +97,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm

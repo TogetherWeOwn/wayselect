@@ -108,7 +108,10 @@ describe("preview server routes", () => {
       method: "POST",
     });
     strictEqual(res.status, 403);
-    deepStrictEqual(await res.json(), {
+    // TOG-6717 rides alongside the refusal copy: this pin owns the
+    // stub-refusal routing, not the envelope shape.
+    const { requestId: _resRequestId, ...resBody } = await res.json();
+    deepStrictEqual(resBody, {
       error: "preview_only",
       message: "Purchases are disabled in preview. No backend writes.",
     });
@@ -122,13 +125,17 @@ describe("preview server routes", () => {
       method: "POST",
     });
     strictEqual(missing.status, 404);
-    deepStrictEqual(await missing.json(), { error: "listing_not_found" });
+    // TOG-6717 rides alongside the error code (see above).
+    const { requestId: _missingRequestId, ...missingBody } = await missing.json();
+    deepStrictEqual(missingBody, { error: "listing_not_found" });
     // Known stub listing still refuses with 403 (writes disabled by design).
     const known = await fetch(`${base}/listings/northstar/alpha-chat/purchase`, {
       method: "POST",
     });
     strictEqual(known.status, 403);
-    deepStrictEqual(await known.json(), {
+    // TOG-6717 rides alongside the refusal copy (see above).
+    const { requestId: _knownRequestId, ...knownBody } = await known.json();
+    deepStrictEqual(knownBody, {
       error: "preview_only",
       message: "Purchases are disabled in preview. No backend writes.",
     });
@@ -192,7 +199,9 @@ describe("serving hardening (TOG-5475)", () => {
       const base = `http://127.0.0.1:${server.address().port}`;
       const res = await fetch(`${base}/listings/northstar/alpha-chat`, { method: "POST" });
       strictEqual(res.status, 405);
-      deepStrictEqual(await res.json(), { error: "method_not_allowed" });
+      // TOG-6717 rides alongside the error code (see above).
+      const { requestId: _detail405RequestId, ...detail405Body } = await res.json();
+      deepStrictEqual(detail405Body, { error: "method_not_allowed" });
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }

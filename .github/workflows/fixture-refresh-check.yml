@@ -1,0 +1,59 @@
+name: fixture-refresh-check
+
+# Daily fixture-freshness probe (TOG-5745). Read-only: runs
+# `bin/refresh-catalog-fixtures --check` and opens a tracking issue on
+# staleness. Writes nothing, commits nothing, needs no credentials beyond
+# the default GITHUB_TOKEN (issues: write), performs no network access
+# beyond the GitHub API call that files the issue.
+on:
+  schedule:
+    # 07:23 UTC daily — off the :00/:30 marks to avoid fleet-wide pileups.
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Check fixture freshness
+        run: npm run refresh:check 2>&1 | tee "${RUNNER_TEMP}/fixture-check.log"
+      - name: Open staleness issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$(gh issue list --label fixture-staleness --state open --json number --jq 'length')" -gt 0 ]; then
+            echo "An open fixture-staleness issue already exists; skipping."
+            exit 0
+          fi
+          {
+            echo "The daily fixture-freshness probe failed."
+            echo
+            echo "The catalog fixture snapshot is stale, hash-mismatched, or malformed."
+            echo "Refresh through the script, never by hand-editing:"
+            echo
+            echo '```sh'
+            echo 'node bin/refresh-catalog-fixtures --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)"'
+            echo 'npm run refresh:check && npm test'
+            echo 'npm run accept:fixture-refresh && npm run check:drift'
+            echo '```'
+            echo
+            echo "Probe output:"
+            echo
+            echo '```'
+            head -c 4000 "${RUNNER_TEMP}/fixture-check.log"
+            echo '```'
+          } > "${RUNNER_TEMP}/staleness-body.md"
+          gh issue create \
+            --title "Fixture catalog stale or unverifiable (scheduled check)" \
+            --label fixture-staleness \
+            --body-file "${RUNNER_TEMP}/staleness-body.md"

@@ -9,7 +9,7 @@
 
 <!-- CI must be green before review (red CI first: no review on a red PR). Paste commands + pass/fail counts. -->
 
-- [ ] `npm run pre-push` — SUMMARY: __ pass, __ fail (expect 5 pass, 0 fail)
+- [ ] `npm run pre-push` — SUMMARY: __ pass, __ fail (expect 8 pass, 0 fail)
 - [ ] `npm test` — __ pass, __ fail
 - [ ] Fixtures touched? `npm run accept:fixture-refresh` + `npm run check:drift` — yes / n/a
 

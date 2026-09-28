@@ -1,0 +1,507 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Wayselect preview server",
+    "version": "0.1.0",
+    "description": "Machine-readable route table for web/server.js (TOG-6040, gap G3 from TOG-6013). Fixture-only preview server: stub data, no backend writes, ever. Every response carries X-Content-Type-Options: nosniff and Referrer-Policy: no-referrer; HTML responses additionally carry X-Frame-Options: DENY plus a per-response nonce CSP. JSON error statuses (>= 400) carry Cache-Control: no-store and the triage envelope (see x-error-envelope): an x-request-id response header echoed as requestId in the body. Success JSON carries no id. Rate limiting (120 req/60s per IP+route bucket) applies to every route except GET /healthz and /favicon.ico, which answer before the limiter; over-limit answers are 429 { error: rate_limited, retryAfterSec, requestId } with a Retry-After header. Gated routes return 404 when WAYSELECT_PREVIEW is off (see each operation). Unknown paths fall through to the fallback contract (see x-fallback below): JSON { error: not_found, requestId } by default, HTML only for explicit browser navigation (Accept: text/html without application/json).",
+    "x-generated-from": "web/server.js",
+    "x-flag": "WAYSELECT_PREVIEW (truthy: 1/true/yes/on case-insensitive, whitespace-trimmed; absent or any other value means off)"
+  },
+  "servers": [{ "url": "http://127.0.0.1:3000", "description": "Local preview server (HOST/PORT env override the host and port)" }],
+  "paths": {
+    "/healthz": {
+      "summary": "Liveness probe (TOG-5726): ungated by WAYSELECT_PREVIEW, exempt from rate limiting",
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Liveness probe; query strings are ignored, trailing slash (/healthz/) is NOT this route (falls to x-fallback 404)",
+        "responses": {
+          "200": {
+            "description": "Server is alive",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthProbe" } } }
+          },
+          "405": {
+            "description": "Any non-GET method on this path; Allow: GET (RFC 9110 15.5.6)",
+            "headers": { "Allow": { "schema": { "type": "string", "example": "GET" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          }
+        }
+      }
+    },
+    "/favicon.ico": {
+      "summary": "204 No Content icon sink (TOG-6369): ungated, exempt from rate limiting",
+      "get": {
+        "operationId": "getFavicon",
+        "summary": "Answers 204 so page loads stop emitting 404 log noise; there is no icon asset",
+        "responses": {
+          "204": { "description": "No Content, empty body" },
+          "405": {
+            "description": "Any non-GET method on this path; Allow: GET",
+            "headers": { "Allow": { "schema": { "type": "string", "example": "GET" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          }
+        }
+      }
+    },
+    "/listings": {
+      "summary": "Stub listing index, flag-gated (trailing slash /listings/ is the same route; flag-on serves identical bodies with a slashless canonical link)",
+      "get": {
+        "operationId": "listListings",
+        "summary": "HTML index of stub listings with search/filter/sort/paging; GET only; HTML-only (no JSON negotiation)",
+        "parameters": [
+          { "name": "q", "in": "query", "required": false, "description": "Text query over name, route id and provider name; at most 200 chars, over-long fails closed 400", "schema": { "type": "string", "maxLength": 200 } },
+          { "name": "capability", "in": "query", "required": false, "description": "Repeatable; unknown values fail closed 400", "schema": { "type": "array", "items": { "type": "string", "enum": ["attachment", "reasoning", "tool_call", "structured_output"] } }, "style": "form", "explode": true },
+          { "name": "modality", "in": "query", "required": false, "description": "Repeatable; unknown values fail closed 400", "schema": { "type": "array", "items": { "type": "string", "enum": ["audio", "image", "pdf", "text", "video"] } }, "style": "form", "explode": true },
+          { "name": "limit", "in": "query", "required": false, "description": "Page size 1-100, default 20; malformed or out-of-range fails closed 400", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "offset", "in": "query", "required": false, "description": "Page offset >= 0, default 0; malformed fails closed 400 (offset past the end is an empty 200 page, never 400)", "schema": { "type": "integer", "minimum": 0, "default": 0 } },
+          { "name": "sort", "in": "query", "required": false, "description": "Explicit result ordering (TOG-6362, gap G1); default keeps the historical stub order; unknown values fail closed 400 like every other filter", "schema": { "type": "string", "enum": ["default", "price-asc", "price-desc", "name-asc", "route-asc"], "default": "default" } }
+        ],
+        "responses": {
+          "200": { "description": "HTML listing index (paginated window with full match count)", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "400": { "description": "Invalid filter query (unknown key, bad capability/modality/sort, over-long q, bad limit/offset): HTML invalid-filter page naming every problem", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "404": { "description": "WAYSELECT_PREVIEW off: HTML preview-disabled page (flag-off index stays HTML-only — no fragment shape)", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "405": {
+            "description": "Any non-GET method (method gate precedes the flag gate, so flag-off still 405s); Allow: GET",
+            "headers": { "Allow": { "schema": { "type": "string", "example": "GET" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RateLimited" } } }
+          }
+        }
+      }
+    },
+    "/listings/{provider}/{model}": {
+      "summary": "Listing-detail shell (flag-gated); Accept: application/json returns the { html } content fragment",
+      "parameters": [
+        { "name": "provider", "in": "path", "required": true, "description": "Provider id; stub lookup is an exact (case-sensitive) match, so uppercase segments (TOG-6711) 404 as misses instead of remapping", "schema": { "type": "string" } },
+        { "name": "model", "in": "path", "required": true, "description": "Model id; exact case-sensitive match, uppercase variants 404 as misses", "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "getListingDetail",
+        "summary": "HTML shell by default; JSON fragment when Accept negotiates application/json; Vary: Accept on every variant",
+        "parameters": [
+          { "name": "Accept", "in": "header", "required": false, "description": "application/json selects the fragment / JSON error shapes; otherwise HTML", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML detail shell, or the JSON content fragment when Accept: application/json (dev slow-network knob WAYSELECT_DETAIL_FRAGMENT_DELAY_MS delays the fragment only, never first paint)",
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "$ref": "#/components/schemas/DetailFragment" } }
+            }
+          },
+          "404": {
+            "description": "Flag off (HTML preview-disabled, or JSON { error: preview_disabled, requestId } for fragment fetches); undecodable segments (HTML not-found); unknown listing incl. uppercase variants and case mismatches (HTML not-found, or JSON { error: listing_not_found, requestId } for fragment fetches)",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/PreviewDisabled" }, { "$ref": "#/components/schemas/ListingNotFound" }] } }
+            }
+          },
+          "405": {
+            "description": "Any non-GET method (method gate precedes the flag gate); Allow: GET",
+            "headers": { "Allow": { "schema": { "type": "string", "example": "GET" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RateLimited" } } }
+          },
+          "500": { "description": "Render throw: HTML listing-detail error page (fragment path falls back to the same HTML 500; HTML carries no request id)", "content": { "text/html": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/listings/{provider}/{model}/purchase": {
+      "summary": "Stub CTA target (TOG-5710): never writes, always refuses; NOT flag-gated (refuses with the flag off too)",
+      "parameters": [
+        { "name": "provider", "in": "path", "required": true, "description": "Provider id; exact case-sensitive match, uppercase variants 404 as unknown listings", "schema": { "type": "string" } },
+        { "name": "model", "in": "path", "required": true, "description": "Model id; exact case-sensitive match", "schema": { "type": "string" } }
+      ],
+      "post": {
+        "operationId": "postPurchase",
+        "summary": "404 for unknown listings (nonexistent resource 404s first), 403 preview_only for real listings; trailing slash is the same route; always JSON",
+        "responses": {
+          "403": {
+            "description": "Known listing: purchases disabled in preview, no backend writes; refusal copy is exactly { error: preview_only, message } plus the triage requestId",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PurchaseRefusal" } } }
+          },
+          "404": {
+            "description": "Unknown listing or undecodable segments: { error: listing_not_found, requestId }",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingNotFound" } } }
+          },
+          "405": {
+            "description": "Any non-POST method; Allow: POST",
+            "headers": { "Allow": { "schema": { "type": "string", "example": "POST" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RateLimited" } } }
+          }
+        }
+      }
+    },
+    "/sellers/submissions": {
+      "summary": "Seller intake (TOG-4969): strict JSON body gate, then fail-closed seller validator; flag-gated; trailing slash is the same route; Vary: Accept",
+      "post": {
+        "operationId": "postSellerSubmission",
+        "summary": "Validates the JSON body, records a pending intent in-memory (restart clears, 15-min TTL), returns the confirm model as JSON (or the HTML confirm screen for Accept: text/html)",
+        "parameters": [
+          { "name": "Content-Type", "in": "header", "required": true, "description": "Must be application/json; anything else is 400 wrong_content_type", "schema": { "type": "string", "example": "application/json" } },
+          { "name": "Accept", "in": "header", "required": false, "description": "text/html selects the HTML confirm / rejection page; otherwise JSON", "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Seller submission envelope (exact keys; executable location fields url/endpoint/baseUrl/apiUrl forbidden at any depth); body capped at 64KB with a 10s total read deadline",
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SellerSubmission" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Valid submission: confirm model JSON plus confirmPath, or the HTML confirm screen for Accept: text/html (success JSON carries no request id)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/IntakeSuccess" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          },
+          "400": {
+            "description": "Body gate (wrong_content_type, malformed_json) or validator rejection (invalid_submission with code/key/source); HTML rejection page for Accept: text/html",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": {
+              "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/BodyError" }, { "$ref": "#/components/schemas/InvalidSubmission" }] } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          },
+          "404": {
+            "description": "WAYSELECT_PREVIEW off: { error: preview_disabled, requestId }",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PreviewDisabled" } } }
+          },
+          "405": {
+            "description": "Any non-POST method (TOG-6707, via the shared helper); Allow: POST",
+            "headers": { "Allow": { "schema": { "type": "string", "example": "POST" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          },
+          "408": {
+            "description": "Body did not complete within the 10s read bound (body_timeout envelope); client may retry",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BodyError" } } }
+          },
+          "413": {
+            "description": "Body exceeds 64KB (body_too_large envelope)",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BodyError" } } }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RateLimited" } } }
+          }
+        }
+      }
+    },
+    "/sellers/submissions/{provider}/{model}/confirm": {
+      "summary": "Seller confirm + receipt (TOG-4969): GET restates the pending intent, POST records it; neither publishes anything; Vary: Accept",
+      "parameters": [
+        { "name": "provider", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "model", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "getSellerConfirm",
+        "summary": "Restates the staged intent as JSON or HTML (Accept: text/html); 404 when no intent was staged, expired (>15 min), or never existed",
+        "parameters": [
+          { "name": "Accept", "in": "header", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending intent restated: confirm-model JSON, or the HTML confirm screen for Accept: text/html (success JSON carries no request id)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ConfirmModel" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          },
+          "404": {
+            "description": "Flag off (HTML preview-disabled unless Accept: application/json, else JSON preview_disabled); undecodable segments (JSON not_found); no live intent (JSON no_pending_intent, or HTML intent-missing page for Accept: text/html)",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": {
+              "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/PreviewDisabled" }, { "$ref": "#/components/schemas/NotFound" }, { "$ref": "#/components/schemas/NoPendingIntent" }] } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RateLimited" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "postSellerConfirm",
+        "summary": "Records the staged intent, returns the listing-created receipt as JSON (or HTML for Accept: text/html); no live publish, ever",
+        "parameters": [
+          { "name": "Accept", "in": "header", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt: { recorded: true, intentOnly: true, recordedAt, ...confirmModel }, or the HTML receipt for Accept: text/html (success JSON carries no request id)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SellerReceipt" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          },
+          "404": {
+            "description": "Flag off (JSON preview_disabled); undecodable segments (JSON not_found); no live intent (JSON no_pending_intent)",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/PreviewDisabled" }, { "$ref": "#/components/schemas/NotFound" }, { "$ref": "#/components/schemas/NoPendingIntent" }] } } }
+          },
+          "405": {
+            "description": "Any method other than GET/POST answers 405 { error: method_not_allowed, requestId } via sendJson with NO Allow header (pinned quirk, TOG-6709)",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MethodNotAllowed" } } }
+          },
+          "429": {
+            "description": "Rate limited",
+            "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RateLimited" } } }
+          }
+        }
+      }
+    }
+  },
+  "x-fallback": {
+    "description": "Unknown paths and unparseable targets (TOG-5714): Vary: Accept; JSON { error: not_found, requestId } 404 by default (including */* fetch/curl defaults and missing Accept); HTML route-not-found page 404 only for explicit browser navigation (Accept: text/html without application/json). Unparseable request targets answer the same JSON 404. No Allow header on 404s (no resource, no Allow).",
+    "status": 404,
+    "json": { "error": "not_found", "requestId": "<32 lowercase hex, echoed from the x-request-id header>" }
+  },
+  "x-error-envelope": {
+    "description": "Triage envelope on every JSON error (TOG-6717): the shared sendJsonError writer mints one crypto-random 128-bit id (32 lowercase hex) per error response, stamps it on the x-request-id response header, and echoes it as requestId in the body, so staging triage can match a response to logs. Two error responses carry distinct ids; header and body always agree. Covers sendJson error branches, the sendMethodNotAllowed 405 helper, the inline 429 refusal, and the direct seller-confirm 405. Success JSON (2xx) and HTML responses carry no id.",
+    "header": "x-request-id",
+    "bodyField": "requestId",
+    "format": "^[0-9a-f]{32}$"
+  },
+  "x-cross-cutting": {
+    "rateLimitBucketShapes": ["GET /listings", "{METHOD} /listings/:provider/:model", "{METHOD} /listings/:provider/:model/purchase", "{METHOD} /sellers/submissions", "{METHOD} /sellers/submissions/:provider/:model/confirm", "{METHOD} other"],
+    "methodNotAllowed": "Known route shapes answer 405 { error: method_not_allowed, requestId } with an Allow header naming the supported methods (seller-confirm POST path excepted: no Allow header, pinned). Unknown paths stay 404 with no Allow.",
+    "flagGating": "GET /healthz, /favicon.ico and POST /listings/:provider/:model/purchase are ungated. GET /listings, GET /listings/:provider/:model, POST /sellers/submissions and both seller-confirm methods 404 when WAYSELECT_PREVIEW is off (HTML page or JSON preview_disabled depending on Accept; see each operation).",
+    "intentTtl": "Staged seller intents expire 15 minutes after intake (SELLER_INTENT_TTL_MS); expired intents 404 as no_pending_intent and are dropped on read.",
+    "caseSensitivity": "Stub listing lookup is an exact case-sensitive match (TOG-6711): uppercase provider/model segments 404 as misses (HTML miss page by default, JSON listing_not_found on fragment negotiation) instead of remapping to the lowercase listing."
+  },
+  "components": {
+    "headers": {
+      "RequestId": {
+        "description": "Per-error triage id (TOG-6717): 32 lowercase hex chars, crypto-random per response, echoed as requestId in the JSON error body",
+        "schema": { "type": "string", "pattern": "^[0-9a-f]{32}$", "example": "9f2c4a1b7d3e4f08a6b5c2d1e9f0a3b4" }
+      }
+    },
+    "schemas": {
+      "HealthProbe": {
+        "type": "object",
+        "required": ["status", "version"],
+        "properties": {
+          "status": { "type": "string", "example": "ok" },
+          "version": { "type": "string", "description": "SERVER_VERSION, read from package.json at module load (degrades to 'unknown')", "example": "0.1.0" }
+        }
+      },
+      "DetailFragment": {
+        "type": "object",
+        "required": ["html"],
+        "properties": { "html": { "type": "string", "description": "Detail body fragment the shell's inline script fetches and renders" } }
+      },
+      "PurchaseRefusal": {
+        "type": "object",
+        "required": ["error", "message", "requestId"],
+        "properties": {
+          "error": { "type": "string", "example": "preview_only" },
+          "message": { "type": "string", "example": "Purchases are disabled in preview. No backend writes." },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Triage id echoed from the x-request-id response header (TOG-6717)" }
+        }
+      },
+      "ListingNotFound": {
+        "type": "object",
+        "required": ["error", "requestId"],
+        "properties": {
+          "error": { "type": "string", "example": "listing_not_found" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "PreviewDisabled": {
+        "type": "object",
+        "required": ["error", "requestId"],
+        "properties": {
+          "error": { "type": "string", "example": "preview_disabled" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "NotFound": {
+        "type": "object",
+        "required": ["error", "requestId"],
+        "properties": {
+          "error": { "type": "string", "example": "not_found" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "MethodNotAllowed": {
+        "type": "object",
+        "required": ["error", "requestId"],
+        "properties": {
+          "error": { "type": "string", "example": "method_not_allowed" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "RateLimited": {
+        "type": "object",
+        "required": ["error", "retryAfterSec", "requestId"],
+        "properties": {
+          "error": { "type": "string", "example": "rate_limited" },
+          "retryAfterSec": { "type": "integer", "minimum": 1 },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "BodyError": {
+        "type": "object",
+        "required": ["error", "key", "source", "message", "requestId"],
+        "description": "Strict JSON body-gate failure: error is wrong_content_type, body_too_large (413), malformed_json, or body_timeout (408)",
+        "properties": {
+          "error": { "type": "string" },
+          "key": { "type": "string", "example": "submission" },
+          "source": { "type": ["string", "null"], "example": null },
+          "message": { "type": "string" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "InvalidSubmission": {
+        "type": "object",
+        "required": ["error", "code", "key", "source", "message", "requestId"],
+        "description": "Seller validator rejection: error is invalid_submission; code/key/source name the failure",
+        "properties": {
+          "error": { "type": "string", "example": "invalid_submission" },
+          "code": { "type": "string" },
+          "key": { "type": "string" },
+          "source": { "type": ["string", "null"] },
+          "message": { "type": "string" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "NoPendingIntent": {
+        "type": "object",
+        "required": ["error", "routeId", "requestId"],
+        "properties": {
+          "error": { "type": "string", "example": "no_pending_intent" },
+          "routeId": { "type": "string", "example": "northstar/seller-chat" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "SellerSubmission": {
+        "type": "object",
+        "required": ["providerId", "modelId", "entry", "provenance"],
+        "additionalProperties": false,
+        "properties": {
+          "providerId": { "type": "string", "description": "Lowercase slug [a-z0-9][a-z0-9-]{0,63}, at most 64 chars", "maxLength": 64 },
+          "modelId": { "type": "string", "description": "Lowercase slug, at most 64 chars; must equal entry.id (SG2)", "maxLength": 64 },
+          "entry": {
+            "type": "object",
+            "required": ["id", "name", "description", "attachment", "reasoning", "tool_call", "modalities", "limit", "release_date", "last_updated", "open_weights"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "maxLength": 64 },
+              "name": { "type": "string" },
+              "description": { "type": "string", "maxLength": 4000 },
+              "attachment": { "type": "boolean" },
+              "reasoning": { "type": "boolean" },
+              "tool_call": { "type": "boolean" },
+              "structured_output": { "type": ["boolean", "null"] },
+              "temperature": { "type": ["boolean", "null"] },
+              "modalities": {
+                "type": "object",
+                "required": ["input", "output"],
+                "additionalProperties": false,
+                "properties": {
+                  "input": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["text", "image", "audio", "video", "pdf"] } },
+                  "output": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["text", "image", "audio", "video", "pdf"] } }
+                }
+              },
+              "limit": {
+                "type": "object",
+                "required": ["context", "output"],
+                "additionalProperties": false,
+                "properties": {
+                  "context": { "type": "integer", "minimum": 0 },
+                  "output": { "type": "integer", "minimum": 0 },
+                  "input": { "type": ["integer", "null"], "minimum": 0 }
+                }
+              },
+              "cost": {
+                "type": ["object", "null"],
+                "required": ["input", "output"],
+                "additionalProperties": false,
+                "properties": {
+                  "input": { "type": "number", "minimum": 0 },
+                  "output": { "type": "number", "minimum": 0 }
+                }
+              },
+              "release_date": { "type": "string", "description": "YYYY-MM or YYYY-MM-DD, real calendar date" },
+              "last_updated": { "type": "string", "description": "YYYY-MM or YYYY-MM-DD, real calendar date" },
+              "open_weights": { "type": "boolean" },
+              "status": { "type": ["string", "null"], "enum": ["deprecated", "beta", null] }
+            }
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["source", "fetchedAt"],
+            "additionalProperties": false,
+            "properties": {
+              "source": { "type": "string", "description": "Must start with synthetic://", "example": "synthetic://wayselect/seller-fixture-v1" },
+              "fetchedAt": { "type": "string", "format": "date-time", "description": "ISO timestamp, must not be in the future (60s tolerance)" },
+              "etag": { "type": ["string", "null"], "maxLength": 256 }
+            }
+          }
+        }
+      },
+      "ConfirmModel": {
+        "type": "object",
+        "required": ["routeId", "providerId", "modelId", "title", "entryId", "price", "priceLabel", "capabilities", "operations", "supportState", "configuredOperations", "evidenceAge", "eligible", "reasons", "verdict", "provenance"],
+        "properties": {
+          "routeId": { "type": "string" },
+          "providerId": { "type": "string" },
+          "modelId": { "type": "string" },
+          "title": { "type": "string" },
+          "entryId": { "type": "string" },
+          "price": { "type": ["object", "null"] },
+          "priceLabel": { "type": "string" },
+          "capabilities": { "type": "object" },
+          "operations": { "type": "array", "items": { "type": "string" } },
+          "supportState": { "type": "string" },
+          "configuredOperations": { "type": "array", "items": { "type": "string" } },
+          "evidenceAge": { "type": "string" },
+          "eligible": { "type": "boolean" },
+          "reasons": { "type": "array", "items": { "type": "string" } },
+          "verdict": { "type": "string" },
+          "provenance": { "type": "object" }
+        }
+      },
+      "IntakeSuccess": {
+        "allOf": [{ "$ref": "#/components/schemas/ConfirmModel" }],
+        "description": "Confirm model plus the follow-up path (success JSON carries no request id)",
+        "type": "object",
+        "required": ["confirmPath"],
+        "properties": { "confirmPath": { "type": "string", "example": "/sellers/submissions/northstar/seller-chat/confirm" } }
+      },
+      "SellerReceipt": {
+        "allOf": [{ "$ref": "#/components/schemas/ConfirmModel" }],
+        "description": "Listing-created receipt: confirm model plus recording facts; intent only, no publish (success JSON carries no request id)",
+        "type": "object",
+        "required": ["recorded", "intentOnly", "recordedAt"],
+        "properties": {
+          "recorded": { "type": "boolean", "example": true },
+          "intentOnly": { "type": "boolean", "example": true },
+          "recordedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

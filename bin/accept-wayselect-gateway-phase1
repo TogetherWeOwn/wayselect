@@ -155,22 +155,34 @@ function request(body, overrides = {}) {
   );
 }
 
-// ---- A5: 401 cases (missing + wrong key) ----
+// ---- A5: 401 cases (missing + wrong key, byte-identical incl. header) ----
 {
+  const expectedBody = JSON.stringify({
+    error: {
+      message: "Invalid or missing gateway credentials.",
+      type: "authentication_error",
+      code: "invalid_api_key",
+    },
+  });
   const missing = await handleChatCompletionsRequest(request({}, { headers: {} }));
   check(
-    missing.httpStatus === 401 && missing.body?.error?.type === "authentication_error",
+    missing.httpStatus === 401 &&
+      missing.body?.error?.type === "authentication_error" &&
+      JSON.stringify(missing.body) === expectedBody &&
+      missing.headers?.["WWW-Authenticate"] === "Bearer",
     "A5",
-    "missing key returns 401 authentication_error",
+    "missing key returns exact 401 body + WWW-Authenticate: Bearer",
     `http=${missing.httpStatus}`,
   );
   const wrong = await handleChatCompletionsRequest(
     request({}, { headers: { authorization: "Bearer wrong-key" } }),
   );
   check(
-    wrong.httpStatus === 401 && wrong.body?.error?.type === "authentication_error",
+    wrong.httpStatus === 401 &&
+      wrong.body?.error?.type === "authentication_error" &&
+      JSON.stringify(wrong) === JSON.stringify(missing),
     "A5b",
-    "wrong key returns 401 authentication_error",
+    "wrong key returns 401 byte-identical to missing key",
     `http=${wrong.httpStatus}`,
   );
 }

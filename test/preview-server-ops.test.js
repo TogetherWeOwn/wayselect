@@ -93,7 +93,10 @@ describe("preview server ops (TOG-5726)", () => {
     const post = await get(base, "/healthz", { method: "POST" });
     strictEqual(post.status, 405);
     strictEqual(post.contentType, JSON_CT);
-    deepStrictEqual(JSON.parse(post.text), { error: "method_not_allowed" });
+    // TOG-6717 rides alongside the error code: this pin owns the probe
+    // routing, not the envelope shape.
+    const { requestId: _postRequestId, ...postBody } = JSON.parse(post.text);
+    deepStrictEqual(postBody, { error: "method_not_allowed" });
     // A query string does not change the probe path (URL pathname match),
     // so harmless probe parameters still answer 200.
     const queried = await get(base, "/healthz?x=1");
@@ -102,7 +105,9 @@ describe("preview server ops (TOG-5726)", () => {
     // unknown-path JSON 404, never a false-positive 200.
     const miss = await get(base, "/healthz/");
     strictEqual(miss.status, 404);
-    deepStrictEqual(JSON.parse(miss.text), { error: "not_found" });
+    // TOG-6717 rides alongside the error code (see above).
+    const { requestId: _missRequestId, ...missBody } = JSON.parse(miss.text);
+    deepStrictEqual(missBody, { error: "not_found" });
   });
 
   describe("resolvePort", () => {

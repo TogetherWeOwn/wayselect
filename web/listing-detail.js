@@ -26,8 +26,10 @@ import {
   evaluateListingsEligibility,
 } from "./eligibility.js";
 import {
+  LISTINGS_DEFAULT_SORT,
   LISTINGS_MAX_QUERY_LENGTH,
   VALID_CAPABILITIES,
+  VALID_LISTING_SORTS,
   VALID_MODALITIES,
   emptyFilters,
 } from "./filter.js";
@@ -70,12 +72,17 @@ function nonceAttr(cspNonce) {
   return cspNonce ? ` nonce="${escapeHtml(cspNonce)}"` : "";
 }
 
-function layout({ title, body, cspNonce }) {
+function layout({ title, body, cspNonce, canonical }) {
+  const canonicalTag =
+    typeof canonical === "string" && canonical !== ""
+      ? `\n<link rel="canonical" href="${escapeHtml(canonical)}">`
+      : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">${canonicalTag}
+<meta name="robots" content="noindex, nofollow">
 <title>${escapeHtml(title)} — Wayselect</title>
 <style${nonceAttr(cspNonce)}>
 :root { color-scheme: light dark; }
@@ -105,8 +112,8 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 .skip-link { position: absolute; left: 0.75rem; top: -4rem; z-index: 10; background: #fff; color: #000; padding: 0.5rem 1rem; border-radius: 0.375rem; transition: top 0.15s ease-in-out; }
 .skip-link:focus-visible { top: 0.75rem; }
 main:focus { outline: none; }
-a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
-@media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
+@media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } select:focus-visible { outline: 3px solid Highlight; } }
 .skeleton { border-radius: 0.375rem; background: linear-gradient(90deg, rgba(128, 128, 128, 0.28) 25%, rgba(128, 128, 128, 0.12) 50%, rgba(128, 128, 128, 0.28) 75%); background-size: 200% 100%; animation: skeleton-pulse 1.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .skip-link { transition: none; } }
 @keyframes skeleton-pulse { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -305,7 +312,9 @@ export function renderListingDetailShell(listing, evaluationOverride, options) {
 })();
 </script>`;
 
-  return layout({ title, body, cspNonce });
+  // TOG-6044: trailing-slash variants serve the same body, so the shell
+  // pins the slashless route path as canonical (SEO/duplicate-cache).
+  return layout({ title, body, cspNonce, canonical: routePath });
 }
 
 // JSON fragment payload behind the shell: the full detail body as `html`,
@@ -323,10 +332,13 @@ function pageNonce(options) {
 }
 
 export function renderListingDetail(listing, evaluationOverride, options) {
+  // TOG-6044: same canonical as the shell — the slashless detail path.
+  const canonical = `/listings/${encodeURIComponent(listing.providerId)}/${encodeURIComponent(listing.modelId)}`;
   return layout({
     title: listingDetailTitle(listing),
     body: listingDetailBody(listing, evaluationOverride),
     cspNonce: pageNonce(options),
+    canonical,
   });
 }
 
@@ -393,6 +405,28 @@ function checkboxRow(name, values, selected) {
     .join("\n");
 }
 
+// Human-readable labels for the explicit result ordering (TOG-6362, gap
+// G1). Keys are the `VALID_LISTING_SORTS` values; the order here is the
+// dropdown order.
+const SORT_LABELS = Object.freeze({
+  default: "Stub order",
+  "price-asc": "Price: low to high",
+  "price-desc": "Price: high to low",
+  "name-asc": "Name: A to Z",
+  "route-asc": "Route ID: A to Z",
+});
+
+function sortOptions(selected) {
+  const active =
+    typeof selected === "string" && VALID_LISTING_SORTS.includes(selected)
+      ? selected
+      : LISTINGS_DEFAULT_SORT;
+  return VALID_LISTING_SORTS.map(
+    (value) =>
+      `<option value="${escapeHtml(value)}"${value === active ? " selected" : ""}>${escapeHtml(SORT_LABELS[value] ?? value)}</option>`,
+  ).join("\n");
+}
+
 function filterForm(filters) {
   const active = filters ?? emptyFilters();
   const q = typeof active.q === "string" ? active.q : "";
@@ -406,6 +440,9 @@ ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
 <fieldset><legend>Modalities</legend>
 ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 </fieldset>
+<label for="filter-sort">Sort by <select id="filter-sort" name="sort">
+${sortOptions(active.sort)}
+</select></label>
 <button type="submit">Apply filters</button>
 <a href="/listings">Clear filters</a>
 </form>`;
@@ -435,7 +472,8 @@ ${detail}
 // Paged navigation for the listing index (TOG-6028). `pageInfo` is the
 // `{ total, limit, offset }` window the server sliced; without it the full
 // array renders with the legacy "N listings found." copy. Prev/Next links
-// preserve the active filters so paging never drops a filter.
+// preserve the active filters (and the explicit sort, TOG-6362) so paging
+// never drops a filter or silently reverts to stub order.
 function pageHref(filters, limit, offset) {
   const params = new URLSearchParams();
   if (typeof filters?.q === "string" && filters.q !== "") {
@@ -446,6 +484,11 @@ function pageHref(filters, limit, offset) {
   }
   for (const name of filters?.modalities ?? []) {
     params.append("modality", name);
+  }
+  // Default sort stays unpinned so legacy links keep their exact shape;
+  // only an explicit non-default sort rides along.
+  if (typeof filters?.sort === "string" && filters.sort !== LISTINGS_DEFAULT_SORT) {
+    params.set("sort", filters.sort);
   }
   params.set("limit", String(limit));
   if (offset > 0) {
@@ -487,13 +530,13 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
     // and link back to the first page instead of blaming the filters.
     results =
       total > 0
-        ? `<section aria-label="Results">\n<p role="status">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
-        : `<section aria-label="Results">\n<p role="status">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
+        ? `<section aria-label="Results">\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
+        : `<section aria-label="Results">\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
   } else {
     const status =
       `${countCopy} found.` + (windowed ? ` Showing ${offset + 1}-${offset + listings.length}.` : "");
     results =
-      `<section aria-label="Results">\n<p role="status">${escapeHtml(status)}</p>\n<ul>\n${listings
+      `<section aria-label="Results">\n<p role="status" aria-live="polite">${escapeHtml(status)}</p>\n<ul>\n${listings
         .map((listing) => {
           const described = describeEligibility(
             evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
@@ -509,5 +552,8 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
 <h1>Listings</h1>
 ${filterForm(filters)}
 ${results}`;
-  return layout({ title: "Listings", body, cspNonce: pageNonce(options) });
+  // TOG-6044: `/listings` vs `/listings/` serve the same body — pin the
+  // slashless path as canonical. Filtered/paged views consolidate to the
+  // same bare-index canonical (stub preview: no per-variant indexing).
+  return layout({ title: "Listings", body, cspNonce: pageNonce(options), canonical: "/listings" });
 }

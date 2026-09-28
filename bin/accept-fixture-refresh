@@ -184,7 +184,7 @@ async function main() {
       .filter((f) => f.endsWith(".test.js"))
       .map((f) => join("test", f));
     try {
-      await execFileAsync(process.execPath, ["--test", ...files], { cwd: REPO_ROOT });
+      await execFileAsync(process.execPath, ["--test", "--import", "./support/no-network-guard.js", ...files], { cwd: REPO_ROOT });
     } catch (error) {
       const tail = (error.stdout || "").trim().split("\n").slice(-8).join(" | ");
       throw new Error(`node --test failed: ${tail.slice(0, 300)}`);
