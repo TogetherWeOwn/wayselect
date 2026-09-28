@@ -123,8 +123,12 @@ function isCodePath(path) {
 }
 
 function unreleasedSection(content) {
-  const start = content.indexOf(UNRELEASED_HEADING);
-  if (start === -1) return null;
+  // Line-anchored: the release-note process preamble mentions the heading
+  // name in prose (in backticks) before the real heading, so a bare
+  // indexOf would slice the preamble instead of the section.
+  const match = content.match(/^## Unreleased[ \t]*$/m);
+  if (!match) return null;
+  const start = match.index;
   const nextHeading = content.indexOf("\n## ", start + 1);
   return nextHeading === -1 ? content.slice(start) : content.slice(start, nextHeading);
 }

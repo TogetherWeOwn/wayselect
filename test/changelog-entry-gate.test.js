@@ -22,7 +22,18 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const gateAbs = join(repoRoot, "bin", "check-changelog-entry");
 const read = (rel) => readFileSync(join(repoRoot, rel), "utf8");
 
+// The fixture mirrors the real CHANGELOG shape: the release-note preamble
+// mentions the heading name in prose (in backticks) before the real
+// heading, so a naive indexOf would slice the preamble instead of the
+// section — the gate must anchor the heading to a line start.
 const BASE_CHANGELOG = `# Changelog
+
+All notable changes are documented here, newest first.
+
+## Release-note process
+
+1. Every merged PR gets one entry under \`## Unreleased\`, added in the same PR.
+2. The reviewer verifies the entry matches the diff.
 
 ## Unreleased
 
