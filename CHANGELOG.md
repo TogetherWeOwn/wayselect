@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-7300: catalog-import quarantine human-output golden — the
+- #206 (2026-09-28) TOG-7300: catalog-import quarantine human-output golden — the
   `Quarantined N:` block of `wayselect catalog import` (count, `  - route:
   reason` lines, exact placement around the ingested/not-written lines) is
   pinned byte-identical for a one-quarantine fixture
