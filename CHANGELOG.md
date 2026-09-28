@@ -43,6 +43,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   JSON responses carry neither. 6-test guard
   (`web/listing-detail.js`, `web/seller.js`, `web/server.js`,
   `test/preview-noindex.test.js`).
+- #60 (2026-09-28) TOG-5738: deployment runbook with Dockerfile and rollback —
+  `node:20-slim` prod image (`npm ci --omit=dev`, non-root, `HOST=0.0.0.0`,
+  HEALTHCHECK on the 404 `not_found` contract), `.dockerignore`, plus
+  build/run/verify/rollback runbook (`Dockerfile`, `.dockerignore`,
+  `docs/deployment-runbook.md`).
 - #177 (2026-09-28) TOG-6040: preview-server route table — OpenAPI 3.1 doc
   covering every route/method/params/status in `web/server.js` (incl.
   `sort` vocabulary, `x-request-id` triage envelope, case-sensitive
@@ -68,11 +73,27 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   script (purpose, when to run, key flags) covering all 29 executables,
   plus a README docs-index link
   (`docs/bin-operator-catalog.md`, `README.md`).
+- #174 (2026-09-28) TOG-7842: no-network guard preload in the
+  fixture-refresh suite step — the `suite`-step spawn gains
+  `--import ./support/no-network-guard.js` to match `npm test`
+  (`bin/accept-fixture-refresh`, `test/listing-uppercase-path.test.js`).
+- #156 (2026-09-28) TOG-5745: daily fixture-freshness check — scheduled CI
+  job runs the read-only `npm run refresh:check` daily at 07:23 UTC and
+  opens a deduplicated `fixture-staleness` issue on failure
+  (`.github/workflows/fixture-refresh-check.yml`,
+  `test/fixture-refresh-scheduler.test.js`, `README.md`).
+- #153 (2026-09-28) TOG-7541: dependabot github-actions prefix
+  `chore(deps)` → `ci(deps)` per the org GitHub standard
+  (`.github/dependabot.yml`, CI-only, no prod change).
 - #170 (2026-09-28) TOG-6044: trailing-slash canonical pin — `/listings` vs `/listings/`
   (and detail `.../p/m` vs `.../p/m/`) both stay 200 with identical bodies
   and carry `<link rel="canonical">` to the slashless path (index, detail
   shell, legacy full render); no redirects
   (`web/listing-detail.js`, `test/listings-canonical.test.js`).
+- #105 (2026-09-28) TOG-6738: `WAYSELECT_PREVIEW` truthiness truth table pin —
+  enabled spellings `1`/`true`/`yes`/`on` vs disabled unset/empty/`0`/`false`/
+  `no`/`off` and every other spelling (`test/preview-flag-truth-table.test.js`,
+  test-only, no prod change).
 - #166 (2026-09-28) TOG-6717: request id on JSON errors — every JSON error
   carries a crypto-random `x-request-id` header echoed as `requestId` in the
   body (128-bit hex, distinct per response, header/body agree; success JSON
@@ -140,6 +161,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`bin/pre-push-check`, `test/pre-push-parity.test.js`,
   `docs/pre-push-check.md`, `CONTRIBUTING.md`,
   `.github/pull_request_template.md`).
+- #103 (2026-09-27) chore(deps): bump `actions/setup-node` 4 → 7
+  (`.github/workflows/ci.yml`, `.github/workflows/acceptance.yml`,
+  CI-only, no prod change).
 - #154 (2026-09-27) TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
   Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
   output, no route redirects, links stay relative, and rotating Host/XFH
@@ -173,7 +197,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `Vary: Accept` (one `res.setHeader` per route branch); non-negotiated
   routes (healthz, purchase stub, index) stay without it
   (`web/server.js`, `test/vary-accept.test.js`).
-- TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
+- #147 (2026-09-27) TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
   routes wrong-method refusals through the shared `sendMethodNotAllowed`
   helper (RFC 9110 §15.5.6) instead of raw `sendJson`; HEAD-contract pin
   updated for the intake path (`web/server.js`,
@@ -191,11 +215,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `resolveClientIp` trusted-proxy matching and XFF client identity share
   one bucket across plain/mapped/upper/translated/loopback spellings
   (`test/ipv6-mapped-resolve-pin.test.js`, test-only, no source change).
-- TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
+- #145 (2026-09-27) TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
   read deadline (`MAX_JSON_BODY_READ_MS`) that fails closed with
   `body_timeout` (408 at the seller route, retryable; drains the stream
   for socket reuse) instead of hanging on a short/stalling body
-  (`web/jsonBody.js`, `web/server.js`, `src/intakeLimits.js`,
+  (`web/jsonBody.js`, `web/server.js`, `src/index.js`, `src/intakeLimits.js`,
   `test/json-body-read-timeout.test.js`).
 - #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
 - #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
@@ -215,6 +239,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   with small newly-authored fixtures only, plus `accept:capability-select`
   (`test/capability-select-golden.test.js`,
   `bin/accept-wayselect-capability-select`, `package.json`, test-only).
+- #113 (2026-09-27) TOG-5728: Node test matrix 20.x + 24.x with engine gate —
+  fail-fast-false matrix plus a stdlib-only `bin/check-node-engines` gate
+  failing fast with ENGINE-MISMATCH before `npm ci`
+  (`.github/workflows/ci.yml`, `bin/check-node-engines`).
 - #118 (2026-09-27) TOG-5722: wire search-index `--check` probe and e2e
   staging acceptance into CI as fixture-only jobs, no network/credentials
   (`.github/workflows/ci.yml`).
@@ -236,6 +264,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (POST) / listing miss (GET), never a purchase refusal; exact
   three-segment target still 403; `%252E%252E` and triple encoding decode
   exactly once (`test/purchase-double-encoded-segments.test.js`, test-only).
+- #135 (2026-09-27) TOG-5742: catalog-entry version-negotiation note + v1 pin —
+  pinned contract, no-silent-upgrade policy, 4-step v2 bump procedure, plus
+  `SCHEMA_VERSION` v1 and rejection pins (`docs/catalog-entry-versioning.md`,
+  `test/validate-catalog-entry.test.js`).
 - #126 (2026-09-27) TOG-6714: clear delayed detail-fragment timer on
   client abort — `req.once('close')` → `clearTimeout`, fired-timer path
   removes its own listener and skips the send on a dead socket; abort
@@ -250,6 +282,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   non-JSON/truncated/wrong-tool/empty-entries/missing files, exact
   `SearchIndexError` strings pinned, rebuild-from-fixture recovery covered
   (`test/search-index-corrupt-previous.test.js`, test-only).
+- #132 (2026-09-27) TOG-6722: invalid `maxCatalogAgeMs` fail-closed pin —
+  `-1`/`NaN`/`Infinity` budgets rejected with typed errors at all three
+  library entry points (`test/freshness-invalid-budget.test.js`, test-only).
 - #122 (2026-09-27) TOG-6369: serve `GET /favicon.ico` as 204 (ungated,
   rate-limit-exempt like `/healthz`; non-GET 405s with `Allow: GET`)
   (`web/server.js`, `test/favicon-route.test.js`,
@@ -303,6 +338,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   errors (`sendJson` for status >= 400, `sendMethodNotAllowed`, 429
   refusal); success JSON and HTML untouched (`web/server.js`,
   `test/json-error-no-store.test.js`).
+- #112 (2026-09-27) TOG-6897: conventional PR title/description lint — `pr-lint`
+  job on `ubuntu-latest` with no third-party actions and no checkout, plus
+  push-to-main coverage (`.github/workflows/pr-lint.yml`, CI-only).
 - #107 (2026-09-27) TOG-6370: `q` length cap (200, fail-closed 400 naming
   the bound) + form `maxlength` hint (`web/filter.js`,
   `web/listing-detail.js`, `test/listing-filter.test.js`,
