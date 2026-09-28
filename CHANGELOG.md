@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #177 (2026-09-28) TOG-6040: preview-server route table — OpenAPI 3.1 doc
+  covering every route/method/params/status in `web/server.js` (incl.
+  `sort` vocabulary, `x-request-id` triage envelope, case-sensitive
+  lookup), linked from the README docs index, with static + live route
+  coverage (`docs/preview-server.openapi.json`,
+  `test/preview-route-table.test.js`, `README.md` docs index).
 - #179 (2026-09-28) TOG-7321: `WAYSELECT_*` env-var matrix operator doc —
   one ops table for `WAYSELECT_PREVIEW`, `WAYSELECT_TRUSTED_PROXY_IP`,
   `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS`, `WAYSELECT_ALLOW_NETWORK`
