@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-6042: nightly ingestion-smoke failure-triage runbook — where the
+  `17 6 * * *` cron result surfaces, who triages, first 5 diagnostic
+  commands, and bug-card vs re-run rule, with a green-cron acceptance
+  check (`docs/ingestion-smoke-triage-runbook.md`, `README.md` docs index).
 - #154 (2026-09-27) TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
   Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
   output, no route redirects, links stay relative, and rotating Host/XFH
