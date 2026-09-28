@@ -310,6 +310,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Acceptance spec — capability-aware dry-run select](docs/acceptance-spec-capability-select.md) — next-feature acceptance for capability-aware selection (v1).
 - [CLI `--json` machine contract](docs/cli-json-contract.md) — versioned machine interface for `select --json` / `explain --json`.
 - [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
+- [`bin/` operator catalog](docs/bin-operator-catalog.md) — one line per script: purpose, when to run, key flags.
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
 - [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
