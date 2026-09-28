@@ -18,6 +18,17 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #224 (2026-09-28) TOG-8326: in-band `schemaVersion: "v1"` marker on every
+  `--json` payload — `select`/`explain`/`catalog import` outputs carry a
+  top-level version marker (`const: "v1"` in `schema/cli-json/v1.json`,
+  mirroring `SCHEMA_VERSION`), so consumers pin on the marker and a breaking
+  change must bump the version per `docs/cli-json-contract.md` instead of
+  shifting silently; pinned by `test/cli-json-schema-version.test.js`
+  (live-output marker + validation, reject dropped/wrong marker,
+  `SCHEMA_VERSION` pinned to `"v1"`) (`bin/wayselect`,
+  `schema/cli-json/v1.json`, `docs/cli.md`, `docs/cli-json-contract.md`,
+  `test/cli-json-schema-version.test.js`,
+  `test/fixtures/cli-json-*.v1.json`, `test/cli-empty-inputs.test.js`).
 - #221 (2026-09-28) TOG-8613: hand-edited snapshot tamper-reason pin — new
   test asserts the stable `contentHash: recomputed hash does not match the
   recorded hash` + `backfill may be tampered or edited by hand` reason for a

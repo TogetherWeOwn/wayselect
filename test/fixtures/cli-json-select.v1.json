@@ -1,5 +1,6 @@
 {
   "command": "select",
+  "schemaVersion": "v1",
   "dryRun": true,
   "dryRunLabel": "dry-run / synthetic estimate — no live model calls, credentials, or network use",
   "status": "selected",

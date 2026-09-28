@@ -15,6 +15,7 @@
       "additionalProperties": false,
       "required": [
         "command",
+        "schemaVersion",
         "dryRun",
         "dryRunLabel",
         "status",
@@ -31,6 +32,10 @@
         "command": {
           "description": "Which subcommand produced this output; the shape is otherwise identical.",
           "enum": ["select", "explain"]
+        },
+        "schemaVersion": {
+          "description": "Machine-schema version of this payload. Only v1 is emitted; consumers pin on this marker. A shape change bumps the version (docs/cli-json-contract.md), never silently.",
+          "const": "v1"
         },
         "dryRun": {
           "description": "Always true: the CLI is fixture-only, no live model calls.",
@@ -160,6 +165,7 @@
       "additionalProperties": false,
       "required": [
         "command",
+        "schemaVersion",
         "dryRun",
         "networkUsed",
         "source",
@@ -175,6 +181,10 @@
         "command": {
           "description": "Which subcommand produced this output; const-pinned so renames are declared.",
           "const": "catalog import"
+        },
+        "schemaVersion": {
+          "description": "Machine-schema version of this payload. Only v1 is emitted; consumers pin on this marker. A shape change bumps the version (docs/cli-json-contract.md), never silently.",
+          "const": "v1"
         },
         "dryRun": {
           "description": "Always true: catalog import is a dry-run adapter, never a configuration step.",

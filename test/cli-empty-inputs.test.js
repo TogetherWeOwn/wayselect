@@ -181,6 +181,8 @@ test("TOG-7290: empty catalog --json pins the zero-candidate shape and exits 3",
       JSON.stringify(
         {
           command: "select",
+          // TOG-8326: in-band machine-schema version marker (const: v1).
+          schemaVersion: "v1",
           dryRun: true,
           dryRunLabel:
             "dry-run / synthetic estimate — no live model calls, credentials, or network use",
@@ -299,6 +301,8 @@ test("TOG-7290: empty configuration --json pins every exclusion reason and exits
       JSON.stringify(
         {
           command: "select",
+          // TOG-8326: in-band machine-schema version marker (const: v1).
+          schemaVersion: "v1",
           dryRun: true,
           dryRunLabel:
             "dry-run / synthetic estimate — no live model calls, credentials, or network use",
