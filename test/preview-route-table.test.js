@@ -25,6 +25,26 @@ function readSpec() {
   return JSON.parse(readFileSync(SPEC_PATH, "utf8"));
 }
 
+// Normalize a server route regex literal to its OpenAPI path template:
+// strip the /.../ delimiters, ^...$ anchors and \/ escapes, drop the
+// trailing optional slash, and number each ([^/]+) segment so templates
+// compare independent of parameter names (/listings/{p1}/{p2} matches
+// /listings/{provider}/{model}).
+function regexToTemplate(literal, name) {
+  const lastSlash = literal.lastIndexOf("/");
+  let s = literal.slice(1, lastSlash);
+  s = s.replace(/^\^/, "").replace(/\$$/, "");
+  let n = 0;
+  s = s.replace(/\(\[\^\/\]\+\)/g, () => `{p${++n}}`);
+  s = s.replace(/\\\//g, "/");
+  s = s.replace(/\/\?$/, "");
+  ok(
+    !s.includes("(") && !s.includes("\\"),
+    `${name} has regex features the drift pin cannot normalize: ${literal}`,
+  );
+  return s;
+}
+
 describe("preview route table (TOG-6040)", () => {
   it("is valid JSON with the expected path inventory", () => {
     const spec = readSpec();
@@ -57,6 +77,77 @@ describe("preview route table (TOG-6040)", () => {
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     );
     strictEqual(spec.info.version, manifest.version);
+  });
+
+  it("tracks every route dispatch site in web/server.js (TOG-6061 drift pin)", () => {
+    // Mechanical drift pin: extract the route operands the handler dispatches
+    // on from web/server.js source and set-compare against the doc's paths.
+    // A new route (or a removed one) fails here naming the side that is
+    // stale — update BOTH server.js and docs/preview-server.openapi.json.
+    const source = readFileSync(new URL("../web/server.js", import.meta.url), "utf8");
+    // Exact-path dispatch: pathname === "/..." and === probePathname "..."
+    // operands (excludes the local /healthz/ comment-string mention via the
+    // closing-quote/paren anchor). Trailing-slash variants count once.
+    const exact = new Set();
+    for (const match of source.matchAll(
+      /(?:pathname|probePathname)\s*===\s*"(\/[^"]*)"[)]/g,
+    )) {
+      exact.add(match[1].replace(/\/$/, "") || "/");
+    }
+    // Regex dispatch: const NAME = /.../ literals actually matched/tested
+    // against a request pathname (named *_ROUTE plus any literal probed the
+    // same way; ignores unrelated literals like the PORT check).
+    const dispatched = new Set();
+    for (const match of source.matchAll(/(\w+)\.(match|test)\(\s*(\w+)\s*\)/g)) {
+      // pathname.match(NAME) vs NAME.test(pathname): the operand is the
+      // side that is NOT the pathname.
+      if (match[2] === "match" && /pathname/i.test(match[1])) {
+        dispatched.add(match[3]);
+      } else if (match[2] === "test" && /pathname/i.test(match[3])) {
+        dispatched.add(match[1]);
+      }
+    }
+    // The routeBucket helper mirrors dispatch for rate limiting; it must
+    // stay in lockstep (a route missing from its buckets gets a wrong
+    // bucket, not a crash, so nothing else would catch the drift).
+    const bucketed = new Set();
+    for (const match of source.matchAll(/(\w+)\.test\(pathname\)/g)) {
+      bucketed.add(match[1]);
+    }
+    for (const name of [...dispatched].sort()) {
+      ok(bucketed.has(name), `routeBucket must bucket ${name} (dispatch/bucket mismatch)`);
+    }
+    const regexes = {};
+    for (const match of source.matchAll(/const\s+(\w+)\s*=\s*(\/[^;]*?);/g)) {
+      if (dispatched.has(match[1])) {
+        regexes[match[1]] = match[2];
+      }
+    }
+    deepStrictEqual(
+      Object.keys(regexes).sort(),
+      [...dispatched].sort(),
+      "every dispatched regex has a const literal this pin can normalize",
+    );
+    const live = new Set(exact);
+    for (const [name, literal] of Object.entries(regexes)) {
+      live.add(regexToTemplate(literal, name));
+    }
+    // Doc paths normalized the same way: parameter names are irrelevant,
+    // trailing slashes count once.
+    const spec = readSpec();
+    const documented = new Set(
+      Object.keys(spec.paths).map((p) => {
+        let n = 0;
+        return p.replace(/\/$/, "").replace(/\{[^}]+\}/g, () => `{p${++n}}`);
+      }),
+    );
+    const missing = [...live].filter((r) => !documented.has(r));
+    const stale = [...documented].filter((r) => ![...live].some((l) => l === r));
+    ok(
+      missing.length === 0 && stale.length === 0,
+      `route table drift: missing from docs: [${missing.join(", ")}]; ` +
+        `stale in docs: [${stale.join(", ")}]. Update BOTH web/server.js and docs/preview-server.openapi.json.`,
+    );
   });
 
   it("represents every route shape defined in web/server.js", () => {
@@ -136,6 +227,8 @@ describe("preview route table (TOG-6040)", () => {
       "ListingNotFound",
       "PreviewDisabled",
       "PurchaseRefusal",
+      "IdempotencyKeyRejected",
+      "IdempotencyKeyReused",
       "RateLimited",
       "BodyError",
       "InvalidSubmission",

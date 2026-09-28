@@ -41,6 +41,13 @@ export const MAX_GATEWAY_MESSAGES = 32;
 export const MAX_GATEWAY_MESSAGE_CHARS = 16_000;
 export const MAX_GATEWAY_TOTAL_CHARS = 64_000;
 
+// TOG-6030 purchase idempotency-key cap: the optional client-generated
+// opaque token (UUID recommended) accepted by the purchase validator
+// (src/purchase.js) and the preview purchase route (`Idempotency-Key`
+// header in web/server.js). 256 chars mirrors the etag cap so keys ride
+// safely in a header value and in the future JSON body alike.
+export const MAX_IDEMPOTENCY_KEY_LENGTH = 256;
+
 export function isRouteId(value) {
   return typeof value === "string" && ROUTE_ID_PATTERN.test(value);
 }

@@ -361,3 +361,29 @@ test("wayselect-snapshot: identical input yields identical failure bytes", async
     "Error: refusing stale staging snapshot: age 2592000000ms exceeds limit 86400000ms\n",
   );
 });
+
+test("wayselect-snapshot: --help and -h print usage and exit 0 (TOG-7659)", async () => {
+  const expected =
+    "Usage: node bin/wayselect-snapshot [--catalog <path>] [--out <dir>]\n" +
+    "    [--previous <snapshot>] [--report <path>] [--now <ISO>]\n" +
+    "    [--max-catalog-age-hours <n>] [--fail-on-gaps]\n";
+  for (const flag of ["--help", "-h"]) {
+    const result = await runCli("bin/wayselect-snapshot", [flag]);
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout, expected);
+  }
+});
+
+test("wayselect-search-index-refresh: --help and -h print usage and exit 0 (TOG-7659)", async () => {
+  const expected =
+    "Usage: node bin/wayselect-search-index-refresh [--catalog <path>]\n" +
+    "    [--out <dir>] [--previous <index>] [--now <ISO>]\n" +
+    "    [--max-catalog-age-hours <n>] [--check]\n";
+  for (const flag of ["--help", "-h"]) {
+    const result = await runCli("bin/wayselect-search-index-refresh", [flag]);
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout, expected);
+  }
+});

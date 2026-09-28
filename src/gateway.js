@@ -47,6 +47,33 @@ import { FakeTransport } from "./transport.js";
 
 const VALID_ROLES = new Set(["system", "user", "assistant"]);
 
+// Top-level request keys this slice understands (§1.1). Every other key
+// fails closed with 400 `unknown_field` so client typos (e.g. `mesages`)
+// surface instead of passing silently — the same fail-closed boundary style
+// as `assertKnownKeys` in catalog.js / sellerSubmission.js. "penalties" in
+// the §1.1 note maps to the two real OpenAI penalty params below.
+const KNOWN_TOP_LEVEL_KEYS = new Set([
+  "model",
+  "messages",
+  "stream",
+  "n",
+  "logprobs",
+  "functions",
+  "tools",
+  "tool_choice",
+  "response_format",
+  "max_tokens",
+  "max_completion_tokens",
+  "temperature",
+  "top_p",
+  "stop",
+  "user",
+  "seed",
+  "frequency_penalty",
+  "presence_penalty",
+  "logit_bias",
+]);
+
 // Content-part types that carry non-text modalities. Any part of these types
 // is rejected with `unsupported_modality` (§1.6); text parts pass.
 const NON_TEXT_PART_TYPES = new Set(["image_url", "image", "input_audio"]);
@@ -204,6 +231,19 @@ export async function handleChatCompletionsRequest(input) {
       "invalid_request_error",
       "invalid_request",
       "Request body must be a JSON object.",
+    );
+  }
+
+  // ---- unknown top-level keys fail closed (R4-13): typos like `mesages`
+  // must surface, never pass silently. Runs before any field-specific
+  // validation so the reported key is always the unknown one.
+  const unknownKey = Object.keys(body).find((key) => !KNOWN_TOP_LEVEL_KEYS.has(key));
+  if (unknownKey !== undefined) {
+    return errorResponse(
+      400,
+      "invalid_request_error",
+      "unknown_field",
+      `Request contains unknown field: ${unknownKey}.`,
     );
   }
 
@@ -370,7 +410,8 @@ export async function handleChatCompletionsRequest(input) {
     }
     maxOutputTokens = tokenLimit;
   }
-  // temperature, top_p, stop, user, seed, penalties, logit_bias and other
+  // temperature, top_p, stop, user, seed, frequency_penalty,
+  // presence_penalty, logit_bias and the other KNOWN_TOP_LEVEL_KEYS
   // pass-through/ignored fields (§1.1) are accepted without validation.
 
   const requirements = {};

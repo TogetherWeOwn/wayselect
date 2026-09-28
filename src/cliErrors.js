@@ -45,6 +45,10 @@ export function invalidPruneMaxAgeDaysMessage() {
   return "--max-age-days must be a non-negative number";
 }
 
+export function invalidPruneDirMessage() {
+  return "--dir must not contain .. segments";
+}
+
 export function invalidPruneNowMessage() {
   return "--now must be a valid ISO timestamp";
 }

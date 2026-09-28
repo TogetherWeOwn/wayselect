@@ -84,6 +84,7 @@ node bin/wayselect select --operation chat --require toolUse \
 ```json
 {
   "command": "select",
+  "schemaVersion": "v1",
   "dryRun": true,
   "dryRunLabel": "dry-run / synthetic estimate — no live model calls, credentials, or network use",
   "status": "selected",
@@ -376,7 +377,7 @@ No --out path given; catalog document not written.
 ```
 
 `--json` emits the machine-readable summary instead (`command`,
-`networkUsed`, `source`, `snapshotTimestamp`, `snapshotHash`, `rawHash`,
+`schemaVersion`, `networkUsed`, `source`, `snapshotTimestamp`, `snapshotHash`, `rawHash`,
 `providerCount`, `entryCount`, `quarantined` with per-entry reasons,
 `outPath`). `--out <path>` writes the catalog document; without it nothing is
 written. Failures render as `<Name>: <message>` on stderr with exit code 1

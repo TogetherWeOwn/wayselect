@@ -85,6 +85,7 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 main:focus { outline: none; }
 a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
 @media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } }
+@media (forced-colors: active) { .badge { border: 1px solid CanvasText; } }
 @media (prefers-reduced-motion: reduce) { .skip-link { transition: none; } }
 </style>
 </head>

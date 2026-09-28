@@ -23,7 +23,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { validateCliJson } from "../src/validate-cli-json.js";
 import { evaluationNow } from "../support/helpers.js";
@@ -261,4 +263,116 @@ test("TOG-5734: validator rejects non-objects and mistyped scalars", async () =>
   const payload = JSON.parse(stdout);
   assert.equal(validateCliJson({ ...payload, dryRun: false }).ok, false);
   assert.equal(validateCliJson({ ...payload, command: "frobnicate" }).ok, false);
+});
+
+// Tests for TOG-7302: `catalog import --json` is pinned against the same
+// versioned schema (v1) via src/validate-cli-json.js. The union dispatches on
+// `command`, so the import shape validates through the shared validator with
+// no selection invariants applied. The fixture below is byte-deterministic
+// (fixed --source/--snapshot-timestamp, temp-dir input), so live output is
+// compared exactly — any machine-shape drift fails the contract.
+
+function importInput() {
+  return {
+    acme: {
+      id: "acme",
+      name: "Acme Synthetic",
+      models: {
+        "chat-one": {
+          id: "chat-one",
+          name: "Chat One",
+          attachment: false,
+          reasoning: false,
+          tool_call: true,
+          structured_output: true,
+          modalities: { input: ["text"], output: ["text"] },
+          cost: { input: 1, output: 2 },
+          limit: { context: 8000, output: 2000 },
+        },
+        mystery: {
+          id: "mystery",
+          name: "Mystery",
+          modalities: { input: ["text"], output: ["text"] },
+          frobnicate: true,
+        },
+      },
+    },
+  };
+}
+
+async function runImportJson() {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-import-contract-"));
+  try {
+    const inputPath = join(dir, "models-dev-sample.json");
+    await writeFile(inputPath, JSON.stringify(importInput()));
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      [
+        "bin/wayselect",
+        "catalog",
+        "import",
+        inputPath,
+        "--source",
+        "https://models.dev/api.json",
+        "--snapshot-timestamp",
+        "2026-09-24T10:00:00.000Z",
+        "--json",
+      ],
+      { cwd: repoRoot },
+    );
+    assert.equal(stderr, "");
+    return JSON.parse(stdout);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("TOG-7302: catalog import --json validates against the v1 schema", async () => {
+  const payload = await runImportJson();
+  assert.equal(payload.command, "catalog import");
+  assert.deepEqual(validateCliJson(payload), { ok: true });
+});
+
+test("TOG-7302: catalog import --json matches the checked-in snapshot", async () => {
+  const payload = await runImportJson();
+  const expected = await readSnapshot("cli-json-catalog-import");
+  assert.equal(
+    JSON.stringify(payload, null, 2),
+    expected.trimEnd(),
+    "catalog import --json drifted from test/fixtures/cli-json-catalog-import.v1.json — " +
+      "see docs/cli-json-contract.md for the bump procedure",
+  );
+});
+
+test("TOG-7302: checked-in import snapshot validates against the v1 schema", async () => {
+  const raw = await readSnapshot("cli-json-catalog-import");
+  assert.deepEqual(
+    validateCliJson(JSON.parse(raw)),
+    { ok: true },
+    "cli-json-catalog-import.v1.json must validate against schema/cli-json/v1.json",
+  );
+});
+
+test("TOG-7302: validator rejects import drift", async () => {
+  const payload = await runImportJson();
+  // Undeclared fields fail closed at both levels.
+  assert.match(
+    validateCliJson({ ...payload, modelVersion: "v2" }).error,
+    /additionalProperties|must NOT have additional/,
+  );
+  const tamperedNested = {
+    ...payload,
+    quarantined: [{ ...payload.quarantined[0], latencyMs: 12 }],
+  };
+  assert.match(
+    validateCliJson(tamperedNested).error,
+    /additionalProperties|must NOT have additional/,
+  );
+  // Removed fields and broken bounds/mistyped scalars fail.
+  const { rawHash: _dropped, ...withoutRawHash } = payload;
+  assert.equal(validateCliJson(withoutRawHash).ok, false);
+  assert.equal(validateCliJson({ ...payload, entryCount: 0 }).ok, false);
+  assert.equal(validateCliJson({ ...payload, providerCount: 0 }).ok, false);
+  assert.equal(validateCliJson({ ...payload, networkUsed: "no" }).ok, false);
+  assert.equal(validateCliJson({ ...payload, command: "select" }).ok, false);
 });

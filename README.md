@@ -114,6 +114,51 @@ node bin/wayselect select \
   --request fixtures/request.synthetic.json
 ```
 
+## Deploying the preview server (staging only)
+
+> **Runbook only — no production activation.** The image and deploy path
+> below are staging/preview-only. Production deploys stay reviewer-gated
+> and inactive (see `docs/deployment-runbook.md` §6).
+
+Build and run the preview-server image locally with Docker:
+
+```sh
+docker build -t wayselect:local .
+docker run --rm -p 3000:3000 \
+  -e WAYSELECT_PREVIEW=1 \
+  wayselect:local
+```
+
+Then verify with the repo's own health probe:
+
+```sh
+node bin/check-preview-health --base-url http://localhost:3000
+```
+
+Exit 0 = every check passed (skips allowed); exit 1 = failure; exit 2 =
+usage error. The probe asserts the listing index, one detail page, the
+unknown-listing 404, the purchase-stub 403 guard, and catalog-index
+freshness.
+
+Three facts that matter in this slice:
+
+- The server reads **three** variables only — `PORT` (default `3000`,
+  integer 1–65535), `HOST` (default `127.0.0.1`; the image sets
+  `0.0.0.0`), `WAYSELECT_PREVIEW` (truthy `1`/`true`/`yes`/`on`
+  enables the `/listings` routes). No secrets, no database URLs.
+- Merging to `main` deploys staging via a host-mediated trigger
+  (Coolify rebuilds from the host mirror; the CI job owns the Deployment
+  record, target gate, settle poll, and smoke — runbook §4) after `test` +
+  `ingestion-smoke` pass; production is operator-initiated only behind a
+  required-reviewer gate and stays gated until live activation is
+  approved.
+- Rollback is redeploying the previous immutable image tag, then
+  re-running the probe (the purchase-stub 403 guard must pass — it
+  proves the rolled-back build still cannot write).
+
+Full procedure (build pins, env contract, rollback steps, explicit
+non-goals): [deployment runbook](docs/deployment-runbook.md).
+
 ## Staging catalog snapshots and diffs
 
 Staging-only automation with no network access and no production writes.
@@ -347,6 +392,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
 - [models.dev freshness-probe offline contract](docs/models-dev-freshness-probe-offline-contract.md) — what `bin/check-models-dev-freshness` reads, never touches, and how to verify zero network use.
 - [Search-prompt eval seed-rerun contract](docs/search-prompt-eval-seed-rerun.md) — documented seed 5492, rerun steps, and expected determinism for the search-prompt regression eval.
+- [Deployment runbook](docs/deployment-runbook.md) — preview-server image build, staging/preview-only run, env contract, rollback; no production activation.
 - [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
 - [Nightly ingestion-smoke triage runbook](docs/ingestion-smoke-triage-runbook.md) — where the `17 6 * * *` cron surfaces, who triages, first 5 commands, bug-card vs re-run rule.
 - [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
@@ -362,6 +408,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Snapshot retention policy](docs/snapshot-retention.md) — keep-last-10 + 30-day prune rule and `bin/wayselect-snapshot-prune` usage.
 - [Web acceptance](docs/wayselect-web-acceptance.md) — listing-detail + search/filter web slices.
 - [Slow-network knob](docs/wayselect-slow-network-knob.md) — `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` operator contract (fragment only, never the shell).
+- [No-JS fallback](docs/wayselect-no-js-fallback.md) — what renders with JavaScript disabled on the listing-detail page (full `<noscript>` content, pinned offline).
 - [`WAYSELECT_*` env-var matrix](docs/wayselect-env-var-matrix.md) — `WAYSELECT_PREVIEW`, `WAYSELECT_TRUSTED_PROXY_IP`, `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS`, `WAYSELECT_ALLOW_NETWORK` defaults, scope, and who sets each.
 
 ## Contributing
@@ -375,3 +422,8 @@ merge): [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
 - Keep README claims accurate to merged behavior only — no compatibility, cost, or savings language.
 
 License: MIT — see [LICENSE](LICENSE).
+
+## Security
+
+Found a vulnerability? See [SECURITY.md](SECURITY.md) for how to report it
+privately, scope, and response SLA. There is no bug-bounty program.

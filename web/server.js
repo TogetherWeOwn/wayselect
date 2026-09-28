@@ -32,7 +32,15 @@
 //                                            JSON (TOG-6050))
 //   POST /listings/:provider/:model/purchase — stub CTA target: 404 for
 //                                            unknown listings, 403 for known
-//                                            listings (no backend writes)
+//                                            listings (no backend writes).
+//                                            Honors the optional
+//                                            `Idempotency-Key` header
+//                                            (TOG-6030): same key + same
+//                                            effect replays the stored
+//                                            refusal/echo without recording
+//                                            a second effect; same key +
+//                                            different effect is 422
+//                                            `idempotency_key_reused`
 //   POST /sellers/submissions                — seller intake (TOG-4969):
 //                                            validates the JSON body with
 //                                            validateSellerSubmission and
@@ -104,6 +112,8 @@ import {
 } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
 import { createDisputeStore, validateDisputeBody } from "./disputes.js";
+import { stableStringify } from "../src/canonical.js";
+import { MAX_IDEMPOTENCY_KEY_LENGTH } from "../src/index.js";
 import { readJsonBody } from "./jsonBody.js";
 import {
   confirmModel,
@@ -359,6 +369,16 @@ export function configureHttpTimeouts(server, overrides = {}) {
 // the map. One named constant so the value lives in a single place.
 export const SELLER_INTENT_TTL_MS = 15 * 60 * 1000;
 
+// Purchase idempotency-key header (TOG-6030, gap G2): the conventional
+// `Idempotency-Key` name (Stripe-style) so future clients and proxies pass
+// it through untouched.
+export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
+
+// Cap on recorded idempotency records per app instance (TOG-6030): bounds
+// the dedup map the same way the rate limiter bounds buckets — an unbounded
+// map is a slow memory leak under key rotation.
+export const MAX_IDEMPOTENCY_RECORDS = 1000;
+
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
   // Clock for intent expiry (TOG-6716): injectable via `options.now` so
@@ -381,6 +401,41 @@ export function createApp(env = process.env, options = {}) {
   // In-memory only — restart clears, ids restart at `dispute-1` per
   // listing. Filing never charges, refunds, or writes beyond this map.
   const disputes = createDisputeStore();
+  // Purchase idempotency records (TOG-6030): the preview stub records no
+  // durable effect, and the stub takes no body variance (POST purchase
+  // carries no payload — routing is path-only), so the "effect" is just
+  // the route the key was first seen on: idempotencyKey -> { routeId,
+  // fingerprint }. Same key + same route replays the stored refusal
+  // without a new record; same key + different route is 422
+  // `idempotency_key_reused` (the client must mint a fresh key for a
+  // different attempt). In-memory only — restart clears, no backend, no
+  // secrets, no PII at rest: only the route and a canonical fingerprint,
+  // never a raw body or key echo into logs. No TTL: records live for the
+  // process lifetime, bounded by the eviction cap below.
+  const purchaseIdempotency = new Map();
+  // Route fingerprint: the (routeId, idempotencyKey) pair the server
+  // derives itself — never client-supplied — canonicalized so equal
+  // pairs match and unequal pairs mismatch. Named for what it hashes
+  // (route + key, not a payload): a future backend with request bodies
+  // must hash the body too, never copy this as real dedup.
+  function purchaseRouteFingerprint(routeId, idempotencyKey) {
+    return stableStringify({ idempotencyKey, routeId });
+  }
+  // Records one idempotent effect, evicting the oldest entries past the cap
+  // so key rotation cannot grow the map without bound.
+  function recordIdempotentEffect(routeId, idempotencyKey) {
+    while (purchaseIdempotency.size >= MAX_IDEMPOTENCY_RECORDS) {
+      const oldest = purchaseIdempotency.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      purchaseIdempotency.delete(oldest.value);
+    }
+    purchaseIdempotency.set(idempotencyKey, {
+      routeId,
+      fingerprint: purchaseRouteFingerprint(routeId, idempotencyKey),
+    });
+  }
   // Reads the live intent for a route: null when never staged or expired.
   // Expired entries are deleted on read so a stale confirm never revives.
   function getLiveIntent(routeId) {
@@ -667,10 +722,70 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 404, { error: "listing_not_found" });
         return;
       }
+      // Stub CTA target: never writes, always refuses — with
+      // idempotency-key support (TOG-6030, gap G2). Ordering after the
+      // 404/405 gates: a replayed key on an unknown listing still 404s,
+      // and a wrong-method replay still 405s, so the key never masks a
+      // routing verdict. A blank key fails closed 400 (same vocab as
+      // the purchase validator: missing-field on `idempotencyKey`); an
+      // overlong key fails closed 400 (invalid-value); a reused key on
+      // a different route is 422 `idempotency_key_reused` (mint a fresh
+      // key for a different attempt). Same key + same route replays the
+      // stored refusal without recording a second effect. Without a key
+      // the stub refuses exactly as before (no echo field).
+      const rawKey = req.headers?.[IDEMPOTENCY_KEY_HEADER];
+      const idempotencyKey =
+        rawKey === undefined || rawKey === null ? null : String(rawKey);
+      if (idempotencyKey !== null && idempotencyKey.trim() === "") {
+        sendJson(res, 400, {
+          error: "invalid_idempotency_key",
+          code: "missing-field",
+          key: "idempotencyKey",
+          source: null,
+          message: "idempotencyKey must be a non-empty string",
+        });
+        return;
+      }
+      if (idempotencyKey !== null && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+        sendJson(res, 400, {
+          error: "invalid_idempotency_key",
+          code: "invalid-value",
+          key: "idempotencyKey",
+          source: null,
+          message: `idempotencyKey must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters`,
+        });
+        return;
+      }
+      const routeId = `${providerId}/${modelId}`;
+      if (idempotencyKey !== null) {
+        const fingerprint = purchaseRouteFingerprint(routeId, idempotencyKey);
+        const record = purchaseIdempotency.get(idempotencyKey);
+        if (record !== undefined) {
+          if (record.fingerprint !== fingerprint) {
+            sendJson(res, 422, {
+              error: "idempotency_key_reused",
+              key: "idempotencyKey",
+              message:
+                "Idempotency-Key was already used for a different purchase attempt. " +
+                "Mint a fresh key for a different attempt; retry the same attempt with the same key.",
+            });
+            return;
+          }
+          sendJson(res, 403, {
+            error: "preview_only",
+            message: "Purchases are disabled in preview. No backend writes.",
+            idempotencyKey,
+            replayed: true,
+          });
+          return;
+        }
+        recordIdempotentEffect(routeId, idempotencyKey);
+      }
       // Stub CTA target: never writes, always refuses.
       sendJson(res, 403, {
         error: "preview_only",
         message: "Purchases are disabled in preview. No backend writes.",
+        ...(idempotencyKey === null ? {} : { idempotencyKey }),
       });
       return;
     }
