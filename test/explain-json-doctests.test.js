@@ -34,8 +34,9 @@ const execFileAsync = promisify(execFile);
 const repoRoot = new URL("..", import.meta.url);
 // Docs scanned for runnable `explain --json` examples. docs/cli.md is the
 // canonical reference; the buyer-listing spec names the same machine fields
-// in prose (B3) and gains a runnable pin automatically if one is added.
-const DOC_PATHS = ["../docs/cli.md"];
+// in prose (B3) and is scanned too, so a runnable pin added there is picked
+// up automatically.
+const DOC_PATHS = ["../docs/cli.md", "../docs/wayselect-buyer-listing.md"];
 
 function normalizeVolatile(serialized) {
   return serialized
