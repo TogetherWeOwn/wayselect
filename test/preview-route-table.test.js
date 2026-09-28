@@ -101,7 +101,11 @@ describe("preview route table (TOG-6040)", () => {
   it("pins the /listings query vocabulary incl. sort (TOG-6362)", () => {
     const spec = readSpec();
     const params = spec.paths["/listings"].get.parameters;
-    const byName = Object.fromEntries(params.map((p) => [p.name, p]));
+    // Query params only: the Accept header entry (TOG-7661 negotiation) is
+    // not part of the filter vocabulary.
+    const byName = Object.fromEntries(
+      params.filter((p) => p.in === "query").map((p) => [p.name, p]),
+    );
     deepStrictEqual(
       Object.keys(byName).sort(),
       ["capability", "limit", "modality", "offset", "q", "sort"],
@@ -130,6 +134,7 @@ describe("preview route table (TOG-6040)", () => {
       "RateLimited",
       "BodyError",
       "InvalidSubmission",
+      "InvalidFilter",
       "NoPendingIntent",
     ];
     for (const name of errorSchemas) {
@@ -141,7 +146,7 @@ describe("preview route table (TOG-6040)", () => {
       );
     }
     // Success shapes stay id-free (error-only scope).
-    for (const name of ["HealthProbe", "DetailFragment", "ConfirmModel"]) {
+    for (const name of ["HealthProbe", "DetailFragment", "ConfirmModel", "IndexResult"]) {
       const schema = spec.components.schemas[name];
       ok(
         !(schema.required ?? []).includes("requestId"),

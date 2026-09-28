@@ -3,7 +3,7 @@
   "info": {
     "title": "Wayselect preview server",
     "version": "0.1.0",
-    "description": "Machine-readable route table for web/server.js (TOG-6040, gap G3 from TOG-6013). Fixture-only preview server: stub data, no backend writes, ever. Every response carries X-Content-Type-Options: nosniff and Referrer-Policy: no-referrer; HTML responses additionally carry X-Frame-Options: DENY plus a per-response nonce CSP. JSON error statuses (>= 400) carry Cache-Control: no-store and the triage envelope (see x-error-envelope): an x-request-id response header echoed as requestId in the body. Success JSON carries no id. Rate limiting (120 req/60s per IP+route bucket) applies to every route except GET /healthz and /favicon.ico, which answer before the limiter; over-limit answers are 429 { error: rate_limited, retryAfterSec, requestId } with a Retry-After header. Gated routes return 404 when WAYSELECT_PREVIEW is off (see each operation). Unknown paths fall through to the fallback contract (see x-fallback below): JSON { error: not_found, requestId } by default, HTML only for explicit browser navigation (Accept: text/html without application/json).",
+    "description": "Machine-readable route table for web/server.js (TOG-6040, gap G3 from TOG-6013). Fixture-only preview server: stub data, no backend writes, ever. Every response carries X-Content-Type-Options: nosniff and Referrer-Policy: no-referrer; HTML responses additionally carry X-Frame-Options: DENY plus a per-response nonce CSP. JSON error statuses (>= 400) carry Cache-Control: no-store and the triage envelope (see x-error-envelope): an x-request-id response header echoed as requestId in the body. Success JSON carries no id. Fixture-deterministic success JSON (GET /healthz, flag-on index JSON, detail fragment) is cacheable (TOG-6050): ETag + Cache-Control: public, max-age=60 with 304 on matching If-None-Match (see x-cacheable). Rate limiting (120 req/60s per IP+route bucket) applies to every route except GET /healthz and /favicon.ico, which answer before the limiter; over-limit answers are 429 { error: rate_limited, retryAfterSec, requestId } with a Retry-After header. Gated routes return 404 when WAYSELECT_PREVIEW is off (see each operation). Unknown paths fall through to the fallback contract (see x-fallback below): JSON { error: not_found, requestId } by default, HTML only for explicit browser navigation (Accept: text/html without application/json).",
     "x-generated-from": "web/server.js",
     "x-flag": "WAYSELECT_PREVIEW (truthy: 1/true/yes/on case-insensitive, whitespace-trimmed; absent or any other value means off)"
   },
@@ -16,8 +16,13 @@
         "summary": "Liveness probe; query strings are ignored, trailing slash (/healthz/) is NOT this route (falls to x-fallback 404)",
         "responses": {
           "200": {
-            "description": "Server is alive",
+            "description": "Server is alive. Cacheable (TOG-6050): ETag + Cache-Control: public, max-age=60",
+            "headers": { "ETag": { "$ref": "#/components/headers/CacheableEtag" }, "Cache-Control": { "$ref": "#/components/headers/CacheableCacheControl" } },
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthProbe" } } }
+          },
+          "304": {
+            "description": "Matching If-None-Match (TOG-6050): empty body, validators repeated",
+            "headers": { "ETag": { "$ref": "#/components/headers/CacheableEtag" }, "Cache-Control": { "$ref": "#/components/headers/CacheableCacheControl" } }
           },
           "405": {
             "description": "Any non-GET method on this path; Allow: GET (RFC 9110 15.5.6)",
@@ -43,22 +48,41 @@
       }
     },
     "/listings": {
-      "summary": "Stub listing index, flag-gated (trailing slash /listings/ is the same route; flag-on serves identical bodies with a slashless canonical link)",
+      "summary": "Stub listing index, flag-gated (trailing slash /listings/ is the same route; flag-on serves identical bodies with a slashless canonical link; flag-on honors Accept: application/json, flag-off stays HTML-only)",
       "get": {
         "operationId": "listListings",
-        "summary": "HTML index of stub listings with search/filter/sort/paging; GET only; HTML-only (no JSON negotiation)",
+        "summary": "HTML index of stub listings with search/filter/sort/paging by default; JSON paged result / invalid-filter error when Accept negotiates application/json (TOG-7661); Vary: Accept on every flag-on variant; GET only",
         "parameters": [
           { "name": "q", "in": "query", "required": false, "description": "Text query over name, route id and provider name; at most 200 chars, over-long fails closed 400", "schema": { "type": "string", "maxLength": 200 } },
           { "name": "capability", "in": "query", "required": false, "description": "Repeatable; unknown values fail closed 400", "schema": { "type": "array", "items": { "type": "string", "enum": ["attachment", "reasoning", "tool_call", "structured_output"] } }, "style": "form", "explode": true },
           { "name": "modality", "in": "query", "required": false, "description": "Repeatable; unknown values fail closed 400", "schema": { "type": "array", "items": { "type": "string", "enum": ["audio", "image", "pdf", "text", "video"] } }, "style": "form", "explode": true },
           { "name": "limit", "in": "query", "required": false, "description": "Page size 1-100, default 20; malformed or out-of-range fails closed 400", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
           { "name": "offset", "in": "query", "required": false, "description": "Page offset >= 0, default 0; malformed fails closed 400 (offset past the end is an empty 200 page, never 400)", "schema": { "type": "integer", "minimum": 0, "default": 0 } },
-          { "name": "sort", "in": "query", "required": false, "description": "Explicit result ordering (TOG-6362, gap G1); default keeps the historical stub order; unknown values fail closed 400 like every other filter", "schema": { "type": "string", "enum": ["default", "price-asc", "price-desc", "name-asc", "route-asc"], "default": "default" } }
+          { "name": "sort", "in": "query", "required": false, "description": "Explicit result ordering (TOG-6362, gap G1); default keeps the historical stub order; unknown values fail closed 400 like every other filter", "schema": { "type": "string", "enum": ["default", "price-asc", "price-desc", "name-asc", "route-asc"], "default": "default" } },
+          { "name": "Accept", "in": "header", "required": false, "description": "application/json selects the JSON result / error shapes (flag-on only); otherwise HTML", "schema": { "type": "string" } }
         ],
         "responses": {
-          "200": { "description": "HTML listing index (paginated window with full match count)", "content": { "text/html": { "schema": { "type": "string" } } } },
-          "400": { "description": "Invalid filter query (unknown key, bad capability/modality/sort, over-long q, bad limit/offset): HTML invalid-filter page naming every problem", "content": { "text/html": { "schema": { "type": "string" } } } },
-          "404": { "description": "WAYSELECT_PREVIEW off: HTML preview-disabled page (flag-off index stays HTML-only — no fragment shape)", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "200": {
+            "description": "HTML listing index (paginated window with full match count), or the JSON paged result {listings, total, limit, offset} when Accept: application/json — including the empty state and offset-past-end (empty page, intact total). The documented ETag/Cache-Control headers ride the JSON variant only (TOG-6050: ETag + public, max-age=60); HTML carries no validators",
+            "headers": { "ETag": { "$ref": "#/components/headers/CacheableEtag" }, "Cache-Control": { "$ref": "#/components/headers/CacheableCacheControl" } },
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "$ref": "#/components/schemas/IndexResult" } }
+            }
+          },
+          "304": {
+            "description": "Matching If-None-Match on the JSON variant (TOG-6050): empty body, validators repeated",
+            "headers": { "ETag": { "$ref": "#/components/headers/CacheableEtag" }, "Cache-Control": { "$ref": "#/components/headers/CacheableCacheControl" } }
+          },
+          "400": {
+            "description": "Invalid filter query (unknown key, bad capability/modality/sort, over-long q, bad limit/offset): HTML invalid-filter page naming every problem, or JSON {error: invalid_filter, kind, value, valid, errors} plus the triage requestId when Accept: application/json",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "$ref": "#/components/schemas/InvalidFilter" } }
+            }
+          },
+          "404": { "description": "WAYSELECT_PREVIEW off: HTML preview-disabled page (the flag-off index stays HTML-only even under JSON negotiation — it has no fragment shape)", "content": { "text/html": { "schema": { "type": "string" } } } },
           "405": {
             "description": "Any non-GET method (method gate precedes the flag gate, so flag-off still 405s); Allow: GET",
             "headers": { "Allow": { "schema": { "type": "string", "example": "GET" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
@@ -86,11 +110,16 @@
         ],
         "responses": {
           "200": {
-            "description": "HTML detail shell, or the JSON content fragment when Accept: application/json (dev slow-network knob WAYSELECT_DETAIL_FRAGMENT_DELAY_MS delays the fragment only, never first paint)",
+            "description": "HTML detail shell, or the JSON content fragment when Accept: application/json (dev slow-network knob WAYSELECT_DETAIL_FRAGMENT_DELAY_MS delays the fragment only, never first paint). The documented ETag/Cache-Control headers ride the JSON fragment only (TOG-6050: ETag + public, max-age=60); HTML carries no validators",
+            "headers": { "ETag": { "$ref": "#/components/headers/CacheableEtag" }, "Cache-Control": { "$ref": "#/components/headers/CacheableCacheControl" } },
             "content": {
               "text/html": { "schema": { "type": "string" } },
               "application/json": { "schema": { "$ref": "#/components/schemas/DetailFragment" } }
             }
+          },
+          "304": {
+            "description": "Matching If-None-Match on the JSON fragment (TOG-6050): empty body, validators repeated",
+            "headers": { "ETag": { "$ref": "#/components/headers/CacheableEtag" }, "Cache-Control": { "$ref": "#/components/headers/CacheableCacheControl" } }
           },
           "404": {
             "description": "Flag off (HTML preview-disabled, or JSON { error: preview_disabled, requestId } for fragment fetches); undecodable segments (HTML not-found); unknown listing incl. uppercase variants and case mismatches (HTML not-found, or JSON { error: listing_not_found, requestId } for fragment fetches)",
@@ -289,13 +318,22 @@
     "methodNotAllowed": "Known route shapes answer 405 { error: method_not_allowed, requestId } with an Allow header naming the supported methods (seller-confirm POST path excepted: no Allow header, pinned). Unknown paths stay 404 with no Allow.",
     "flagGating": "GET /healthz, /favicon.ico and POST /listings/:provider/:model/purchase are ungated. GET /listings, GET /listings/:provider/:model, POST /sellers/submissions and both seller-confirm methods 404 when WAYSELECT_PREVIEW is off (HTML page or JSON preview_disabled depending on Accept; see each operation).",
     "intentTtl": "Staged seller intents expire 15 minutes after intake (SELLER_INTENT_TTL_MS); expired intents 404 as no_pending_intent and are dropped on read.",
-    "caseSensitivity": "Stub listing lookup is an exact case-sensitive match (TOG-6711): uppercase provider/model segments 404 as misses (HTML miss page by default, JSON listing_not_found on fragment negotiation) instead of remapping to the lowercase listing."
+    "caseSensitivity": "Stub listing lookup is an exact case-sensitive match (TOG-6711): uppercase provider/model segments 404 as misses (HTML miss page by default, JSON listing_not_found on fragment negotiation) instead of remapping to the lowercase listing.",
+    "x-cacheable": "Cacheable success JSON (TOG-6050): GET /healthz, the flag-on index 200 JSON, and the detail 200 JSON fragment carry ETag (strong sha256 content hash of the exact response bytes) + Cache-Control: public, max-age=60. A matching If-None-Match (exact tag, *, or comma-list member; W/-prefixed weak tags compare by opaque value) answers 304 with an empty body and the validators repeated. HTML pages (per-response nonce CSP), error JSON (no-store), and seller-transactional JSON carry no validators."
   },
   "components": {
     "headers": {
       "RequestId": {
         "description": "Per-error triage id (TOG-6717): 32 lowercase hex chars, crypto-random per response, echoed as requestId in the JSON error body",
         "schema": { "type": "string", "pattern": "^[0-9a-f]{32}$", "example": "9f2c4a1b7d3e4f08a6b5c2d1e9f0a3b4" }
+      },
+      "CacheableEtag": {
+        "description": "Strong content-hash validator (TOG-6050): sha256 of the exact JSON response bytes, base64url-encoded. Present on 200 and 304 alike; a matching If-None-Match (exact, *-wildcard, or comma-list member) earns a 304 with an empty body",
+        "schema": { "type": "string", "pattern": "^\"sha256-[A-Za-z0-9_-]{43}\"$", "example": "\"sha256-bjRHNz4JTcZJ05pgogw4Y-2PNSs48Jb6mkMxFJHB23A\"" }
+      },
+      "CacheableCacheControl": {
+        "description": "Shared-cache window for fixture-deterministic JSON (TOG-6050): revalidate after 60s against the ETag. Error JSON instead carries no-store (TOG-6367)",
+        "schema": { "type": "string", "example": "public, max-age=60" }
       }
     },
     "schemas": {
@@ -326,6 +364,42 @@
         "required": ["error", "requestId"],
         "properties": {
           "error": { "type": "string", "example": "listing_not_found" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "IndexResult": {
+        "type": "object",
+        "required": ["listings", "total", "limit", "offset"],
+        "description": "Flag-on index JSON result (TOG-7661): the paginated window with the full match count; empty states return listings: [] (offset-past-end keeps the intact total). Success JSON carries no triage id.",
+        "properties": {
+          "listings": { "type": "array", "description": "Paginated stub-listing window in sort order", "items": { "type": "object" } },
+          "total": { "type": "integer", "minimum": 0, "description": "Full match count across all pages" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "offset": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "InvalidFilter": {
+        "type": "object",
+        "required": ["error", "kind", "value", "valid", "errors", "requestId"],
+        "description": "Flag-on index JSON invalid-filter error (TOG-7661): kind/value/valid mirror the first problem; errors lists every problem; requestId is the TOG-6717 triage id echoed from the x-request-id header",
+        "properties": {
+          "error": { "type": "string", "example": "invalid_filter" },
+          "kind": { "type": "string", "description": "First problem kind: capability, modality, sort, limit, offset, q, or query", "example": "capability" },
+          "value": { "type": "string", "description": "Offending value (q and sort are truncated to 64 chars so the error stays bounded)", "example": "__bogus__" },
+          "valid": { "type": "array", "items": { "type": "string" }, "description": "Accepted values / bound for the first problem" },
+          "errors": {
+            "type": "array",
+            "description": "Every problem (same {kind, value, valid} shape)",
+            "items": {
+              "type": "object",
+              "required": ["kind", "value", "valid"],
+              "properties": {
+                "kind": { "type": "string" },
+                "value": { "type": "string" },
+                "valid": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
           "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
         }
       },

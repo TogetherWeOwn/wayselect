@@ -2,6 +2,7 @@
   "name": "wayselect",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Explainable model selection with models.dev catalog discovery and explicit capability checks.",
   "type": "module",
   "engines": {

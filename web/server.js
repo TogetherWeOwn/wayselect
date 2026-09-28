@@ -5,16 +5,31 @@
 //   GET /healthz                            — liveness probe (TOG-5726):
 //                                            `{status:"ok",version}` JSON,
 //                                            ungated by WAYSELECT_PREVIEW
-//                                            and exempt from rate limiting
+//                                            and exempt from rate limiting;
+//                                            cacheable (TOG-6050): ETag +
+//                                            `Cache-Control: public,
+//                                            max-age=60` with 304 on
+//                                            matching `If-None-Match`
 //   GET /favicon.ico                         — 204 No Content (TOG-6369):
 //                                            ungated by WAYSELECT_PREVIEW;
 //                                            pins the browser-requested icon
 //                                            path so page loads stop emitting
 //                                            404 log noise
-//   GET /listings                          — stub listing index (flag-gated)
+//   GET /listings                          — stub listing index (flag-gated;
+//                                            flag-on honors `Accept:
+//                                            application/json` with the paged
+//                                            result / invalid-filter error;
+//                                            flag-off stays HTML-only; the
+//                                            flag-on 200 JSON result is
+//                                            cacheable (TOG-6050): ETag +
+//                                            `Cache-Control: public,
+//                                            max-age=60` with 304 on
+//                                            matching `If-None-Match`)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
-//                                            the `{ html }` content fragment)
+//                                            the `{ html }` content fragment,
+//                                            cacheable like the index 200
+//                                            JSON (TOG-6050))
 //   POST /listings/:provider/:model/purchase — stub CTA target: 404 for
 //                                            unknown listings, 403 for known
 //                                            listings (no backend writes)
@@ -47,12 +62,17 @@
 //     Effort was trivial: one `randomBytes` nonce per HTML response,
 //     stamped on the inline tags and allowlisted in the header.
 //
-// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375):
+// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375, index JSON TOG-7661):
 //   - Browser routes (index, detail incl. listing misses, flag-off pages):
 //     HTML by default; JSON only when the client explicitly negotiates
-//     `Accept: application/json` (the shell's fragment fetch). Flag-off
-//     JSON is `{error: "preview_disabled"}` so the shell renders its
-//     alert panel instead of choking on an HTML page.
+//     `Accept: application/json` (the shell's fragment fetch; index JSON
+//     callers likewise). Flag-off JSON is `{error: "preview_disabled"}`
+//     so the shell renders its alert panel instead of choking on an HTML
+//     page. Flag-on index JSON is the paged result
+//     `{listings, total, limit, offset}` (200, incl. empty states) or
+//     `{error: "invalid_filter", kind, value, valid, errors}` (400, plus the
+//     TOG-6717 request id like every JSON error).
+//     The flag-off index stays HTML-only — it has no fragment shape.
 //   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
 //     always JSON.
 //   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
@@ -60,7 +80,7 @@
 //     `Accept: text/html` without `application/json` (a browser address-bar
 //     navigation). `*/*` (fetch/curl defaults) gets JSON.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { isPreviewEnabled } from "./preview.js";
@@ -183,10 +203,54 @@ function sendJson(res, status, payload) {
     sendJsonError(res, status, payload);
     return;
   }
-  // Success JSON keeps default cache semantics: cacheable GETs (ETag,
-  // validators, 304) belong to TOG-6050, which decides per route there.
+  // Success JSON keeps default cache semantics unless the route opts into
+  // the TOG-6050 cacheable contract below (sendCacheableJson).
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
   res.end(JSON.stringify(payload));
+}
+
+// Cacheable success-JSON contract (TOG-6050): fixture-deterministic GET
+// bodies get a strong content-hash ETag plus a short shared-cache window,
+// with `If-None-Match` revalidation answering 304. Only routes whose 200
+// body is a pure function of fixture data + request target may use this —
+// HTML pages (per-response nonce CSP), error JSON (no-store, TOG-6367),
+// and transactional bodies (seller intents, recordedAt timestamps) stay out.
+// `Vary` is the caller's job (routes that negotiate on Accept already set
+// `Vary: Accept` before calling); this helper only adds the validators.
+export const CACHEABLE_JSON_CACHE_CONTROL = "public, max-age=60";
+
+export function etagForJsonBody(body) {
+  return `"sha256-${createHash("sha256").update(body, "utf8").digest("base64url")}"`;
+}
+
+// Weak comparison per RFC 9110 §13.1.2 (If-None-Match): `*` matches, and a
+// `W/`-prefixed tag matches its strong counterpart by opaque value.
+export function etagMatches(ifNoneMatch, etag) {
+  if (typeof ifNoneMatch !== "string") {
+    return false;
+  }
+  return ifNoneMatch.split(",").some((candidate) => {
+    const tag = candidate.trim().replace(/^W\//, "");
+    return tag === "*" || tag === etag;
+  });
+}
+
+function sendCacheableJson(req, res, status, payload) {
+  const body = JSON.stringify(payload);
+  const etag = etagForJsonBody(body);
+  const headers = {
+    "content-type": "application/json; charset=utf-8",
+    ...SECURITY_HEADERS,
+    "cache-control": CACHEABLE_JSON_CACHE_CONTROL,
+    etag,
+  };
+  if (etagMatches(req.headers?.["if-none-match"], etag)) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(status, headers);
+  res.end(body);
 }
 
 // Wrong-method refusal (TOG-6364): RFC 9110 §15.5.6 requires a 405 response
@@ -295,6 +359,13 @@ export function createApp(env = process.env, options = {}) {
   // Clock for intent expiry (TOG-6716): injectable via `options.now` so
   // tests can pin the expiry boundary; production uses wall-clock time.
   const now = options.now ?? Date.now;
+  // Structured request logging (TOG-5739): one JSON line per request —
+  // `{method, path, status, latencyMs}` — emitted on `res` finish so delayed
+  // paths (the detail-fragment `setTimeout`) report honest end-to-end
+  // latency. Injectable sink for tests (default console.log); unparseable
+  // targets log the raw target verbatim.
+  // eslint-disable-next-line no-console
+  const logger = options.logger ?? ((line) => console.log(line));
   // Pending seller intents (TOG-4969) with expiry (TOG-6716):
   // routeId -> { model, storedAt }. In-memory only — restart clears.
   // Confirm records intent; nothing here publishes, charges, or persists.
@@ -336,6 +407,26 @@ export function createApp(env = process.env, options = {}) {
   // `httpTimeouts: { headersTimeout, requestTimeout }` (see
   // configureHttpTimeouts for the bounds).
   const server = createServer(async (req, res) => {
+    // Structured logging preamble (TOG-5739): capture start + path now, emit
+    // one JSON line on `res` finish so delayed paths report honest latency.
+    // Async handler: the seller intake route awaits the strict JSON body gate.
+    const startMs = Date.now();
+    let logPath;
+    try {
+      logPath = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      logPath = req.url ?? "/";
+    }
+    res.on("finish", () => {
+      logger(
+        JSON.stringify({
+          method: req.method,
+          path: logPath,
+          status: res.statusCode,
+          latencyMs: Date.now() - startMs,
+        }),
+      );
+    });
     // TOG-5726: /healthz is the orchestrator liveness probe. It answers
     // before rate limiting (a saturated limiter must not look like a dead
     // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
@@ -349,7 +440,9 @@ export function createApp(env = process.env, options = {}) {
       probePathname = null;
     }
     if (req.method === "GET" && probePathname === "/healthz") {
-      sendJson(res, 200, { status: "ok", version: SERVER_VERSION });
+      // TOG-6050: the probe body is constant per process (version read once
+      // at module load), so it carries the cacheable contract with ETag/304.
+      sendCacheableJson(req, res, 200, { status: "ok", version: SERVER_VERSION });
       return;
     }
     if (probePathname === "/healthz") {
@@ -424,9 +517,20 @@ export function createApp(env = process.env, options = {}) {
       const sendPage = (status, html) => sendHtml(res, status, html, nonce);
       const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
+        // TOG-6375: the flag-off index stays HTML-only even under JSON
+        // negotiation — it has no fragment shape, flag-on or flag-off.
         sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
+      // TOG-7661: the flag-on index negotiates like the detail route —
+      // `Accept: application/json` gets the machine-readable result/error
+      // payload instead of the HTML page, so `fetch(...).json()` never
+      // parses HTML (the TOG-5499 failure mode on the detail side).
+      // `Vary: Accept` on every variant so a shared cache keys on it. The
+      // 400 error JSON carries the TOG-6717 request id via sendJson's error
+      // branch like every other JSON error.
+      res.setHeader("vary", "Accept");
+      const wantsIndexJson = String(req.headers?.accept ?? "").includes("application/json");
       let params;
       try {
         params = new URL(req.url ?? "/", "http://localhost").searchParams;
@@ -436,6 +540,16 @@ export function createApp(env = process.env, options = {}) {
       }
       const parsed = parseListingsQuery(params);
       if (!parsed.ok) {
+        if (wantsIndexJson) {
+          sendJson(res, 400, {
+            error: "invalid_filter",
+            kind: parsed.kind,
+            value: parsed.value,
+            valid: parsed.valid,
+            errors: parsed.errors,
+          });
+          return;
+        }
         sendPage(400, renderInvalidFilter(parsed, pageOpts));
         return;
       }
@@ -446,6 +560,13 @@ export function createApp(env = process.env, options = {}) {
       const ordered = sortListings(filtered, parsed.filters.sort);
       // TOG-6028: bound the HTML render with limit/offset (fail-closed above).
       const { page, total, limit, offset } = paginateListings(ordered, parsed.paging);
+      if (wantsIndexJson) {
+        // TOG-6050: the 200 result is a pure function of fixture data +
+        // query, so it carries the cacheable contract with ETag/304. The
+        // 400 invalid_filter error stays on plain sendJson (no-store).
+        sendCacheableJson(req, res, 200, { listings: page, total, limit, offset });
+        return;
+      }
       sendPage(
         200,
         renderListingIndex(page, undefined, parsed.filters, { total, limit, offset }, pageOpts),
@@ -624,7 +745,10 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 200, receipt);
         return;
       }
-      sendJson(res, 405, { error: "method_not_allowed" });
+      // TOG-5739: wrong-method refusals funnel through the shared 405
+      // helper so every known route carries `Allow` (RFC 9110). The confirm
+      // route supports GET (restate) and POST (record).
+      sendMethodNotAllowed(res, "GET, POST");
       return;
     }
 
@@ -648,8 +772,9 @@ export function createApp(env = process.env, options = {}) {
         // flag-off fragment request degrades to a JSON error the shell
         // renders as its alert panel — never an HTML page that breaks
         // `res.json()`. Flag check precedes listing lookup, so unknown
-        // listings gate identically. Index stays HTML-only: it has no
-        // fragment shape, flag-on or flag-off.
+        // listings gate identically. The flag-off index stays HTML-only
+        // (TOG-6375): it has no fragment shape — only the flag-on index
+        // negotiates JSON (TOG-7661).
         if (String(req.headers?.accept ?? "").includes("application/json")) {
           sendJson(res, 404, { error: "preview_disabled" });
           return;
@@ -694,7 +819,9 @@ export function createApp(env = process.env, options = {}) {
       if (String(req.headers?.accept ?? "").includes("application/json")) {
         const sendFragment = () => {
           try {
-            sendJson(res, 200, listingDetailFragment(listing));
+            // TOG-6050: the fragment is a pure function of the stub fixture,
+            // so it carries the cacheable contract with ETag/304.
+            sendCacheableJson(req, res, 200, listingDetailFragment(listing));
           } catch {
             const errNonce = newCspNonce();
             sendHtml(
@@ -714,9 +841,10 @@ export function createApp(env = process.env, options = {}) {
           const fragmentTimer = setTimeout(() => {
             req.removeListener("close", onFragmentAbort);
             // The abort may win the race after the delay elapses: writing
-            // to a destroyed socket throws, and the throw inside sendJson
-            // would escape through the timer (the inner catch's sendHtml
-            // throws again). A dropped fragment sends nothing — skip it.
+            // to a destroyed socket throws, and the throw inside
+            // sendCacheableJson would escape through the timer (the inner
+            // catch's sendHtml throws again). A dropped fragment sends
+            // nothing — skip it.
             if (!res.destroyed && !res.writableEnded) {
               sendFragment();
             }
