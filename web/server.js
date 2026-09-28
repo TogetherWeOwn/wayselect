@@ -11,7 +11,11 @@
 //                                            pins the browser-requested icon
 //                                            path so page loads stop emitting
 //                                            404 log noise
-//   GET /listings                          — stub listing index (flag-gated)
+//   GET /listings                          — stub listing index (flag-gated;
+//                                            flag-on honors `Accept:
+//                                            application/json` with the paged
+//                                            result / invalid-filter error;
+//                                            flag-off stays HTML-only)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
 //                                            the `{ html }` content fragment)
@@ -47,12 +51,17 @@
 //     Effort was trivial: one `randomBytes` nonce per HTML response,
 //     stamped on the inline tags and allowlisted in the header.
 //
-// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375):
+// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375, index JSON TOG-7661):
 //   - Browser routes (index, detail incl. listing misses, flag-off pages):
 //     HTML by default; JSON only when the client explicitly negotiates
-//     `Accept: application/json` (the shell's fragment fetch). Flag-off
-//     JSON is `{error: "preview_disabled"}` so the shell renders its
-//     alert panel instead of choking on an HTML page.
+//     `Accept: application/json` (the shell's fragment fetch; index JSON
+//     callers likewise). Flag-off JSON is `{error: "preview_disabled"}`
+//     so the shell renders its alert panel instead of choking on an HTML
+//     page. Flag-on index JSON is the paged result
+//     `{listings, total, limit, offset}` (200, incl. empty states) or
+//     `{error: "invalid_filter", kind, value, valid, errors}` (400, plus the
+//     TOG-6717 request id like every JSON error).
+//     The flag-off index stays HTML-only — it has no fragment shape.
 //   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
 //     always JSON.
 //   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
@@ -112,9 +121,13 @@ const SECURITY_HEADERS = {
 // carry the request nonce (`newCspNonce`), so `style-src`/`script-src`
 // allowlist exactly that nonce and there is no `'unsafe-inline'` anywhere.
 // `form-action 'self'` covers the filter GET form and the purchase POST
-// form.
+// form. TOG-6368: `X-Robots-Tag: noindex, nofollow` keeps stub preview
+// pages out of search indexes — defense in depth alongside the
+// `<meta name="robots">` tag in both HTML layouts (web/listing-detail.js,
+// web/seller.js), covering crawlers that ignore the meta tag.
 const HTML_SECURITY_HEADERS = {
   "x-frame-options": "DENY",
+  "x-robots-tag": "noindex, nofollow",
 };
 
 // TOG-6049: 128-bit nonce per HTML response (base64, CSP grammar-safe).
@@ -291,6 +304,13 @@ export function createApp(env = process.env, options = {}) {
   // Clock for intent expiry (TOG-6716): injectable via `options.now` so
   // tests can pin the expiry boundary; production uses wall-clock time.
   const now = options.now ?? Date.now;
+  // Structured request logging (TOG-5739): one JSON line per request —
+  // `{method, path, status, latencyMs}` — emitted on `res` finish so delayed
+  // paths (the detail-fragment `setTimeout`) report honest end-to-end
+  // latency. Injectable sink for tests (default console.log); unparseable
+  // targets log the raw target verbatim.
+  // eslint-disable-next-line no-console
+  const logger = options.logger ?? ((line) => console.log(line));
   // Pending seller intents (TOG-4969) with expiry (TOG-6716):
   // routeId -> { model, storedAt }. In-memory only — restart clears.
   // Confirm records intent; nothing here publishes, charges, or persists.
@@ -332,6 +352,26 @@ export function createApp(env = process.env, options = {}) {
   // `httpTimeouts: { headersTimeout, requestTimeout }` (see
   // configureHttpTimeouts for the bounds).
   const server = createServer(async (req, res) => {
+    // Structured logging preamble (TOG-5739): capture start + path now, emit
+    // one JSON line on `res` finish so delayed paths report honest latency.
+    // Async handler: the seller intake route awaits the strict JSON body gate.
+    const startMs = Date.now();
+    let logPath;
+    try {
+      logPath = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      logPath = req.url ?? "/";
+    }
+    res.on("finish", () => {
+      logger(
+        JSON.stringify({
+          method: req.method,
+          path: logPath,
+          status: res.statusCode,
+          latencyMs: Date.now() - startMs,
+        }),
+      );
+    });
     // TOG-5726: /healthz is the orchestrator liveness probe. It answers
     // before rate limiting (a saturated limiter must not look like a dead
     // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
@@ -420,9 +460,20 @@ export function createApp(env = process.env, options = {}) {
       const sendPage = (status, html) => sendHtml(res, status, html, nonce);
       const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
+        // TOG-6375: the flag-off index stays HTML-only even under JSON
+        // negotiation — it has no fragment shape, flag-on or flag-off.
         sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
+      // TOG-7661: the flag-on index negotiates like the detail route —
+      // `Accept: application/json` gets the machine-readable result/error
+      // payload instead of the HTML page, so `fetch(...).json()` never
+      // parses HTML (the TOG-5499 failure mode on the detail side).
+      // `Vary: Accept` on every variant so a shared cache keys on it. The
+      // 400 error JSON carries the TOG-6717 request id via sendJson's error
+      // branch like every other JSON error.
+      res.setHeader("vary", "Accept");
+      const wantsIndexJson = String(req.headers?.accept ?? "").includes("application/json");
       let params;
       try {
         params = new URL(req.url ?? "/", "http://localhost").searchParams;
@@ -432,6 +483,16 @@ export function createApp(env = process.env, options = {}) {
       }
       const parsed = parseListingsQuery(params);
       if (!parsed.ok) {
+        if (wantsIndexJson) {
+          sendJson(res, 400, {
+            error: "invalid_filter",
+            kind: parsed.kind,
+            value: parsed.value,
+            valid: parsed.valid,
+            errors: parsed.errors,
+          });
+          return;
+        }
         sendPage(400, renderInvalidFilter(parsed, pageOpts));
         return;
       }
@@ -442,6 +503,10 @@ export function createApp(env = process.env, options = {}) {
       const ordered = sortListings(filtered, parsed.filters.sort);
       // TOG-6028: bound the HTML render with limit/offset (fail-closed above).
       const { page, total, limit, offset } = paginateListings(ordered, parsed.paging);
+      if (wantsIndexJson) {
+        sendJson(res, 200, { listings: page, total, limit, offset });
+        return;
+      }
       sendPage(
         200,
         renderListingIndex(page, undefined, parsed.filters, { total, limit, offset }, pageOpts),
@@ -620,7 +685,10 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 200, receipt);
         return;
       }
-      sendJson(res, 405, { error: "method_not_allowed" });
+      // TOG-5739: wrong-method refusals funnel through the shared 405
+      // helper so every known route carries `Allow` (RFC 9110). The confirm
+      // route supports GET (restate) and POST (record).
+      sendMethodNotAllowed(res, "GET, POST");
       return;
     }
 
@@ -644,8 +712,9 @@ export function createApp(env = process.env, options = {}) {
         // flag-off fragment request degrades to a JSON error the shell
         // renders as its alert panel — never an HTML page that breaks
         // `res.json()`. Flag check precedes listing lookup, so unknown
-        // listings gate identically. Index stays HTML-only: it has no
-        // fragment shape, flag-on or flag-off.
+        // listings gate identically. The flag-off index stays HTML-only
+        // (TOG-6375): it has no fragment shape — only the flag-on index
+        // negotiates JSON (TOG-7661).
         if (String(req.headers?.accept ?? "").includes("application/json")) {
           sendJson(res, 404, { error: "preview_disabled" });
           return;
