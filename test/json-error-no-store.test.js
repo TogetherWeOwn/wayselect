@@ -5,10 +5,9 @@
 //   - Every JSON error (4xx/5xx via `sendJson`, the `sendMethodNotAllowed`
 //     405 helper, and the inline 429 refusal) carries
 //     `Cache-Control: no-store`.
-//   - Success JSON keeps default cache semantics (no `Cache-Control` from
-//     the server): cacheable GETs with ETag/validators/304 belong to
-//     TOG-6050, which decides per route there — this card must not
-//     pre-empt it.
+//   - Fixture-deterministic success JSON (TOG-6050) carries the cacheable
+//     contract (`public, max-age=60` + ETag + 304), pinned in
+//     cacheable-get-etag.test.js — asserted there, not here.
 //   - HTML pages are out of scope: no `Cache-Control` either way.
 //
 // node:test, zero dependencies.
@@ -166,16 +165,23 @@ describe("JSON error no-store (TOG-6367)", () => {
     strictEqual(res.cacheControl, NO_STORE, "/healthz 405: no-store");
   });
 
-  it("leaves success JSON without server Cache-Control (TOG-6050 space)", async () => {
+  it("leaves non-cacheable success JSON without server Cache-Control (TOG-6050 boundary)", async () => {
+    // Fixture-deterministic GETs (/healthz, index JSON, fragment) carry the
+    // TOG-6050 cacheable contract — pinned in cacheable-get-etag.test.js.
+    // This test pins the other side: seller-transactional success JSON stays
+    // validator-free (perishable intents, recordedAt stamps).
     const base = await start({ WAYSELECT_PREVIEW: "1" });
-    const health = await cacheControl(base, "/healthz");
-    strictEqual(health.status, 200);
-    strictEqual(health.cacheControl, null, "/healthz 200: no Cache-Control");
-    const frag = await cacheControl(base, "/listings/northstar/alpha-chat", {
-      headers: { accept: "application/json" },
+    const { readFile } = await import("node:fs/promises");
+    const fixtures = JSON.parse(
+      await readFile(new URL("../fixtures/seller-submission.synthetic.json", import.meta.url), "utf8"),
+    );
+    const intake = await cacheControl(base, "/sellers/submissions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(fixtures.valid),
     });
-    strictEqual(frag.status, 200);
-    strictEqual(frag.cacheControl, null, "fragment 200: no Cache-Control");
+    strictEqual(intake.status, 200);
+    strictEqual(intake.cacheControl, null, "intake 200: no Cache-Control");
   });
 
   it("leaves HTML pages without Cache-Control", async () => {
