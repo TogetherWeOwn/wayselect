@@ -106,21 +106,35 @@ function assertKnownKeys(value, allowedKeys, label, key, source) {
   }
 }
 
+// TOG-8429: explicit-stack scan. Same fix as src/sellerSubmission.js — the
+// old recursion spent one call frame per nesting level, so deeply-nested
+// input exhausted the stack with a RangeError that escapes the typed-error
+// catch (here callers catch `instanceof PurchaseSubmissionError`). Not
+// HTTP-reachable today (the purchase route ignores bodies), but the buyer
+// acceptance scripts run this validator, so the same crash applied there.
+// Visits the same nodes in the same pre-order as the old recursion, so the
+// first forbidden field reported is unchanged.
 function assertNoLocationFields(value, path, source) {
-  if (value === null || typeof value !== "object") {
-    return;
-  }
-  for (const [field, nested] of Object.entries(value)) {
-    if (FORBIDDEN_LOCATION_KEYS.has(field)) {
-      const key = `${path}.${field}`;
-      fail(
-        "forbidden-field",
-        key,
-        source,
-        `submission must not contain executable location field: ${key}`,
-      );
+  const pending = [[value, path]];
+  while (pending.length > 0) {
+    const [current, currentPath] = pending.pop();
+    if (current === null || typeof current !== "object") {
+      continue;
     }
-    assertNoLocationFields(nested, `${path}.${field}`, source);
+    const entries = Object.entries(current);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [field, nested] = entries[index];
+      const key = `${currentPath}.${field}`;
+      if (FORBIDDEN_LOCATION_KEYS.has(field)) {
+        fail(
+          "forbidden-field",
+          key,
+          source,
+          `submission must not contain executable location field: ${key}`,
+        );
+      }
+      pending.push([nested, key]);
+    }
   }
 }
 

@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-8429: deep-nesting DoS fix — `assertNoLocationFields` in
+  `src/sellerSubmission.js` and `src/purchase.js` recursed one frame per
+  nesting level, so a single 6000-deep `provenance.nested` body (~36KB, under
+  the 64KB gate) escaped the typed-error catch as an uncaught RangeError and
+  killed the preview process; both scanners are now explicit-stack loops that
+  visit the same nodes in the same order and fail closed with the same typed
+  errors, pinned by `test/intake-deep-nesting.test.js` (unit at 6000/10000
+  depth plus live 400 + `/healthz` + valid-intake survival).
 - #200 (2026-09-28) TOG-6727: snapshot-prune directory confinement —
   `bin/wayselect-snapshot-prune` refuses a `--dir` containing `..`
   segments (exit 2, `--dir must not contain .. segments`, zero files
