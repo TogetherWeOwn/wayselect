@@ -50,7 +50,8 @@ describe("uppercase provider/model path segments (TOG-6711)", () => {
     const frag = await get(base, "/listings/Northstar/Alpha-Chat", "application/json");
     strictEqual(frag.status, 404);
     strictEqual(frag.contentType, JSON_CT);
-    deepStrictEqual(JSON.parse(frag.text), { error: "listing_not_found" });
+    const { requestId: _requestId, ...fragBody } = JSON.parse(frag.text);
+    deepStrictEqual(fragBody, { error: "listing_not_found" });
   });
 
   it("404s every case variant while the lowercase path serves 200", async () => {
