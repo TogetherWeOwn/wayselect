@@ -86,8 +86,8 @@ describe("preview-disabled JSON fragment contract (TOG-6375)", () => {
   });
 
   it("keeps the flag-off index HTML-only even under JSON negotiation", async () => {
-    // Deliberate asymmetry: the index has no fragment shape (flag-on
-    // ignores Accept and always renders HTML), so flag-off does too.
+    // Deliberate asymmetry: the flag-off index has no fragment shape, so it
+    // stays HTML-only — only the flag-on index negotiates JSON (TOG-7661).
     const base = await start({});
     const res = await get(base, "/listings", "application/json");
     strictEqual(res.status, 404);

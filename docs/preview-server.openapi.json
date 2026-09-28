@@ -43,22 +43,36 @@
       }
     },
     "/listings": {
-      "summary": "Stub listing index, flag-gated (trailing slash /listings/ is the same route; flag-on serves identical bodies with a slashless canonical link)",
+      "summary": "Stub listing index, flag-gated (trailing slash /listings/ is the same route; flag-on serves identical bodies with a slashless canonical link; flag-on honors Accept: application/json, flag-off stays HTML-only)",
       "get": {
         "operationId": "listListings",
-        "summary": "HTML index of stub listings with search/filter/sort/paging; GET only; HTML-only (no JSON negotiation)",
+        "summary": "HTML index of stub listings with search/filter/sort/paging by default; JSON paged result / invalid-filter error when Accept negotiates application/json (TOG-7661); Vary: Accept on every flag-on variant; GET only",
         "parameters": [
           { "name": "q", "in": "query", "required": false, "description": "Text query over name, route id and provider name; at most 200 chars, over-long fails closed 400", "schema": { "type": "string", "maxLength": 200 } },
           { "name": "capability", "in": "query", "required": false, "description": "Repeatable; unknown values fail closed 400", "schema": { "type": "array", "items": { "type": "string", "enum": ["attachment", "reasoning", "tool_call", "structured_output"] } }, "style": "form", "explode": true },
           { "name": "modality", "in": "query", "required": false, "description": "Repeatable; unknown values fail closed 400", "schema": { "type": "array", "items": { "type": "string", "enum": ["audio", "image", "pdf", "text", "video"] } }, "style": "form", "explode": true },
           { "name": "limit", "in": "query", "required": false, "description": "Page size 1-100, default 20; malformed or out-of-range fails closed 400", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
           { "name": "offset", "in": "query", "required": false, "description": "Page offset >= 0, default 0; malformed fails closed 400 (offset past the end is an empty 200 page, never 400)", "schema": { "type": "integer", "minimum": 0, "default": 0 } },
-          { "name": "sort", "in": "query", "required": false, "description": "Explicit result ordering (TOG-6362, gap G1); default keeps the historical stub order; unknown values fail closed 400 like every other filter", "schema": { "type": "string", "enum": ["default", "price-asc", "price-desc", "name-asc", "route-asc"], "default": "default" } }
+          { "name": "sort", "in": "query", "required": false, "description": "Explicit result ordering (TOG-6362, gap G1); default keeps the historical stub order; unknown values fail closed 400 like every other filter", "schema": { "type": "string", "enum": ["default", "price-asc", "price-desc", "name-asc", "route-asc"], "default": "default" } },
+          { "name": "Accept", "in": "header", "required": false, "description": "application/json selects the JSON result / error shapes (flag-on only); otherwise HTML", "schema": { "type": "string" } }
         ],
         "responses": {
-          "200": { "description": "HTML listing index (paginated window with full match count)", "content": { "text/html": { "schema": { "type": "string" } } } },
-          "400": { "description": "Invalid filter query (unknown key, bad capability/modality/sort, over-long q, bad limit/offset): HTML invalid-filter page naming every problem", "content": { "text/html": { "schema": { "type": "string" } } } },
-          "404": { "description": "WAYSELECT_PREVIEW off: HTML preview-disabled page (flag-off index stays HTML-only — no fragment shape)", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "200": {
+            "description": "HTML listing index (paginated window with full match count), or the JSON paged result {listings, total, limit, offset} when Accept: application/json — including the empty state and offset-past-end (empty page, intact total)",
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "$ref": "#/components/schemas/IndexResult" } }
+            }
+          },
+          "400": {
+            "description": "Invalid filter query (unknown key, bad capability/modality/sort, over-long q, bad limit/offset): HTML invalid-filter page naming every problem, or JSON {error: invalid_filter, kind, value, valid, errors} plus the triage requestId when Accept: application/json",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "$ref": "#/components/schemas/InvalidFilter" } }
+            }
+          },
+          "404": { "description": "WAYSELECT_PREVIEW off: HTML preview-disabled page (the flag-off index stays HTML-only even under JSON negotiation — it has no fragment shape)", "content": { "text/html": { "schema": { "type": "string" } } } },
           "405": {
             "description": "Any non-GET method (method gate precedes the flag gate, so flag-off still 405s); Allow: GET",
             "headers": { "Allow": { "schema": { "type": "string", "example": "GET" } }, "x-request-id": { "$ref": "#/components/headers/RequestId" } },
@@ -326,6 +340,42 @@
         "required": ["error", "requestId"],
         "properties": {
           "error": { "type": "string", "example": "listing_not_found" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "IndexResult": {
+        "type": "object",
+        "required": ["listings", "total", "limit", "offset"],
+        "description": "Flag-on index JSON result (TOG-7661): the paginated window with the full match count; empty states return listings: [] (offset-past-end keeps the intact total). Success JSON carries no triage id.",
+        "properties": {
+          "listings": { "type": "array", "description": "Paginated stub-listing window in sort order", "items": { "type": "object" } },
+          "total": { "type": "integer", "minimum": 0, "description": "Full match count across all pages" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "offset": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "InvalidFilter": {
+        "type": "object",
+        "required": ["error", "kind", "value", "valid", "errors", "requestId"],
+        "description": "Flag-on index JSON invalid-filter error (TOG-7661): kind/value/valid mirror the first problem; errors lists every problem; requestId is the TOG-6717 triage id echoed from the x-request-id header",
+        "properties": {
+          "error": { "type": "string", "example": "invalid_filter" },
+          "kind": { "type": "string", "description": "First problem kind: capability, modality, sort, limit, offset, q, or query", "example": "capability" },
+          "value": { "type": "string", "description": "Offending value (q and sort are truncated to 64 chars so the error stays bounded)", "example": "__bogus__" },
+          "valid": { "type": "array", "items": { "type": "string" }, "description": "Accepted values / bound for the first problem" },
+          "errors": {
+            "type": "array",
+            "description": "Every problem (same {kind, value, valid} shape)",
+            "items": {
+              "type": "object",
+              "required": ["kind", "value", "valid"],
+              "properties": {
+                "kind": { "type": "string" },
+                "value": { "type": "string" },
+                "valid": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
           "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
         }
       },
