@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7280: npm audit CI gate — the `audit` job runs
+  `npm audit --audit-level=high` after `npm ci`, so a new high/critical
+  advisory reds CI; registry-dependent, so CI-only by design with the
+  exclusion documented in `bin/pre-push-check`, `docs/pre-push-check.md`,
+  and `CONTRIBUTING.md` and pinned by `test/npm-audit-gate.test.js`
+  (`.github/workflows/ci.yml`, `test/npm-audit-gate.test.js`,
+  `bin/pre-push-check`, `docs/pre-push-check.md`, `CONTRIBUTING.md`,
+  `test/pre-push-parity.test.js`).
 - TOG-7271: gateway operator-key handling audit pin — hostile
   operator/wrong keys through every gateway error path (401 variants,
   500 misconfig/transport branches, all 400 validators), success bodies,

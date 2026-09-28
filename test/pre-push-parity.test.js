@@ -2,7 +2,8 @@
 //
 // bin/pre-push-check must stay a strict superset of CI: every `run:` step in
 // .github/workflows/ci.yml maps to a local gate (except the documented
-// `npm ci` clean-install exclusion), every workflow file is parsed, and the
+// `npm ci` clean-install and `npm audit` registry exclusions), every
+// workflow file is parsed, and the
 // marker gate stays a single-sourced exact CI step — never a duplicated word
 // list inside the pre-push script. Static source assertions only: no
 // subprocess, so this stays offline and fast. The full gate itself is
@@ -32,9 +33,11 @@ const RUN_TO_GATE = {
   ],
 };
 
-// The one exclusion: CI's clean-install step has no local equivalent by
-// design (the gate uses the existing node_modules).
-const EXCLUDED_RUNS = new Set(["npm ci"]);
+// Exclusions: steps with no local equivalent by design. `npm ci` uses the
+// existing node_modules locally; `npm audit --audit-level=high` (TOG-7280)
+// needs the npm registry, so it is CI-only and the offline local gate stays
+// offline per CONTRIBUTING.md. Both exclusions are documented in the gate.
+const EXCLUDED_RUNS = new Set(["npm ci", "npm audit --audit-level=high"]);
 
 function ciRunSteps() {
   const ci = read(".github/workflows/ci.yml");
