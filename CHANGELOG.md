@@ -18,6 +18,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #131 (2026-09-27) TOG-6910: deploy-on-merge to Coolify staging +
+  reviewer-gated production — `deploy-staging`/`deploy-production` jobs in
+  `.github/workflows/ci.yml` (self-hosted runners, bearer-header transport
+  per the fleet's two-bot DEPLOY.md §6.1, `environment:` Deployment records,
+  serialized concurrency, fail-closed `check-deploy-target` gate, mirror
+  settle, `/healthz` settle, post-deploy `smoke-wayselect-staging-preview`);
+  reconciled with main's `search-index-probe`/`e2e-staging-acceptance` jobs
+  (`scripts/check-deploy-target.mjs`, `scripts/wait-for-host-mirror.mjs`,
+  `scripts/wait-for-staging-health.mjs`, `test/check-deploy-target.test.js`,
+  `test/deploy-helpers.test.js`).
 - #181 (2026-09-28) TOG-6368: noindex on preview pages — every HTML page
   carries `<meta name="robots" content="noindex, nofollow">` (both layouts)
   and every HTML response carries `X-Robots-Tag: noindex, nofollow`;
