@@ -18,6 +18,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #229 (2026-09-28) TOG-8346: open-source community pack — new `CODE_OF_CONDUCT.md`
+  (Contributor Covenant v2.1, private-first reporting, no-retaliation rule),
+  new `.github/ISSUE_TEMPLATE/` (bug + feature forms, blank issues disabled,
+  security/conduct contact links), PR template gains a Conventional Commits
+  title section (enforced by `pr-lint`), and one-line `CODE_OF_CONDUCT.md` /
+  template pointers in `README.md` / `CONTRIBUTING.md` (`CODE_OF_CONDUCT.md`,
+  `.github/ISSUE_TEMPLATE/bug_report.yml`,
+  `.github/ISSUE_TEMPLATE/feature_request.yml`,
+  `.github/ISSUE_TEMPLATE/config.yml`,
+  `.github/pull_request_template.md`, `README.md`, `CONTRIBUTING.md`).
 - #223 (2026-09-28) TOG-8612: oversized JSON body 413 contract pin — new
   test hits the live preview server's seller-intake route with >64KB bodies
   over both oversize paths (lying `Content-Length`, chunked stream) and
