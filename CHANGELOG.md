@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #223 (2026-09-28) TOG-8612: oversized JSON body 413 contract pin — new
+  test hits the live preview server's seller-intake route with >64KB bodies
+  over both oversize paths (lying `Content-Length`, chunked stream) and
+  asserts the full refusal contract (413, `{error,key,source,message}` +
+  agreeing `x-request-id`, `no-store`/`nosniff`), plus socket reuse and a
+  still-200 valid intake afterward; audit found the cap
+  (`MAX_JSON_BODY_BYTES`) and mapping already landed, so test-only, no
+  source change (`test/oversized-body-413-contract.test.js`).
 - #210 (2026-09-28) TOG-8331: reduced-motion audit pin on preview pages — audit
   found no offenders (both preview layouts already disable the skip-link
   slide and skeleton pulse under `prefers-reduced-motion`); extends the
