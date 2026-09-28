@@ -6,6 +6,11 @@
 //                                            `{status:"ok",version}` JSON,
 //                                            ungated by WAYSELECT_PREVIEW
 //                                            and exempt from rate limiting
+//   GET /favicon.ico                         — 204 No Content (TOG-6369):
+//                                            ungated by WAYSELECT_PREVIEW;
+//                                            pins the browser-requested icon
+//                                            path so page loads stop emitting
+//                                            404 log noise
 //   GET /listings                          — stub listing index (flag-gated)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
@@ -42,10 +47,12 @@
 //     Effort was trivial: one `randomBytes` nonce per HTML response,
 //     stamped on the inline tags and allowlisted in the header.
 //
-// 404 content-type contract (TOG-5714):
+// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375):
 //   - Browser routes (index, detail incl. listing misses, flag-off pages):
 //     HTML by default; JSON only when the client explicitly negotiates
-//     `Accept: application/json` (the shell's fragment fetch).
+//     `Accept: application/json` (the shell's fragment fetch). Flag-off
+//     JSON is `{error: "preview_disabled"}` so the shell renders its
+//     alert panel instead of choking on an HTML page.
 //   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
 //     always JSON.
 //   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
@@ -131,7 +138,16 @@ function sendHtml(res, status, html, nonce) {
 }
 
 function sendJson(res, status, payload) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
+  // TOG-6367: error JSON is dynamic (per-request 403/404/405/400/413
+  // bodies, never cacheable content), so error statuses carry
+  // `Cache-Control: no-store` — shared caches must not store them.
+  // Success JSON keeps default cache semantics: cacheable GETs (ETag,
+  // validators, 304) belong to TOG-6050, which decides per route there.
+  const headers = { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS };
+  if (status >= 400) {
+    headers["cache-control"] = "no-store";
+  }
+  res.writeHead(status, headers);
   res.end(JSON.stringify(payload));
 }
 
@@ -139,10 +155,12 @@ function sendJson(res, status, payload) {
 // to carry an `Allow` header naming the methods the target supports. Every
 // known route shape funnels through here so OPTIONS/PUT/DELETE behave the
 // same on every route; unknown paths stay 404 (no resource, no `Allow`).
+// Always an error, so always `Cache-Control: no-store` (TOG-6367).
 function sendMethodNotAllowed(res, allow) {
   res.writeHead(405, {
     "content-type": "application/json; charset=utf-8",
     ...SECURITY_HEADERS,
+    "cache-control": "no-store",
     allow,
   });
   res.end(JSON.stringify({ error: "method_not_allowed" }));
@@ -152,6 +170,8 @@ function sendMethodNotAllowed(res, allow) {
 // index, route templates for detail/purchase, and a fallback for 404s so
 // scanners cannot burn the budget of real routes (or vice versa).
 function routeBucket(method, pathname) {
+  // NOTE: /favicon.ico and /healthz answer before the limiter (see the
+  // handler), so they never reach a bucket — do not add entries for them.
   if (method === "GET" && (pathname === "/listings" || pathname === "/listings/")) {
     return "GET /listings";
   }
@@ -188,20 +208,101 @@ function loadServerVersion() {
 
 export const SERVER_VERSION = loadServerVersion();
 
+// Slow-header/slow-body caps (TOG-6713): Node's defaults (headersTimeout 60s,
+// requestTimeout 300s) let a slowloris-style drip hold a socket for minutes —
+// the only timers that existed here were the fragment-delay test knob, which
+// delays a response that was already fully received and protects nothing.
+// headersTimeout caps header receipt; requestTimeout caps headers + body.
+// headersTimeout stays below requestTimeout, as the Node docs recommend.
+// requestTimeout only fires on stalled receipt (no data moving) — it never
+// kills a slow-but-progressing handler, so the
+// WAYSELECT_DETAIL_FRAGMENT_DELAY_MS dev knob (post-receipt delay) is
+// unaffected, and neither timer touches idle keep-alive sockets.
+export const HTTP_TIMEOUT_DEFAULTS = Object.freeze({
+  headersTimeout: 10_000,
+  requestTimeout: 120_000,
+});
+
+// Override ceiling: anything above Node's own 5-minute requestTimeout default
+// re-opens the slowloris window these defaults close.
+const HTTP_TIMEOUT_MAX_MS = 300_000;
+
+export function configureHttpTimeouts(server, overrides = {}) {
+  const {
+    headersTimeout = HTTP_TIMEOUT_DEFAULTS.headersTimeout,
+    requestTimeout = HTTP_TIMEOUT_DEFAULTS.requestTimeout,
+  } = overrides ?? {};
+  for (const [name, value] of [
+    ["headersTimeout", headersTimeout],
+    ["requestTimeout", requestTimeout],
+  ]) {
+    if (!Number.isInteger(value) || value < 1 || value > HTTP_TIMEOUT_MAX_MS) {
+      throw new RangeError(
+        `Invalid ${name} ${JSON.stringify(value)}: expected an integer 1-${HTTP_TIMEOUT_MAX_MS} ms`,
+      );
+    }
+  }
+  if (headersTimeout > requestTimeout) {
+    throw new RangeError(
+      `Invalid http timeouts: headersTimeout (${headersTimeout} ms) must not exceed requestTimeout (${requestTimeout} ms)`,
+    );
+  }
+  server.headersTimeout = headersTimeout;
+  server.requestTimeout = requestTimeout;
+  return { headersTimeout, requestTimeout };
+}
+
+// Seller-intent TTL (TOG-6716): a staged intent stays confirmable for 15
+// minutes after intake; afterwards it 404s as missing and is dropped from
+// the map. One named constant so the value lives in a single place.
+export const SELLER_INTENT_TTL_MS = 15 * 60 * 1000;
+
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
-  // Pending seller intents (TOG-4969): routeId -> frozen confirm model.
-  // In-memory only — restart clears. Confirm records intent; nothing here
-  // publishes, charges, or persists.
+  // Clock for intent expiry (TOG-6716): injectable via `options.now` so
+  // tests can pin the expiry boundary; production uses wall-clock time.
+  const now = options.now ?? Date.now;
+  // Pending seller intents (TOG-4969) with expiry (TOG-6716):
+  // routeId -> { model, storedAt }. In-memory only — restart clears.
+  // Confirm records intent; nothing here publishes, charges, or persists.
+  // Expired entries 404 as missing on read and are swept on intake, so
+  // unread stale intents cannot grow the map.
   const sellerIntents = new Map();
+  // Reads the live intent for a route: null when never staged or expired.
+  // Expired entries are deleted on read so a stale confirm never revives.
+  function getLiveIntent(routeId) {
+    const entry = sellerIntents.get(routeId) ?? null;
+    if (!entry) {
+      return null;
+    }
+    if (now() - entry.storedAt >= SELLER_INTENT_TTL_MS) {
+      sellerIntents.delete(routeId);
+      return null;
+    }
+    return entry.model;
+  }
+  // Drops every expired entry. Runs on intake so intents nobody ever
+  // confirms still leave the map instead of leaking.
+  function sweepExpiredIntents() {
+    for (const [routeId, entry] of sellerIntents) {
+      if (now() - entry.storedAt >= SELLER_INTENT_TTL_MS) {
+        sellerIntents.delete(routeId);
+      }
+    }
+  }
   // XFF trust boundary (TOG-6029): unset by default (direct-remote only).
   // Opt-in for a single trusted proxy hop via `trustedProxyIp` option or
   // the `WAYSELECT_TRUSTED_PROXY_IP` env var — exactly one peer IP. Empty
   // string env counts as unset. Documented in rate-limit.js; no prod use.
   const rawTrusted = options.trustedProxyIp ?? env.WAYSELECT_TRUSTED_PROXY_IP ?? null;
   const trustedProxyIp = rawTrusted === null || String(rawTrusted).trim() === "" ? null : String(rawTrusted).trim();
-  // Async handler: the seller intake route awaits the strict JSON body gate.
-  return createServer(async (req, res) => {
+  // Slowloris guard (TOG-6713): cap header/body receipt on every server this
+  // factory builds — test and prod share the path, so the pin cannot drift.
+  // No `clientError` listener is registered anywhere, so an expired socket
+  // gets Node's default 408 + destroy. Tightened per server via
+  // `httpTimeouts: { headersTimeout, requestTimeout }` (see
+  // configureHttpTimeouts for the bounds).
+  const server = createServer(async (req, res) => {
     // TOG-5726: /healthz is the orchestrator liveness probe. It answers
     // before rate limiting (a saturated limiter must not look like a dead
     // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
@@ -220,6 +321,21 @@ export function createApp(env = process.env, options = {}) {
     }
     if (probePathname === "/healthz") {
       sendMethodNotAllowed(res, "GET");
+      return;
+    }
+
+    // TOG-6369: the favicon path answers before rate limiting (every page
+    // load requests it, so it must never read as a dead route under a
+    // saturated limiter) and regardless of WAYSELECT_PREVIEW: 204 No
+    // Content by design — there is no icon asset to serve. Non-GET methods
+    // are 405 with `Allow: GET` per the TOG-6364 convention.
+    if (probePathname === "/favicon.ico") {
+      if (req.method !== "GET") {
+        sendMethodNotAllowed(res, "GET");
+        return;
+      }
+      res.writeHead(204, { ...SECURITY_HEADERS });
+      res.end();
       return;
     }
 
@@ -245,9 +361,12 @@ export function createApp(env = process.env, options = {}) {
     if (!verdict.allowed) {
       // TOG-5732 audit: the 429 path previously bypassed sendJson and so
       // missed SECURITY_HEADERS — every response carries them now.
+      // TOG-6367: the refusal body is dynamic, so `no-store` like every
+      // other JSON error.
       res.writeHead(429, {
         "content-type": "application/json; charset=utf-8",
         ...SECURITY_HEADERS,
+        "cache-control": "no-store",
         "retry-after": String(verdict.retryAfterSec),
       });
       res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));
@@ -333,17 +452,26 @@ export function createApp(env = process.env, options = {}) {
     // callers, the named rejection page for browsers). Flag-gated; no live
     // publish anywhere on this path.
     if (SELLER_INTAKE_ROUTE.test(pathname)) {
+      // TOG-6707: wrong-method refusal goes through the shared helper so
+      // the 405 carries `Allow: POST` per RFC 9110 §15.5.6.
       if (req.method !== "POST") {
-        sendJson(res, 405, { error: "method_not_allowed" });
+        sendMethodNotAllowed(res, "POST");
         return;
       }
+      // TOG-6708 (gap R4-02): this route negotiates HTML vs JSON on
+      // `Accept`, so every variant carries `Vary: Accept` — otherwise a
+      // shared cache can poison the variant on a later request.
+      res.setHeader("vary", "Accept");
       if (!isPreviewEnabled(env)) {
         sendJson(res, 404, { error: "preview_disabled" });
         return;
       }
       const body = await readJsonBody(req);
       if (!body.ok) {
-        const status = body.code === "body_too_large" ? 413 : 400;
+        // R4-06: a body that never completes within the read bound is a
+        // timeout (408), not a malformed payload (400) — the client may
+        // retry. `body_too_large` stays 413; everything else stays 400.
+        const status = body.code === "body_too_large" ? 413 : body.code === "body_timeout" ? 408 : 400;
         sendJson(res, status, {
           error: body.code,
           key: "submission",
@@ -375,7 +503,8 @@ export function createApp(env = process.env, options = {}) {
         return;
       }
       const model = confirmModel(normalized);
-      sellerIntents.set(model.routeId, model);
+      sweepExpiredIntents();
+      sellerIntents.set(model.routeId, { model, storedAt: now() });
       const confirmPath = `/sellers/submissions/${encodeURIComponent(model.providerId)}/${encodeURIComponent(model.modelId)}/confirm`;
       if (String(req.headers?.accept ?? "").includes("text/html")) {
         const nonce = newCspNonce();
@@ -391,6 +520,9 @@ export function createApp(env = process.env, options = {}) {
     // no intent was staged; neither publishes anything.
     const sellerConfirmMatch = pathname.match(SELLER_CONFIRM_ROUTE);
     if (sellerConfirmMatch) {
+      // TOG-6708 (gap R4-02): GET restates the intent as HTML or JSON
+      // depending on `Accept` — every variant carries `Vary: Accept`.
+      res.setHeader("vary", "Accept");
       if (!isPreviewEnabled(env)) {
         if (req.method === "GET" && !String(req.headers?.accept ?? "").includes("application/json")) {
           const nonce = newCspNonce();
@@ -411,7 +543,7 @@ export function createApp(env = process.env, options = {}) {
         return;
       }
       const routeId = `${providerId}/${modelId}`;
-      const model = sellerIntents.get(routeId) ?? null;
+      const model = getLiveIntent(routeId);
       if (req.method === "GET") {
         if (!model) {
           if (String(req.headers?.accept ?? "").includes("text/html")) {
@@ -465,6 +597,9 @@ export function createApp(env = process.env, options = {}) {
         sendMethodNotAllowed(res, "GET");
         return;
       }
+      // TOG-6708 (gap R4-02): shell vs JSON fragment (and the flag-off
+      // JSON error shape) select on `Accept` — `Vary: Accept` on all of it.
+      res.setHeader("vary", "Accept");
       // TOG-6049: one nonce per HTML response (see index route above).
       // The JSON fragment and its error paths carry no CSP — only the 500
       // HTML fallback (render throw) mints a nonce.
@@ -472,6 +607,16 @@ export function createApp(env = process.env, options = {}) {
       const sendPage = (status, html) => sendHtml(res, status, html, nonce);
       const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
+        // TOG-6375: the shell's fragment fetch negotiates JSON, so a
+        // flag-off fragment request degrades to a JSON error the shell
+        // renders as its alert panel — never an HTML page that breaks
+        // `res.json()`. Flag check precedes listing lookup, so unknown
+        // listings gate identically. Index stays HTML-only: it has no
+        // fragment shape, flag-on or flag-off.
+        if (String(req.headers?.accept ?? "").includes("application/json")) {
+          sendJson(res, 404, { error: "preview_disabled" });
+          return;
+        }
         sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
@@ -500,6 +645,15 @@ export function createApp(env = process.env, options = {}) {
       // TOG-5499: the shell's inline fetch negotiates this fragment.
       // Test/dev slow-network knob: delays the fragment only, never the
       // shell first paint. Unset or non-positive means no delay.
+      // TOG-6714: the delay must not outlive the client — an aborted
+      // stream otherwise leaves a pending timer whose send writes to a
+      // dead socket. `req` 'close' fires on client abort (it also fires
+      // on normal completion, so the fired-timer path removes its own
+      // listener — a completed fragment leaves zero pending timers and
+      // zero stray listeners behind). The fired path additionally skips
+      // the send when the socket is already gone: the abort can win the
+      // race after the delay elapses, and a dropped fragment sends
+      // nothing rather than writing to a destroyed socket.
       if (String(req.headers?.accept ?? "").includes("application/json")) {
         const sendFragment = () => {
           try {
@@ -519,7 +673,25 @@ export function createApp(env = process.env, options = {}) {
           10,
         );
         if (Number.isFinite(fragmentDelayMs) && fragmentDelayMs > 0) {
-          setTimeout(sendFragment, fragmentDelayMs);
+          const onFragmentAbort = () => clearTimeout(fragmentTimer);
+          const fragmentTimer = setTimeout(() => {
+            req.removeListener("close", onFragmentAbort);
+            // The abort may win the race after the delay elapses: writing
+            // to a destroyed socket throws, and the throw inside sendJson
+            // would escape through the timer (the inner catch's sendHtml
+            // throws again). A dropped fragment sends nothing — skip it.
+            if (!res.destroyed && !res.writableEnded) {
+              sendFragment();
+            }
+          }, fragmentDelayMs);
+          if (req.destroyed || req.closed) {
+            // The client was already gone before the timer was armed —
+            // 'close' already fired, so the listener below would never run
+            // and the timer would leak. Drop it immediately.
+            clearTimeout(fragmentTimer);
+          } else {
+            req.once("close", onFragmentAbort);
+          }
         } else {
           sendFragment();
         }
@@ -538,6 +710,9 @@ export function createApp(env = process.env, options = {}) {
     // navigation (`Accept: text/html` without `application/json`). `*/*`
     // (fetch/curl defaults) and missing Accept get JSON.
     const accept = String(req.headers?.accept ?? "");
+    // TOG-6708 (gap R4-02): the fallback negotiates JSON vs HTML on
+    // `Accept` — a shared cache must key on it.
+    res.setHeader("vary", "Accept");
     if (!accept.includes("application/json") && accept.includes("text/html")) {
       // TOG-6049: the browser fallback is an HTML response, so it mints its
       // own nonce like every other HTML path.
@@ -547,6 +722,8 @@ export function createApp(env = process.env, options = {}) {
     }
     sendJson(res, 404, { error: "not_found" });
   });
+  configureHttpTimeouts(server, options.httpTimeouts);
+  return server;
 }
 
 const isMainModule =
@@ -617,9 +794,13 @@ if (isMainModule) {
   const server = createApp();
   installShutdownHandlers(server);
   server.listen(port, host, () => {
+    // TOG-6713: log the slowloris caps at startup so the values are visible
+    // to operators without reading source (and asserted in
+    // test/preview-http-timeouts.test.js).
     // eslint-disable-next-line no-console
     console.log(
-      `wayselect preview server on http://${host}:${port} (preview=${isPreviewEnabled() ? "on" : "off"})`,
+      `wayselect preview server on http://${host}:${port} (preview=${isPreviewEnabled() ? "on" : "off"}) ` +
+        `(headersTimeout=${server.headersTimeout}ms requestTimeout=${server.requestTimeout}ms)`,
     );
   });
 }

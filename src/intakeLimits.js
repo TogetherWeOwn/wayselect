@@ -23,6 +23,12 @@ export const SYNTHETIC_SOURCE_PREFIX = "synthetic://";
 // S3 body cap for future POST routes (~64KB; enforced in web/jsonBody.js).
 export const MAX_JSON_BODY_BYTES = 64 * 1024;
 
+// R4-06 read bound for POST routes (total deadline for one streamed body in
+// web/jsonBody.js). A ≤64KB body that cannot complete within 10s is a
+// trickling/stalled sender, not a slow client — fail closed with
+// `body_timeout` (408 at the route) instead of hanging the socket.
+export const MAX_JSON_BODY_READ_MS = 10_000;
+
 export function isRouteId(value) {
   return typeof value === "string" && ROUTE_ID_PATTERN.test(value);
 }

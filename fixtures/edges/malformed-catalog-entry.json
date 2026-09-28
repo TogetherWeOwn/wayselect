@@ -1,0 +1,32 @@
+{
+  "description": "Malformed catalog entry: model id does not match its catalog key, so normalizeCatalog rejects it fail-closed instead of guessing.",
+  "catalog": {
+    "northstar": {
+      "id": "northstar",
+      "name": "Northstar Synthetic Provider",
+      "models": {
+        "alpha-chat": {
+          "id": "alpha-chat-typo",
+          "name": "Alpha Chat",
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "source": "synthetic://wayselect/edge-malformed",
+    "snapshotTimestamp": "2026-09-24T10:00:00.000Z",
+    "snapshotHash": "sha256:53932d51583a822848ae50957398dc5bc5c9733dab02906335499723065967da"
+  },
+  "expect": {
+    "errorName": "CatalogValidationError",
+    "messageMatch": "must match its catalog key"
+  }
+}

@@ -25,7 +25,12 @@ import {
   evaluateListingEligibility,
   evaluateListingsEligibility,
 } from "./eligibility.js";
-import { VALID_CAPABILITIES, VALID_MODALITIES, emptyFilters } from "./filter.js";
+import {
+  LISTINGS_MAX_QUERY_LENGTH,
+  VALID_CAPABILITIES,
+  VALID_MODALITIES,
+  emptyFilters,
+} from "./filter.js";
 
 // HTML escaping delegates to the `escape-html` library (`&<>"'` entity
 // encoding, output-identical to the previous hand-rolled version). The
@@ -103,7 +108,7 @@ main:focus { outline: none; }
 a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
 @media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } }
 .skeleton { border-radius: 0.375rem; background: linear-gradient(90deg, rgba(128, 128, 128, 0.28) 25%, rgba(128, 128, 128, 0.12) 50%, rgba(128, 128, 128, 0.28) 75%); background-size: 200% 100%; animation: skeleton-pulse 1.2s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .skip-link { transition: none; } }
 @keyframes skeleton-pulse { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .skeleton-title { height: 2rem; width: 60%; margin: 0.75rem 0 1rem; }
 .skeleton-line { height: 1rem; margin: 0.5rem 0; }
@@ -336,8 +341,14 @@ export function renderListingDetailError(providerId, modelId, options) {
 }
 
 export function renderNotFound(providerId, modelId, options) {
+  // TOG-5752: designed miss page — the miss is named, then a search hint
+  // (the requested model id prefilled as the index `q`) plus the index
+  // link. The hint query is capped at the index `q` bound so the link
+  // never 400s; ids are URL-encoded inside the HTML escape (S2 pattern).
+  const hintQuery = String(modelId).slice(0, LISTINGS_MAX_QUERY_LENGTH);
   const body = `<h1>Listing not found</h1>
 <p>No stub listing matches <code>${escapeHtml(providerId)}/${escapeHtml(modelId)}</code>.</p>
+<p>Try <a href="/listings?q=${escapeHtml(encodeURIComponent(hintQuery))}">searching the listings</a> for a similar name, or browse the full <a href="/listings">listing index</a>.</p>
 <a class="back" href="/listings">Back to listings</a>`;
   return layout({ title: "Not found", body, cspNonce: pageNonce(options) });
 }
@@ -388,7 +399,7 @@ function filterForm(filters) {
   const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
   const modalities = Array.isArray(active.modalities) ? active.modalities : [];
   return `<form method="get" action="/listings" role="search" aria-label="Filter listings">
-<label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}"></label>
+<label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"></label>
 <fieldset><legend>Capabilities</legend>
 ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
 </fieldset>
@@ -400,9 +411,23 @@ ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 </form>`;
 }
 
-export function renderInvalidFilter({ kind, value, valid }, options) {
+function invalidFilterLine({ kind, value, valid }) {
+  return `Unknown ${escapeHtml(kind)} &quot;${escapeHtml(value)}&quot;. Valid values: ${valid.map(escapeHtml).join(", ")}.`;
+}
+
+// TOG-6374 (Gap A4): the 400 page presents every error, not just the
+// first. A single error keeps the legacy paragraph copy byte-identical
+// (spec-pinned in docs/wayselect-onboarding-spec.md); two or more render
+// as a list so no problem is hidden. `errors` is optional — callers with
+// the legacy `{ kind, value, valid }` shape still render.
+export function renderInvalidFilter({ kind, value, valid, errors }, options) {
+  const list = Array.isArray(errors) && errors.length > 0 ? errors : [{ kind, value, valid }];
+  const detail =
+    list.length === 1
+      ? `<p>${invalidFilterLine(list[0])}</p>`
+      : `<p>${list.length} invalid filters:</p>\n<ul>\n${list.map((entry) => `<li>${invalidFilterLine(entry)}</li>`).join("\n")}\n</ul>`;
   const body = `<h1>Invalid filter</h1>
-<p>Unknown ${escapeHtml(kind)} &quot;${escapeHtml(value)}&quot;. Valid values: ${valid.map(escapeHtml).join(", ")}.</p>
+${detail}
 <a class="back" href="/listings">Back to listings</a>`;
   return layout({ title: "Invalid filter", body, cspNonce: pageNonce(options) });
 }

@@ -18,6 +18,177 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #158 (2026-09-27) TOG-6731: index page lang/title contract pin — renderer,
+  empty state, and live `GET /listings` all carry `<html lang="en">` plus
+  exactly one non-empty escaped `<title>` (`Listings — Wayselect`)
+  (`test/listing-index-lang-title.test.js`, test-only, no prod change).
+- #154 (2026-09-27) TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
+  Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
+  output, no route redirects, links stay relative, and rotating Host/XFH
+  mints no rate-limit budget (XFH ignored even behind the trusted proxy)
+  (`test/host-header-audit.test.js`, test-only, no source change: the
+  server never reads Host/XFH).
+- #138 (2026-09-27) TOG-6716: seller-intent TTL — staged intents expire
+  15 min after intake (`SELLER_INTENT_TTL_MS`, injectable `options.now`);
+  expired confirms 404 as missing; intake sweeps stale entries
+  (`web/server.js`, `test/seller-intent-ttl.test.js`).
+- #151 (2026-09-27) TOG-7286: concurrent slow-fragment load budget —
+  12 parallel listing-detail JSON-fragment hits with
+  `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` set all return 200 with intact
+  content inside a 2000ms batch budget
+  (`test/concurrent-slow-fragment-budget.test.js`, test-only, no source change).
+- #150 (2026-09-27) TOG-7277: gateway 401 contract pin — missing/wrong
+  bearer key returns byte-identical status/body/headers with
+  `WWW-Authenticate: Bearer`
+  carried on the 401 result for a future HTTP binding to forward verbatim
+  (`src/gateway.js`, `test/gateway.test.js`,
+  `bin/accept-wayselect-gateway-phase1`).
+- #149 (2026-09-27) TOG-7315: debt-marker introduction gate — `bin/check-no-todo-markers`
+  (stdlib-only, case-sensitive whole-word match, PNG-safe, skips
+  `.git`/`node_modules`/`coverage`) runs as the `marker-gate` CI job
+  without `npm ci`; newly added marker words fail the run
+  (`bin/check-no-todo-markers`, `test/no-todo-markers.test.js`,
+  `.github/workflows/ci.yml`, CI-only).
+- #148 (2026-09-27) TOG-6708: `Vary: Accept` on content-negotiated routes — seller-intake,
+  seller-confirm, listing-detail shell/fragment, and the 404 fallback
+  negotiate HTML vs JSON on `Accept`, so every variant carries
+  `Vary: Accept` (one `res.setHeader` per route branch); non-negotiated
+  routes (healthz, purchase stub, index) stay without it
+  (`web/server.js`, `test/vary-accept.test.js`).
+- TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
+  routes wrong-method refusals through the shared `sendMethodNotAllowed`
+  helper (RFC 9110 §15.5.6) instead of raw `sendJson`; HEAD-contract pin
+  updated for the intake path (`web/server.js`,
+  `test/seller-intake-405.test.js`, `test/head-method-contract.test.js`).
+- #143 (2026-09-27) TOG-6713: cap slowloris header/body receipt —
+  `createApp()` pins `headersTimeout` 10s / `requestTimeout` 120s on every
+  server it builds (below Node's 60s/300s defaults), with a validated
+  `httpTimeouts` override; both values logged at startup
+  (`web/server.js`, `test/preview-http-timeouts.test.js`).
+- #142 (2026-09-27) TOG-6737: seller-intake vs purchase error-envelope
+  parity note — §4A field table + rationale in the seller acceptance
+  spec, pinning both HTTP envelopes and both validator vocabularies to
+  code (`docs/wayselect-seller-acceptance.md`, docs-only).
+- #146 (2026-09-27) TOG-6371: IPv6-mapped IPv4 normalization pin —
+  `resolveClientIp` trusted-proxy matching and XFF client identity share
+  one bucket across plain/mapped/upper/translated/loopback spellings
+  (`test/ipv6-mapped-resolve-pin.test.js`, test-only, no source change).
+- TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
+  read deadline (`MAX_JSON_BODY_READ_MS`) that fails closed with
+  `body_timeout` (408 at the seller route, retryable; drains the stream
+  for socket reuse) instead of hanging on a short/stalling body
+  (`web/jsonBody.js`, `web/server.js`, `src/intakeLimits.js`,
+  `test/json-body-read-timeout.test.js`).
+- #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
+- #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
+  invalid `--now` exits 1 with empty stdout, exact
+  `CatalogFreshnessError` bytes, `--out` dir never created, and no
+  `--report` file written (fail-before-any-IO)
+  (`test/cli-errors.test.js`, test-only).
+- #137 (2026-09-27) TOG-5744: visible-focus + reduced-motion polish —
+  skip-link transition disabled under `prefers-reduced-motion`, seller
+  pages to focus-ring parity (`a`/`button`/`input` + forced-colors),
+  pin test for both (`test/listing-focus-motion.test.js`)
+  (`web/listing-detail.js`, `web/seller.js`).
+- #136 (2026-09-27) TOG-5860: capability-aware select QA golden
+  harness — 9 CLI goldens pinning spec acceptance A1–A7 (typed-requirement
+  win, impossible threshold, fail-closed unknown data, stale-catalog
+  refusal, tie byte-identity, support-state gating, help + README)
+  with small newly-authored fixtures only, plus `accept:capability-select`
+  (`test/capability-select-golden.test.js`,
+  `bin/accept-wayselect-capability-select`, `package.json`, test-only).
+- #120 (2026-09-27) TOG-6383: slow-network knob operator doc (gap T5) —
+  `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` contract plus guard test
+  (`docs/wayselect-slow-network-knob.md`,
+  `test/fragment-delay-knob.test.js`, `README.md`).
+- #123 (2026-09-27) TOG-6374: multi-error 400 page — the HTML
+  invalid-filter page lists every error (counted list) instead of only
+  the first; single-error copy unchanged (`web/filter.js`,
+  `web/listing-detail.js`, `test/invalid-filter-multi-error.test.js`).
+- #133 (2026-09-27) TOG-5752: designed unknown-listing 404 — search hint
+  (`searching the listings` → `/listings?q=<model>`, capped at the index
+  `q` bound) plus the listing-index link, in the listing-shell chrome
+  (`web/listing-detail.js`, `test/unknown-listing-404.test.js`,
+  `docs/wayselect-onboarding-spec.md`, `preview-unknown-listing-404.png`).
+- #124 (2026-09-27) TOG-6710: double-encoded purchase path segment
+  contract — collapsing `%252F` targets pinned as the listing route's 405
+  (POST) / listing miss (GET), never a purchase refusal; exact
+  three-segment target still 403; `%252E%252E` and triple encoding decode
+  exactly once (`test/purchase-double-encoded-segments.test.js`, test-only).
+- #126 (2026-09-27) TOG-6714: clear delayed detail-fragment timer on
+  client abort — `req.once('close')` → `clearTimeout`, fired-timer path
+  removes its own listener and skips the send on a dead socket; abort
+  leaves zero pending timers (fail-to-pass pin) (`web/server.js`,
+  `test/detail-fragment-abort.test.js`).
+- #130 (2026-09-27) TOG-6721: over-offset empty-page contract — far-over-offset
+  windows return an empty page with the total intact (pure-function level) and
+  200, never 400, with the full/filtered match count over HTTP
+  (`test/listing-over-offset.test.js`, test-only).
+- #128 (2026-09-27) TOG-6730: corrupt search-index `--previous` behavior
+  pin — CLI fails closed (exit 1, empty stdout, no output written) on
+  non-JSON/truncated/wrong-tool/empty-entries/missing files, exact
+  `SearchIndexError` strings pinned, rebuild-from-fixture recovery covered
+  (`test/search-index-corrupt-previous.test.js`, test-only).
+- #122 (2026-09-27) TOG-6369: serve `GET /favicon.ico` as 204 (ungated,
+  rate-limit-exempt like `/healthz`; non-GET 405s with `Allow: GET`)
+  (`web/server.js`, `test/favicon-route.test.js`,
+  `test/method-not-allowed.test.js`).
+- #125 (2026-09-27) TOG-6718: duplicate routeId feed policy pin — duplicate
+  JSON keys last-win at parse with zero quarantine; slash-collision duplicates
+  (`p`+`a/b` vs `p/a`+`b`) are kept by ingest/normalize but fail closed at
+  `applySupportConfiguration` (`SupportConfigurationError`), so a duplicated
+  feed can never reach selection (`test/ingest-duplicate-route-id.test.js`,
+  test-only).
+- #127 (2026-09-27) TOG-6720: filter text-match case behavior — mixed-case
+  `q` against mixed-case stub names pinned as case-insensitive (exact
+  match sets, case-variant equivalence, verbatim-at-parse/fold-at-match)
+  (`test/listing-filter-case.test.js`, test-only).
+- #117 (2026-09-27) TOG-6380: max-limit listing-index render budget —
+  100-row index render under 500ms (300ms control delay) and 64KiB,
+  plus `GET /listings?limit=100` live-route smoke
+  (`test/listing-render-budget.test.js`, test-only).
+- #85 (2026-09-27) TOG-5265: QA fixture harness on current main —
+  edge fixtures x8, edge/golden/guard tests, no-network guard wired
+  into `npm test`, `scripts/acceptance.sh` gate + workflow
+  (`fixtures/edges/`, `test/edge-fixtures.test.js`,
+  `test/golden-output.test.js`, `test/golden/default.json`,
+  `support/no-network-guard.js`, `test/no-network-guard.test.js`,
+  `scripts/acceptance.sh`, `.github/workflows/acceptance.yml`,
+  `package.json`).
+- #121 (2026-09-27) TOG-6709: HEAD method contract — HEAD pinned as a
+  plain wrong method (405 + `Allow` on GET/purchase routes, 405 without
+  `Allow` on seller routes, 404 on unknown paths; empty body, method gate
+  precedes the preview flag) (`test/head-method-contract.test.js`,
+  test-only).
+- #119 (2026-09-27) TOG-6394: badge color-contrast guard — WCAG AA
+  evidence for the five badge classes (on/granted 8.62, off 7.35,
+  blocked 8.49, unknown 7.73), pinned as a failing-if-regressed test
+  (`test/badge-contrast.test.js`, test-only).
+- #116 (2026-09-27) TOG-6384: purchase refusal body contract — exact
+  403 `{error: "preview_only", message}` body pinned (keys, message
+  verbatim, flag-on/off, trailing slash, 404-first boundary)
+  (`test/purchase-refusal-body-contract.test.js`, test-only, no prod
+  change).
+
+- #115 (2026-09-27) TOG-6375: preview-disabled JSON fragment contract —
+  flag-off detail requests negotiating `Accept: application/json` 404
+  with `{error: "preview_disabled"}` (HTML default and HTML-only index
+  unchanged) (`web/server.js`, `test/preview-disabled-json.test.js`).
+- #114 (2026-09-27) TOG-6367: `Cache-Control: no-store` on dynamic JSON
+  errors (`sendJson` for status >= 400, `sendMethodNotAllowed`, 429
+  refusal); success JSON and HTML untouched (`web/server.js`,
+  `test/json-error-no-store.test.js`).
+- #107 (2026-09-27) TOG-6370: `q` length cap (200, fail-closed 400 naming
+  the bound) + form `maxlength` hint (`web/filter.js`,
+  `web/listing-detail.js`, `test/listing-filter.test.js`,
+  `test/listing-empty-error-states.test.js`).
+- #111 (2026-09-27) TOG-6378: pin `/healthz` version to the package
+  manifest — `SERVER_VERSION` and the probe body must equal
+  `package.json` version (`test/preview-server-ops.test.js`, test-only).
+- #110 (2026-09-27) TOG-6376: 429 body shape contract test — exact
+  `{error: "rate_limited", retryAfterSec}` body pinned (keys, types,
+  header agreement) via stubbed-verdict + live-limiter tests
+  (`test/rate-limit-body-contract.test.js`, test-only, no prod change).
 - #100 (2026-09-27) TOG-6386: automated dep-update PRs via Dependabot
   (monthly npm + github-actions, free tier, no auto-merge) + Automation
   section in policy doc (`.github/dependabot.yml`,

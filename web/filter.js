@@ -21,6 +21,15 @@ export const LISTINGS_DEFAULT_LIMIT = 20;
 export const LISTINGS_MAX_LIMIT = 100;
 export const LISTINGS_DEFAULT_OFFSET = 0;
 
+// Text-query bound (TOG-6370, P2/G9): `q` arrives from the URL bar and
+// `normalizeFilters` below previously accepted it unbounded — an
+// attacker-sized value flows into matching, the reflected form value, and
+// logs. Over-long values fail closed (400 upstream) naming this bound; the
+// echoed value is truncated so the error page itself stays bounded. 200 is
+// ~10x headroom over realistic listing-search terms, same order as the
+// intake free-string caps (buyer ≤120, etag ≤256 in src/intakeLimits.js).
+export const LISTINGS_MAX_QUERY_LENGTH = 200;
+
 // Known /listings query keys (TOG-6365): anything else is a typo failing
 // silently, so unknown keys fail closed (400 upstream) naming this list.
 export const VALID_LISTINGS_QUERY_PARAMS = Object.freeze([
@@ -67,11 +76,16 @@ function parsePagingParam(raw, fallback) {
 }
 
 // Validate raw query params. Returns `{ ok: true, filters, paging }` or
-// `{ ok: false, kind, value, valid }` for the 400 invalid-filter page.
+// `{ ok: false, errors }` for the 400 invalid-filter page, where `errors`
+// collects EVERY problem (TOG-6374, Gap A4) so the HTML page can present
+// them all instead of just the first. Each entry is
+// `{ kind, value, valid }`. The top-level `kind`/`value`/`valid` mirror the
+// first error for backward compatibility with existing callers/tests.
 export function parseListingsQuery(searchParams) {
+  const errors = [];
   for (const key of new Set(searchParams.keys())) {
     if (!QUERY_PARAM_SET.has(key)) {
-      return { ok: false, kind: "query", value: key, valid: VALID_LISTINGS_QUERY_PARAMS };
+      errors.push({ kind: "query", value: key, valid: VALID_LISTINGS_QUERY_PARAMS });
     }
   }
   const filters = normalizeFilters({
@@ -79,28 +93,46 @@ export function parseListingsQuery(searchParams) {
     capabilities: searchParams.getAll("capability"),
     modalities: searchParams.getAll("modality"),
   });
+  // Fail closed on oversize q: the echoed value is truncated so the 400
+  // page itself stays bounded no matter how large the input is.
+  if (filters.q.length > LISTINGS_MAX_QUERY_LENGTH) {
+    errors.push({
+      kind: "q",
+      value: filters.q.slice(0, 64),
+      valid: [`at most ${LISTINGS_MAX_QUERY_LENGTH} characters`],
+    });
+  }
   for (const name of filters.capabilities) {
     if (!CAPABILITY_SET.has(name)) {
-      return { ok: false, kind: "capability", value: name, valid: VALID_CAPABILITIES };
+      errors.push({ kind: "capability", value: name, valid: VALID_CAPABILITIES });
     }
   }
   for (const name of filters.modalities) {
     if (!MODALITY_SET.has(name)) {
-      return { ok: false, kind: "modality", value: name, valid: VALID_MODALITIES };
+      errors.push({ kind: "modality", value: name, valid: VALID_MODALITIES });
     }
   }
   const limit = parsePagingParam(searchParams.get("limit"), LISTINGS_DEFAULT_LIMIT);
   if (!limit.ok || limit.value < 1 || limit.value > LISTINGS_MAX_LIMIT) {
-    return {
-      ok: false,
+    errors.push({
       kind: "limit",
       value: limit.ok ? String(limit.value) : (limit.raw ?? ""),
       valid: [`1-${LISTINGS_MAX_LIMIT}`],
-    };
+    });
   }
   const offset = parsePagingParam(searchParams.get("offset"), LISTINGS_DEFAULT_OFFSET);
   if (!offset.ok) {
-    return { ok: false, kind: "offset", value: offset.raw ?? "", valid: ["0 or greater"] };
+    errors.push({ kind: "offset", value: offset.raw ?? "", valid: ["0 or greater"] });
+  }
+  if (errors.length > 0) {
+    const [first] = errors;
+    return {
+      ok: false,
+      kind: first.kind,
+      value: first.value,
+      valid: first.valid,
+      errors,
+    };
   }
   return { ok: true, filters, paging: { limit: limit.value, offset: offset.value } };
 }

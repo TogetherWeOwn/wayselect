@@ -133,29 +133,48 @@ test("G4 unsatisfiable typed requirements yield 400 no_eligible_route", async (c
   assert.equal(globalThis.fetch.mock.callCount(), 0);
 });
 
-test("G5 missing gateway key returns 401 authentication_error", async (context) => {
+test("G5 missing gateway key returns the exact 401 contract (status/body/header)", async (context) => {
   noNetwork(context);
   const result = await handleChatCompletionsRequest(
     chatRequest({ candidates: await candidates(), headers: {} }),
   );
 
   assert.equal(result.httpStatus, 401);
-  assert.equal(result.body.error.type, "authentication_error");
-  assert.equal(result.body.error.code, "invalid_api_key");
+  // Exact body bytes: an added, dropped, or reworded field fails here, not
+  // on a gateway client.
+  assert.deepStrictEqual(result.body, {
+    error: {
+      message: "Invalid or missing gateway credentials.",
+      type: "authentication_error",
+      code: "invalid_api_key",
+    },
+  });
+  assert.deepStrictEqual(Object.keys(result.body.error).sort(), ["code", "message", "type"]);
+  // RFC 9110 auth challenge rides on the 401; a future HTTP binding
+  // forwards `headers` verbatim alongside `httpStatus`/`body`.
+  assert.deepStrictEqual(result.headers, { "WWW-Authenticate": "Bearer" });
   assert.equal(globalThis.fetch.mock.callCount(), 0);
 });
 
-test("G6 wrong gateway key returns 401 authentication_error", async (context) => {
+test("G6 wrong gateway key returns a 401 byte-identical to the missing key", async (context) => {
   noNetwork(context);
+  const all = await candidates();
+  const missing = await handleChatCompletionsRequest(
+    chatRequest({ candidates: all, headers: {} }),
+  );
   const result = await handleChatCompletionsRequest(
     chatRequest({
-      candidates: await candidates(),
+      candidates: all,
       headers: { authorization: "Bearer wrong-key" },
     }),
   );
 
   assert.equal(result.httpStatus, 401);
   assert.equal(result.body.error.type, "authentication_error");
+  assert.equal(result.body.error.code, "invalid_api_key");
+  // No credential oracle: missing and wrong keys are indistinguishable
+  // (status, body, and headers all identical).
+  assert.deepStrictEqual(result, missing);
   assert.equal(globalThis.fetch.mock.callCount(), 0);
 });
 

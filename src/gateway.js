@@ -19,7 +19,9 @@
 //     candidates without declared limit data fail closed on that dimension,
 //     per the existing eligibility boundary.
 //   Error table (§1.6, OpenAI envelope only): 400 `invalid_request_error`,
-//     401 `authentication_error`, 500 `api_error` with no detail leaked.
+//     401 `authentication_error` (with `WWW-Authenticate: Bearer`; missing
+//     and wrong keys are byte-identical), 500 `api_error` with no detail
+//     leaked.
 //   Response: standard `ChatCompletion` shape plus the documented `wayselect`
 //     extension (`tier`/`classifierConfidence` are null until a later phase
 //     adds classification; `dryRun:true`, `synthetic:true` always).
@@ -57,6 +59,22 @@ function gatewayMisconfigured() {
   // 500 with no detail: operator configuration problems (including
   // credentials) must never leak internals (§1.6).
   return errorResponse(500, "api_error", "internal_error", "Gateway misconfigured.");
+}
+
+function unauthorized() {
+  // 401 with the RFC 9110 auth challenge. Missing and wrong keys return
+  // byte-identical status, body, and headers so callers cannot distinguish
+  // them (no credential oracle, §1.6). A future HTTP binding forwards
+  // `headers` verbatim alongside `httpStatus`/`body`.
+  return {
+    ...errorResponse(
+      401,
+      "authentication_error",
+      "invalid_api_key",
+      "Invalid or missing gateway credentials.",
+    ),
+    headers: Object.freeze({ "WWW-Authenticate": "Bearer" }),
+  };
 }
 
 function bearerKey(headers) {
@@ -168,12 +186,7 @@ export async function handleChatCompletionsRequest(input) {
     return gatewayMisconfigured();
   }
   if (!keysEqual(bearerKey(headers), gatewayKey)) {
-    return errorResponse(
-      401,
-      "authentication_error",
-      "invalid_api_key",
-      "Invalid or missing gateway credentials.",
-    );
+    return unauthorized();
   }
 
   if (!isPlainObject(body)) {

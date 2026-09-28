@@ -4,6 +4,7 @@
 // node:test, zero dependencies.
 
 import { deepStrictEqual, ok, strictEqual, throws } from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { after, describe, it } from "node:test";
 import {
   createApp,
@@ -47,6 +48,25 @@ describe("preview server ops (TOG-5726)", () => {
     strictEqual(probe.contentType, JSON_CT);
     deepStrictEqual(JSON.parse(probe.text), { status: "ok", version: SERVER_VERSION });
     ok(SERVER_VERSION !== "", "version must be non-empty");
+  });
+
+  it("GET /healthz version pins the package manifest version (TOG-6378)", async () => {
+    // Gap B5: SERVER_VERSION is read from the manifest at module load; the
+    // existing assertions compare /healthz against the imported constant
+    // itself, so a drifted or hardcoded source would still pass. Read
+    // package.json independently so drift fails loudly.
+    const manifest = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    ok(
+      typeof manifest.version === "string" && manifest.version !== "",
+      "package.json must carry a non-empty version",
+    );
+    strictEqual(SERVER_VERSION, manifest.version, "SERVER_VERSION must equal package.json version");
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const probe = await get(base, "/healthz");
+    strictEqual(probe.status, 200);
+    deepStrictEqual(JSON.parse(probe.text), { status: "ok", version: manifest.version });
   });
 
   it("GET /healthz answers when preview is off (health is not content)", async () => {

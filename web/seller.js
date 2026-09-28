@@ -82,8 +82,9 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 .skip-link { position: absolute; left: 0.75rem; top: -4rem; z-index: 10; background: #fff; color: #000; padding: 0.5rem 1rem; border-radius: 0.375rem; transition: top 0.15s ease-in-out; }
 .skip-link:focus-visible { top: 0.75rem; }
 main:focus { outline: none; }
-a:focus-visible, button:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
-@media (forced-colors: active) { a:focus-visible, button:focus-visible { outline: 3px solid Highlight; } }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
+@media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } }
+@media (prefers-reduced-motion: reduce) { .skip-link { transition: none; } }
 </style>
 </head>
 <body>
