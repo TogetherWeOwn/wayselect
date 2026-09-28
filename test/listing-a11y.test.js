@@ -88,7 +88,10 @@ describe("listing a11y shell (TOG-5717)", () => {
 
   it("announces index result counts in a labelled results section", () => {
     const one = renderListingIndex([getStubListing("northstar", "alpha-chat")]);
-    ok(one.includes('aria-label="Results"'), "results landmark");
+    // TOG-6392: the results section is a labelledby section with a visible
+    // h2 heading (accessible name stays "Results") — the audited hierarchy.
+    ok(one.includes('aria-labelledby="results-heading"'), "results landmark");
+    ok(one.includes('<h2 id="results-heading">Results</h2>'), "visible results heading");
     ok(one.includes("1 listing found."), "singular count announced");
     const empty = renderListingIndex([]);
     ok(empty.includes('role="status"'), "empty state announced");
