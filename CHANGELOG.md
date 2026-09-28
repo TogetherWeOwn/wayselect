@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-7274: seller skip-link parity — served `/sellers` confirm, receipt,
+- #186 (2026-09-28) TOG-7274: seller skip-link parity — served `/sellers` confirm, receipt,
   missing-intent, and rejection pages carry the same focusable skip link +
   `#main-content` target as the listing pages; 4-test served-route guard
   (`test/seller-skiplink.test.js`).
