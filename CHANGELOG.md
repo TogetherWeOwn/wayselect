@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #220 (2026-09-28) TOG-8637: library API reference — `docs/api.md`
+  documents the public names re-exported by `src/index.js` with one
+  runnable example per export (`docs/api.md`).
+
 - #214 (2026-09-28) TOG-8429: deep-nesting DoS fix — `assertNoLocationFields` in
   `src/sellerSubmission.js` and `src/purchase.js` recursed one frame per
   nesting level, so a single 6000-deep `provenance.nested` body (~36KB, under
