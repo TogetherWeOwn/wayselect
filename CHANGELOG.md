@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-8612: oversized JSON body 413 contract pin — new
+  test hits the live preview server's seller-intake route with >64KB bodies
+  over both oversize paths (lying `Content-Length`, chunked stream) and
+  asserts the full refusal contract (413, `{error,key,source,message}` +
+  agreeing `x-request-id`, `no-store`/`nosniff`), plus socket reuse and a
+  still-200 valid intake afterward; audit found the cap
+  (`MAX_JSON_BODY_BYTES`) and mapping already landed, so test-only, no
+  source change (`test/oversized-body-413-contract.test.js`).
 - TOG-8615: invalid-filter 400 page associates errors with inputs — every
   error entry carries a stable id and the correction filter form references
   it via `aria-describedby` (plus `aria-invalid` on single-value inputs);
