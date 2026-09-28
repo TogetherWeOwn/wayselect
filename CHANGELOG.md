@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #167 (2026-09-28) TOG-7283: POST intake rate-limit coverage audit pin — every POST
+  intake route (`/listings/:provider/:model/purchase`,
+  `/sellers/submissions`,
+  `/sellers/submissions/:provider/:model/confirm`) asserts its own
+  per-IP budget (max passes, then 429 + matching Retry-After with the
+  `rate_limited` body), plus POST-bucket independence
+  (`test/post-rate-limit-coverage.test.js`, test-only, no source
+  change: the limiter already gates every route shape).
 - #183 (2026-09-28) TOG-7296: overlong-q fail-closed exact-bytes pin — `q`
   beyond `LISTINGS_MAX_QUERY_LENGTH` (200) fails closed with kind `q`, the
   echo exactly the first 64 input chars, `valid: ["at most 200 characters"]`,
