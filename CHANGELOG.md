@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #198 (2026-09-28) TOG-6725: drift-check CLI exit-code contract pin —
+  `bin/check-provenance-drift` asserts 0 clean, 1 on drift, 2 on usage
+  error in one place (`test/drift-exit-code-contract.test.js`, test-only,
+  no source change).
 - #187 (2026-09-28) TOG-7302: catalog import --json pinned to the v1 machine
   schema — the schema is now a `command`-dispatched union (`select`/`explain`
   plus the `catalog import` shape), enforced fail-closed via
