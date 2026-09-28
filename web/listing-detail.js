@@ -523,16 +523,45 @@ function pageHref(filters, limit, offset) {
   return `/listings${qs ? `?${qs}` : ""}`;
 }
 
+// TOG-7275: numbered page links with aria-current on the current page,
+// bounded to a small window (current ±2 plus first/last) so large catalogs
+// never render hundreds of links.
+function pageNumberLinks(filters, limit, currentPage, totalPages) {
+  const pages = new Set([1, totalPages]);
+  for (let p = currentPage - 2; p <= currentPage + 2; p += 1) {
+    if (p >= 1 && p <= totalPages) pages.add(p);
+  }
+  const sorted = [...pages].sort((a, b) => a - b);
+  const parts = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (p - prev > 1) parts.push(`<span aria-hidden="true">&hellip;</span>`);
+    const href = escapeHtml(pageHref(filters, limit, (p - 1) * limit));
+    parts.push(
+      p === currentPage
+        ? `<a href="${href}" aria-current="page">${p}</a>`
+        : `<a href="${href}">${p}</a>`,
+    );
+    prev = p;
+  }
+  return parts.join(" ");
+}
+
 function pageNav(filters, total, limit, offset, shown) {
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const currentPage = Math.min(totalPages, Math.floor(offset / limit) + 1);
   const links = [];
   if (offset > 0) {
     links.push(
-      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}">Previous</a>`,
+      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}" rel="prev">Previous</a>`,
     );
+  }
+  if (totalPages > 1) {
+    links.push(pageNumberLinks(filters, limit, currentPage, totalPages));
   }
   if (offset + shown < total) {
     links.push(
-      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}">Next</a>`,
+      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}" rel="next">Next</a>`,
     );
   }
   return links.length === 0 ? "" : `<nav aria-label="Listings pages"><p>${links.join(" ")}</p></nav>`;
