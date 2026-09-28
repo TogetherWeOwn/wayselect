@@ -263,6 +263,24 @@ function sendMethodNotAllowed(res, allow) {
   sendJsonError(res, 405, { error: "method_not_allowed" }, { allow });
 }
 
+// Log-path redaction (TOG-8635): the access log records the route shape,
+// never raw user input. Query strings are already stripped by the `.pathname`
+// parse in the logging preamble; this maps param-bearing routes to `:param`
+// templates so concrete provider/model slugs never reach the log. Unknown
+// paths stay verbatim so 404 triage keeps the concrete target.
+function redactLogPath(pathname) {
+  if (PURCHASE_ROUTE.test(pathname)) {
+    return "/listings/:provider/:model/purchase";
+  }
+  if (SELLER_CONFIRM_ROUTE.test(pathname)) {
+    return "/sellers/submissions/:provider/:model/confirm";
+  }
+  if (LISTING_ROUTE.test(pathname)) {
+    return "/listings/:provider/:model";
+  }
+  return pathname;
+}
+
 // Bucket requests by route shape for the rate limiter: exact path for the
 // index, route templates for detail/purchase, and a fallback for 404s so
 // scanners cannot burn the budget of real routes (or vice versa).
@@ -362,8 +380,10 @@ export function createApp(env = process.env, options = {}) {
   // Structured request logging (TOG-5739): one JSON line per request —
   // `{method, path, status, latencyMs}` — emitted on `res` finish so delayed
   // paths (the detail-fragment `setTimeout`) report honest end-to-end
-  // latency. Injectable sink for tests (default console.log); unparseable
-  // targets log the raw target verbatim.
+  // latency. Injectable sink for tests (default console.log). The logged path
+  // is redacted (TOG-8635): query strings are stripped and param-bearing
+  // routes log as `:param` templates; unparseable targets log with any query
+  // stripped, never the raw target verbatim.
   // eslint-disable-next-line no-console
   const logger = options.logger ?? ((line) => console.log(line));
   // Pending seller intents (TOG-4969) with expiry (TOG-6716):
@@ -407,15 +427,18 @@ export function createApp(env = process.env, options = {}) {
   // `httpTimeouts: { headersTimeout, requestTimeout }` (see
   // configureHttpTimeouts for the bounds).
   const server = createServer(async (req, res) => {
-    // Structured logging preamble (TOG-5739): capture start + path now, emit
-    // one JSON line on `res` finish so delayed paths report honest latency.
+    // Structured logging preamble (TOG-5739): capture start + redacted path
+    // now, emit one JSON line on `res` finish so delayed paths report honest
+    // latency. Path redaction (TOG-8635) happens here via redactLogPath.
     // Async handler: the seller intake route awaits the strict JSON body gate.
     const startMs = Date.now();
     let logPath;
     try {
-      logPath = new URL(req.url ?? "/", "http://localhost").pathname;
+      logPath = redactLogPath(new URL(req.url ?? "/", "http://localhost").pathname);
     } catch {
-      logPath = req.url ?? "/";
+      // Unparseable target: strip any query string before logging so a raw
+      // `?q=` value can never leak via this fallback (TOG-8635).
+      logPath = String(req.url ?? "/").split("?")[0];
     }
     res.on("finish", () => {
       logger(

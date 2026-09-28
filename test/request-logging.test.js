@@ -63,13 +63,41 @@ describe("structured request logging (TOG-5739)", () => {
     assertLineShape(lines[0], { method: "GET", path: "/nope", status: 404 }, "404 path");
     assertLineShape(
       lines[1],
-      { method: "GET", path: "/listings/northstar/alpha-chat/purchase", status: 405 },
-      "405 path",
+      { method: "GET", path: "/listings/:provider/:model/purchase", status: 405 },
+      "405 path (route params redacted, TOG-8635)",
     );
     assertLineShape(lines[4], { method: "GET", path: "/listings", status: 429 }, "429 path");
   });
 
-  it("logs the raw target when it is unparseable", async () => {
+  it("never logs raw query values or route params (TOG-8635)", async () => {
+    const { base, lines } = await start({ WAYSELECT_PREVIEW: "1" });
+    const secret = `s3cr3t-q-${Date.now()}`;
+    const index = await fetch(`${base}/listings?q=${encodeURIComponent(secret)}&limit=2`);
+    strictEqual(index.status, 200);
+    await index.text();
+    const detail = await fetch(
+      `${base}/listings/northstar/alpha-chat?q=${encodeURIComponent(secret)}`,
+      { headers: { accept: "application/json" } },
+    );
+    strictEqual(detail.status, 200);
+    await detail.text();
+    strictEqual(lines.length, 2, "both requests log one line each");
+    assertLineShape(lines[0], { method: "GET", path: "/listings", status: 200 }, "index q redacted");
+    assertLineShape(
+      lines[1],
+      { method: "GET", path: "/listings/:provider/:model", status: 200 },
+      "detail q + params redacted",
+    );
+    for (const [i, line] of lines.entries()) {
+      strictEqual(
+        line.includes(secret),
+        false,
+        `log line ${i} must not contain the raw q value`,
+      );
+    }
+  });
+
+  it("logs the query-stripped target when it is unparseable", async () => {
     const { base, lines } = await start({ WAYSELECT_PREVIEW: "1" });
     const port = new URL(base).port;
     const statusLine = await new Promise((resolve, reject) => {
@@ -101,7 +129,7 @@ describe("structured request logging (TOG-5739)", () => {
     await res.text();
     strictEqual(lines.length, 1);
     const entry = JSON.parse(lines[0]);
-    strictEqual(entry.path, "/listings/northstar/alpha-chat");
+    strictEqual(entry.path, "/listings/:provider/:model");
     strictEqual(
       entry.latencyMs >= delayMs,
       true,
