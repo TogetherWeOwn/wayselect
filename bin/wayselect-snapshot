@@ -25,10 +25,15 @@ function parseArguments(argv) {
     now: null,
     maxCatalogAgeHours: null,
     failOnGaps: false,
+    help: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
+    if (flag === "--help" || flag === "-h") {
+      values.help = true;
+      continue;
+    }
     if (flag === "--fail-on-gaps") {
       values.failOnGaps = true;
       continue;
@@ -62,8 +67,20 @@ function compactTimestamp(iso) {
   return iso.replace(/[-:.]/g, "");
 }
 
+function usage() {
+  return (
+    "Usage: node bin/wayselect-snapshot [--catalog <path>] [--out <dir>]\n" +
+    "    [--previous <snapshot>] [--report <path>] [--now <ISO>]\n" +
+    "    [--max-catalog-age-hours <n>] [--fail-on-gaps]\n"
+  );
+}
+
 async function main() {
   const args = parseArguments(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(usage());
+    return;
+  }
 
   let maxCatalogAgeMs;
   if (args.maxCatalogAgeHours !== null) {
