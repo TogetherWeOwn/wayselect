@@ -65,6 +65,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `17 6 * * *` cron result surfaces, who triages, first 5 diagnostic
   commands, and bug-card vs re-run rule, with a green-cron acceptance
   check (`docs/ingestion-smoke-triage-runbook.md`, `README.md` docs index).
+- #162 (2026-09-27) TOG-7271: gateway operator-key handling audit pin — hostile
+  operator/wrong keys through every gateway error path (401 variants,
+  500 misconfig/transport branches, all 400 validators), success bodies,
+  transport records, and console capture assert zero key material; the
+  `timingSafeEqual` compare and the no-logging-sink shape stay pinned
+  statically, and tracked snapshots carry no bearer material
+  (`test/operator-key-audit.test.js`, test-only, no source change: every
+  error path already returns static messages and auth stays
+  byte-identical).
 - #161 (2026-09-27) TOG-6362: explicit `sort` param on `/listings` (gap G1) —
   `default` keeps stub order; `price-asc` / `price-desc` order by the synthetic
   list-price estimate with unknown prices last and code-unit route-ID tie-break;
