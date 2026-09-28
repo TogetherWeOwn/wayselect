@@ -93,12 +93,14 @@ node bin/wayselect select --operation chat --require toolUse \
   "provenance": {
     "source": "synthetic://wayselect/fixture-v1",
     "snapshotTimestamp": "2026-09-26T14:00:00.000Z",
-    "snapshotHash": "sha256:4c3fc1cff7c83871b4f0600b0688cb87fe27cb82f6f42672460dd2dadb2a2e5d"
+    "snapshotHash": "sha256:4c3fc1cff7c83871b4f0600b0688cb87fe27cb82f6f42672460dd2dadb2a2e5d",
+    "fetchedAt": "2026-09-26T16:00:00.000Z"
   },
   "request": {
     "operation": "chat",
     "requiredCapabilities": ["toolUse"],
-    "providerAllowlist": ["northstar", "orbit"]
+    "providerAllowlist": ["northstar", "orbit"],
+    "requirements": {}
   },
   "evaluationTime": "2026-09-26T16:00:00.000Z",
   "maxEvidenceAgeHours": 72,
@@ -112,12 +114,73 @@ node bin/wayselect select --operation chat --require toolUse \
       "eligible": true,
       "estimatedRatePerMillion": 3,
       "reasons": []
+    },
+    {
+      "rank": 2,
+      "routeId": "orbit/orbit-chat",
+      "providerId": "orbit",
+      "modelId": "orbit-chat",
+      "supportState": "conformance-tested",
+      "eligible": true,
+      "estimatedRatePerMillion": 3,
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "routeId": "legacy/old-chat",
+      "providerId": "legacy",
+      "modelId": "old-chat",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 2,
+      "reasons": ["provider-not-allowed", "stale-evidence"]
+    },
+    {
+      "rank": 4,
+      "routeId": "northstar/image-lite",
+      "providerId": "northstar",
+      "modelId": "image-lite",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 2,
+      "reasons": ["operation-not-catalogued", "operation-not-configured", "unsupported-capability:toolUse"]
+    },
+    {
+      "rank": 5,
+      "routeId": "northstar/unknown-tools",
+      "providerId": "northstar",
+      "modelId": "unknown-tools",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 0.75,
+      "reasons": ["missing-capability:toolUse"]
+    },
+    {
+      "rank": 6,
+      "routeId": "orbit/retired-chat",
+      "providerId": "orbit",
+      "modelId": "retired-chat",
+      "supportState": "unsupported",
+      "eligible": false,
+      "estimatedRatePerMillion": 0.2,
+      "reasons": ["support-state:unsupported", "operation-not-configured"]
     }
   ]
 }
 ```
 
-(`rankedCandidates` lists all six routes; eligible candidates sort lowest synthetic rate first, then lexicographic route ID; excluded routes retain catalog order. `provenance.fetchedAt` is stamped at evaluation time — expect a live wall-clock value there.)
+`rankedCandidates` lists all six routes; eligible candidates sort lowest synthetic
+rate first, then lexicographic route ID; excluded routes retain catalog order.
+The example includes every v1 field. `provenance.fetchedAt` above is illustrative:
+it records the live wall clock when the catalog is loaded, even with a pinned
+`--evaluation-time`. `request.requirements` is `{}` when no typed requirements
+are supplied; typed flags populate it with the resolved requirement values.
+
+The verdict field is `status` (`selected` or `no-eligible-route`), not `code`.
+No eligible route exits **3**, sets `selectedRouteId` to `null`, and retains every
+candidate with its exclusion `reasons`. This is the established
+[v1 JSON contract](cli-json-contract.md); it does not add `selected`/`excluded`
+arrays or a `code` alias from the original acceptance-spec sketches.
 
 ## Requirements via flags or a request file
 

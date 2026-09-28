@@ -19,6 +19,7 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { readFixture, evaluationNow } from "../support/helpers.js";
+import { validateCliJson } from "../src/validate-cli-json.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = new URL("..", import.meta.url);
@@ -138,6 +139,15 @@ test("TOG-5725: every docs/cli.md select/explain example executes against fixtur
         const payload = JSON.parse(stdout);
         assert.equal(payload.status, "selected");
         assert.equal(payload.selectedRouteId, "northstar/alpha-chat");
+        assert.equal(next?.lang, "json", "JSON example must include its expected output");
+        const expected = JSON.parse(next.body);
+        assert.deepEqual(validateCliJson(expected), { ok: true }, "documented JSON must satisfy v1");
+        assert.deepEqual(validateCliJson(payload), { ok: true });
+        assert.deepEqual(
+          JSON.parse(normalizeTimestamps(JSON.stringify(payload))),
+          JSON.parse(normalizeTimestamps(JSON.stringify(expected))),
+          "JSON example output drifted from docs/cli.md",
+        );
         continue;
       }
       if (expectedText !== null) {
