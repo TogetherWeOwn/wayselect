@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #202 (2026-09-28) TOG-7314: /listings pagination filter-persist audit pin — `pageHref`
+  keeps q, capability, modality and limit on Prev/Next, numbered pages,
+  and the past-end recovery link, with a served round-trip following Next
+  under q; test-only, no source change (audit: filters already preserved)
+  (`test/listing-pagination-filter-persist.test.js`).
 - #200 (2026-09-28) TOG-6727: snapshot-prune directory confinement —
   `bin/wayselect-snapshot-prune` refuses a `--dir` containing `..`
   segments (exit 2, `--dir must not contain .. segments`, zero files
@@ -33,7 +38,6 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   pinned offline by `test/detail-fragment-abort-copy.test.js` via `node:vm`
   execution of the real inline script (test-only, no source change: server
   timer cleanup landed in #126).
-
 - #194 (2026-09-28) TOG-6061: route-table drift pin — contract test
   extracts exact-path and regex dispatch operands from `web/server.js` and
   set-compares them against `docs/preview-server.openapi.json` paths (plus
@@ -50,7 +54,6 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   health-probe verify, three-variable env contract, merge-to-main staging
   deploy, reviewer-gated production, rollback pointer) plus the runbook link
   in the docs index (`README.md`).
-
 - #199 (2026-09-28) TOG-7294: purchase-route 405 `Allow` header pin — every non-POST method
   on `/listings/:provider/:model/purchase` 405s with `Allow: POST`
   (status + Allow + content-type + nosniff + exact
