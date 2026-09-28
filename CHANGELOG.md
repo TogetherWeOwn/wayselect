@@ -58,6 +58,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   empty state, and live `GET /listings` all carry `<html lang="en">` plus
   exactly one non-empty escaped `<title>` (`Listings — Wayselect`)
   (`test/listing-index-lang-title.test.js`, test-only, no prod change).
+- #155 (2026-09-27) TOG-7319: pre-push vs CI parity audit — `bin/pre-push-check` grows from
+  5 to 8 gates (engine, marker, smoke + search-index probe, e2e + demo),
+  P2/P3/P4 go recursive and multi-file, and `test/pre-push-parity.test.js`
+  pins every CI `run:` step to a local gate; docs (`docs/pre-push-check.md`,
+  `CONTRIBUTING.md`, PR template) move to `8 pass, 0 fail`
+  (`bin/pre-push-check`, `test/pre-push-parity.test.js`,
+  `docs/pre-push-check.md`, `CONTRIBUTING.md`,
+  `.github/pull_request_template.md`).
 - #154 (2026-09-27) TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
   Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
   output, no route redirects, links stay relative, and rotating Host/XFH
