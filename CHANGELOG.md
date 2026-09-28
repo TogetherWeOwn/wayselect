@@ -18,6 +18,8 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-9168: pin listing `q` unicode contract — `trim().toLowerCase()` only, no
+  NFC/NFKC normalization or casefold (test/listing-filter-unicode.test.js).
 - #214 (2026-09-28) TOG-8429: deep-nesting DoS fix — `assertNoLocationFields` in
   `src/sellerSubmission.js` and `src/purchase.js` recursed one frame per
   nesting level, so a single 6000-deep `provenance.nested` body (~36KB, under
