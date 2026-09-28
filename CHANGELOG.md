@@ -41,6 +41,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   pins `HEALTHCHECK` on `/wayselect-healthz` expecting its 404, and proves the
   target working with a live-server 404 check with preview on and off
   (`test/dockerfile-user-healthcheck.test.js`, test-only, no source change).
+- #222 (2026-09-28) TOG-6030: purchase idempotency-key support (gap G2) — optional opaque
+  `idempotencyKey` on the purchase validator (absent normalizes to null,
+  blank/mistyped/overlong >256 fail closed) and optional `Idempotency-Key`
+  header on POST purchase (same key replays the 403 refusal with
+  `replayed: true`, no duplicate effect; same key on a different route is
+  422 `idempotency_key_reused`; blank/overlong is 400; never masks the
+  404/405 gates), with OpenAPI + route-table pins (`src/purchase.js`,
+  `src/intakeLimits.js`, `src/index.js`, `web/server.js`,
+  `test/purchase-idempotency-key.test.js`, `test/preview-route-table.test.js`,
+  `docs/preview-server.openapi.json`).
 - #205 (2026-09-28) TOG-7309: forced-colors badge treatment audit — the eligibility/
   capability badges (`.badge-*`) were the one author-colored surface with
   no `forced-colors: active` rule (focus rings got theirs in #137), so
