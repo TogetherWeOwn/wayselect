@@ -9,7 +9,7 @@
 //
 // node:test, zero dependencies.
 
-import { deepStrictEqual, ok, strictEqual } from "node:assert/strict";
+import { deepStrictEqual, match, ok, strictEqual } from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { createApp } from "../web/server.js";
 
@@ -50,7 +50,10 @@ describe("uppercase provider/model path segments (TOG-6711)", () => {
     const frag = await get(base, "/listings/Northstar/Alpha-Chat", "application/json");
     strictEqual(frag.status, 404);
     strictEqual(frag.contentType, JSON_CT);
-    deepStrictEqual(JSON.parse(frag.text), { error: "listing_not_found" });
+    // TOG-6717 (#166) adds a per-response requestId to every JSON error.
+    const { requestId, ...payload } = JSON.parse(frag.text);
+    match(requestId ?? "", /^[0-9a-f]{32}$/, "requestId on JSON miss");
+    deepStrictEqual(payload, { error: "listing_not_found" });
   });
 
   it("404s every case variant while the lowercase path serves 200", async () => {
