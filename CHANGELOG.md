@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-8619: Dockerfile non-root USER + healthcheck pin — new
+  contract test pins the effective runtime user as `node` (no `USER root`/`0`),
+  pins `HEALTHCHECK` on `/wayselect-healthz` expecting its 404, and proves the
+  target working with a live-server 404 check with preview on and off
+  (`test/dockerfile-user-healthcheck.test.js`, test-only, no source change).
+
 - #194 (2026-09-28) TOG-6061: route-table drift pin — contract test
   extracts exact-path and regex dispatch operands from `web/server.js` and
   set-compares them against `docs/preview-server.openapi.json` paths (plus
