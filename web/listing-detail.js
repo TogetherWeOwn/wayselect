@@ -26,7 +26,10 @@ import {
   evaluateListingsEligibility,
 } from "./eligibility.js";
 import {
+  LISTINGS_DEFAULT_LIMIT,
+  LISTINGS_DEFAULT_OFFSET,
   LISTINGS_DEFAULT_SORT,
+  LISTINGS_MAX_LIMIT,
   LISTINGS_MAX_QUERY_LENGTH,
   VALID_CAPABILITIES,
   VALID_LISTING_SORTS,
@@ -427,11 +430,24 @@ function sortOptions(selected) {
   ).join("\n");
 }
 
-function filterForm(filters) {
+// Sticky filter inputs (TOG-6733, gap R4-27): the form echoes the submitted
+// `limit`/`offset` alongside `q`/facets/sort so re-submitting the form keeps
+// the current page window instead of silently resetting to 20/0. Values come
+// from the server-sliced `pageInfo` (validated integers upstream), escaped
+// like every other reflected value.
+function filterForm(filters, pageInfo) {
   const active = filters ?? emptyFilters();
   const q = typeof active.q === "string" ? active.q : "";
   const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
   const modalities = Array.isArray(active.modalities) ? active.modalities : [];
+  const limit =
+    Number.isSafeInteger(pageInfo?.limit) && pageInfo.limit > 0
+      ? pageInfo.limit
+      : LISTINGS_DEFAULT_LIMIT;
+  const offset =
+    Number.isSafeInteger(pageInfo?.offset) && pageInfo.offset >= 0
+      ? pageInfo.offset
+      : LISTINGS_DEFAULT_OFFSET;
   // TOG-6392: the form lives in a labelled section with a visible h2 so
   // the index keeps an unbroken h1 -> h2 hierarchy like the detail page
   // (h1 + h2 Eligibility/Capabilities/List-price). The section name mirrors
@@ -440,6 +456,8 @@ function filterForm(filters) {
 <h2 id="filter-heading">Filter listings</h2>
 <form method="get" action="/listings" role="search" aria-label="Filter listings">
 <label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"></label>
+<label for="filter-limit">Results per page <input type="number" id="filter-limit" name="limit" value="${escapeHtml(limit)}" min="1" max="${LISTINGS_MAX_LIMIT}"></label>
+<label for="filter-offset">Skip results <input type="number" id="filter-offset" name="offset" value="${escapeHtml(offset)}" min="0"></label>
 <fieldset><legend>Capabilities</legend>
 ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
 </fieldset>
@@ -562,7 +580,7 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
   }
   const body = `<div class="preview-banner" role="note">Preview build: stub data only.</div>
 <h1>Listings</h1>
-${filterForm(filters)}
+${filterForm(filters, pageInfo)}
 ${results}`;
   // TOG-6044: `/listings` vs `/listings/` serve the same body — pin the
   // slashless path as canonical. Filtered/paged views consolidate to the

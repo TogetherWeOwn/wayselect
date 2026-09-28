@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #190 (2026-09-28) TOG-6733: sticky filter inputs on the index page — the
+  filter form echoes submitted `q`/`limit`/`offset` (escaped, from validated
+  `pageInfo`) so re-submits keep the current page window; 3-test guard
+  (`web/listing-detail.js`, `test/listing-filter.test.js`,
+  `test/listing-filter-labels.test.js`).
 - #167 (2026-09-28) TOG-7283: POST intake rate-limit coverage audit pin — every POST
   intake route (`/listings/:provider/:model/purchase`,
   `/sellers/submissions`,
