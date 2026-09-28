@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #196 (2026-09-28) TOG-6393: index focus target for filter/page
+  navigation — form action, Clear filters, Prev/Next, and Back-to-first-page
+  land on `#results`; the results section carries `id` + `tabindex="-1"`
+  on every render state (`web/listing-detail.js`,
+  `test/listing-focus-navigation.test.js`, `test/listing-filter.test.js`,
+  `test/listing-filter-labels.test.js`,
+  `test/listing-empty-error-states.test.js`).
 - #182 (2026-09-28) TOG-7661: flag-on index honors `Accept:
   application/json` — 200 paged result `{listings, total, limit, offset}`
   (incl. empty state and offset-past-end with intact total), 400
