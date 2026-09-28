@@ -61,6 +61,21 @@ jobs:
           node-version: 20
       - run: node bin/check-no-todo-markers
 
+  audit:
+    # TOG-7280: dependency audit gate — fails on a new high/critical
+    # advisory. Needs the npm registry, so it is CI-only by design: the
+    # offline local gate documents the exclusion (see bin/pre-push-check)
+    # and test/pre-push-parity.test.js pins it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+
   e2e-staging-acceptance:
     # TOG-5722: CLI e2e staging acceptance, fixture-only, no network/credentials.
     # WAYSELECT_STAGING_ENDPOINT is intentionally unset so the publish step

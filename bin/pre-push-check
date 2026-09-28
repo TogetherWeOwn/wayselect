@@ -23,7 +23,9 @@
 //      demo CLI run (the acceptance workflow's local steps)
 //
 // Intentionally not run locally: `npm ci` (CI's clean-install step; the
-// local gate uses the existing node_modules) and the acceptance script's
+// local gate uses the existing node_modules), `npm audit --audit-level=high`
+// (TOG-7280: needs the npm registry, so it is CI-only by design — the local
+// suite stays offline per CONTRIBUTING.md), and the acceptance script's
 // clean-clone mode (scripts/acceptance.sh <ref> clones the repo; the local
 // gate verifies the working tree in place, which is what gets pushed).
 //

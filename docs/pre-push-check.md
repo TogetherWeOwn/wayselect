@@ -36,7 +36,9 @@ workflow's local steps — a green pre-push predicts a green CI:
 Exit code is 0 when every step passes, 1 otherwise.
 
 Intentionally not run locally: `npm ci` (CI's clean-install step; the gate
-uses the existing `node_modules`) and the acceptance script's clean-clone
+uses the existing `node_modules`), `npm audit --audit-level=high` (TOG-7280:
+needs the npm registry, so it is CI-only by design — the local suite stays
+offline), and the acceptance script's clean-clone
 mode (`scripts/acceptance.sh <ref>` clones the repo; the gate verifies the
 working tree in place, which is what gets pushed).
 

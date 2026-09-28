@@ -25,6 +25,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   README docs-index link and an 8-test source-pin guard
   (`docs/wayselect-env-var-matrix.md`, `test/env-var-matrix.test.js`,
   `README.md`).
+- #178 (2026-09-28) TOG-7280: npm audit CI gate — the `audit` job runs
+  `npm audit --audit-level=high` after `npm ci`, so a new high/critical
+  advisory reds CI; registry-dependent, so CI-only by design with the
+  exclusion documented in `bin/pre-push-check`, `docs/pre-push-check.md`,
+  and `CONTRIBUTING.md` and pinned by `test/npm-audit-gate.test.js`
+  (`.github/workflows/ci.yml`, `test/npm-audit-gate.test.js`,
+  `bin/pre-push-check`, `docs/pre-push-check.md`, `CONTRIBUTING.md`,
+  `test/pre-push-parity.test.js`).
 - #176 (2026-09-28) TOG-6736: `bin/` operator catalog doc — one line per
   script (purpose, when to run, key flags) covering all 29 executables,
   plus a README docs-index link
