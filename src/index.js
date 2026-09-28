@@ -90,6 +90,7 @@ export {
   futureSnapshotMessage,
   invalidKeepLastMessage,
   invalidMaxCatalogAgeMessage,
+  invalidPruneDirMessage,
   invalidPruneMaxAgeDaysMessage,
   invalidPruneNowMessage,
   missingValueMessage,
