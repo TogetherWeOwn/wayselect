@@ -659,6 +659,13 @@ export function createApp(env = process.env, options = {}) {
         decodedProviderId = decodeURIComponent(providerId);
         decodedModelId = decodeURIComponent(modelId);
       } catch {
+        // TOG-7662: malformed percent-encoding 404s negotiate like listing
+        // misses below — JSON `{error: "listing_not_found"}` for explicit
+        // fragment negotiation, else the HTML not-found page.
+        if (String(req.headers?.accept ?? "").includes("application/json")) {
+          sendJson(res, 404, { error: "listing_not_found" });
+          return;
+        }
         sendPage(404, renderNotFound(providerId, modelId, pageOpts));
         return;
       }

@@ -134,6 +134,14 @@ describe("preview 404 content-type contract (TOG-5714)", () => {
     strictEqual(malformed.contentType, HTML_CT);
   });
 
+  it("negotiates malformed detail encoding as JSON like a listing miss (TOG-7662)", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const malformed = await get(base, "/listings/%E0%A4%A/broken", "application/json");
+    strictEqual(malformed.status, 404);
+    strictEqual(malformed.contentType, JSON_CT);
+    deepStrictEqual(JSON.parse(malformed.text), { error: "listing_not_found" });
+  });
+
   it("serves unparseable targets as JSON 404 without crashing", async () => {
     const { connect } = await import("node:net");
     const server = createApp({ WAYSELECT_PREVIEW: "1" });
