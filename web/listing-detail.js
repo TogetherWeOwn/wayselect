@@ -72,12 +72,16 @@ function nonceAttr(cspNonce) {
   return cspNonce ? ` nonce="${escapeHtml(cspNonce)}"` : "";
 }
 
-function layout({ title, body, cspNonce }) {
+function layout({ title, body, cspNonce, canonical }) {
+  const canonicalTag =
+    typeof canonical === "string" && canonical !== ""
+      ? `\n<link rel="canonical" href="${escapeHtml(canonical)}">`
+      : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">${canonicalTag}
 <title>${escapeHtml(title)} — Wayselect</title>
 <style${nonceAttr(cspNonce)}>
 :root { color-scheme: light dark; }
@@ -307,7 +311,9 @@ export function renderListingDetailShell(listing, evaluationOverride, options) {
 })();
 </script>`;
 
-  return layout({ title, body, cspNonce });
+  // TOG-6044: trailing-slash variants serve the same body, so the shell
+  // pins the slashless route path as canonical (SEO/duplicate-cache).
+  return layout({ title, body, cspNonce, canonical: routePath });
 }
 
 // JSON fragment payload behind the shell: the full detail body as `html`,
@@ -325,10 +331,13 @@ function pageNonce(options) {
 }
 
 export function renderListingDetail(listing, evaluationOverride, options) {
+  // TOG-6044: same canonical as the shell — the slashless detail path.
+  const canonical = `/listings/${encodeURIComponent(listing.providerId)}/${encodeURIComponent(listing.modelId)}`;
   return layout({
     title: listingDetailTitle(listing),
     body: listingDetailBody(listing, evaluationOverride),
     cspNonce: pageNonce(options),
+    canonical,
   });
 }
 
@@ -542,5 +551,8 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
 <h1>Listings</h1>
 ${filterForm(filters)}
 ${results}`;
-  return layout({ title: "Listings", body, cspNonce: pageNonce(options) });
+  // TOG-6044: `/listings` vs `/listings/` serve the same body — pin the
+  // slashless path as canonical. Filtered/paged views consolidate to the
+  // same bare-index canonical (stub preview: no per-variant indexing).
+  return layout({ title: "Listings", body, cspNonce: pageNonce(options), canonical: "/listings" });
 }
