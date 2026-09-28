@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7311: aborted detail-fragment user-visible copy pin — an aborted
+  delayed fragment shows the `role="alert"` error panel and `role="status"`
+  announcement ("Couldn't load listing details. Check your connection and
+  retry."), clears `aria-busy`, and focuses Retry (which re-issues the same
+  JSON fragment request); no `AbortError` special-case in the shell script,
+  pinned offline by `test/detail-fragment-abort-copy.test.js` via `node:vm`
+  execution of the real inline script (test-only, no source change: server
+  timer cleanup landed in #126).
 - TOG-7275: /listings pagination nav semantics — Previous/Next links carry
   `rel="prev"`/`rel="next"`, numbered page links name each page with
   `aria-current="page"` on the current one (first/last/first±2 windowed),
