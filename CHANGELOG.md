@@ -18,6 +18,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #214 (2026-09-28) TOG-8429: deep-nesting DoS fix — `assertNoLocationFields` in
+  `src/sellerSubmission.js` and `src/purchase.js` recursed one frame per
+  nesting level, so a single 6000-deep `provenance.nested` body (~36KB, under
+  the 64KB gate) escaped the typed-error catch as an uncaught RangeError and
+  killed the preview process; both scanners are now explicit frame-stack loops
+  that replay the old recursion's depth-first pre-order exactly
+  (byte-identical first-forbidden key, proven differentially) and fail closed
+  with the same typed errors, pinned by `test/intake-deep-nesting.test.js`
+  (unit at 6000/10000 depth, pre-order ordering cases, plus live 400 +
+  `/healthz` + valid-intake survival).
 - #165 (2026-09-28) TOG-6719: gateway rejects unknown top-level body keys —
   400 `invalid_request_error`/`unknown_field` naming the key (R4-13);
   G15 pins the rejection, G16 pins §1.1 pass-through keys still route
