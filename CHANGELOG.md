@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7275: /listings pagination nav semantics — Previous/Next links carry
+  `rel="prev"`/`rel="next"`, numbered page links name each page with
+  `aria-current="page"` on the current one (first/last/first±2 windowed),
+  pinned offline by `test/listing-pagination-semantics.test.js`
+  (`web/listing-detail.js`, `test/listing-pagination-semantics.test.js`).
 - TOG-7317: CHANGELOG Unreleased-entry CI gate — the `changelog-gate`
   workflow runs `node bin/check-changelog-entry` on `pull_request`
   (fetch-depth 0): a PR touching `src/`, `web/`, `bin/`, or `test/` without
