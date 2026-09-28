@@ -18,6 +18,10 @@
 //     `max_completion_tokens` feeds `requirements.maxOutputTokens` —
 //     candidates without declared limit data fail closed on that dimension,
 //     per the existing eligibility boundary.
+//   Intake caps (TOG-7307, src/intakeLimits.js): at most 32 messages, 16k
+//     chars per normalized message text, 64k chars combined — fail closed
+//     with 400 (`too_many_messages` / `message_too_large` /
+//     `messages_too_large`).
 //   Error table (§1.6, OpenAI envelope only): 400 `invalid_request_error`,
 //     401 `authentication_error` (with `WWW-Authenticate: Bearer`; missing
 //     and wrong keys are byte-identical), 500 `api_error` with no detail
@@ -33,6 +37,11 @@
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { EligibilityRequestError, evaluateEligibility } from "./eligibility.js";
+import {
+  MAX_GATEWAY_MESSAGE_CHARS,
+  MAX_GATEWAY_MESSAGES,
+  MAX_GATEWAY_TOTAL_CHARS,
+} from "./intakeLimits.js";
 import { selectRoute } from "./selection.js";
 import { FakeTransport } from "./transport.js";
 
@@ -218,6 +227,16 @@ export async function handleChatCompletionsRequest(input) {
       "Request messages must be a non-empty array.",
     );
   }
+  // TOG-7307: intake count cap (src/intakeLimits.js). Structural — enforced
+  // before per-message normalization so oversized batches fail fast.
+  if (body.messages.length > MAX_GATEWAY_MESSAGES) {
+    return errorResponse(
+      400,
+      "invalid_request_error",
+      "too_many_messages",
+      `Request messages must contain at most ${MAX_GATEWAY_MESSAGES} messages.`,
+    );
+  }
   const normalizedMessages = [];
   for (const [index, message] of body.messages.entries()) {
     const parsed = extractMessageText(message, index);
@@ -225,7 +244,31 @@ export async function handleChatCompletionsRequest(input) {
       const httpStatus = 400;
       return errorResponse(httpStatus, "invalid_request_error", parsed.code, parsed.message);
     }
+    // TOG-7307: per-message text cap (src/intakeLimits.js), measured after
+    // content-part normalization so joined text parts count as one message.
+    if (parsed.text.length > MAX_GATEWAY_MESSAGE_CHARS) {
+      return errorResponse(
+        400,
+        "invalid_request_error",
+        "message_too_large",
+        `messages[${index}] must be at most ${MAX_GATEWAY_MESSAGE_CHARS} characters.`,
+      );
+    }
     normalizedMessages.push({ role: parsed.role, text: parsed.text });
+  }
+  // TOG-7307: combined text cap (src/intakeLimits.js) over normalized text,
+  // so one request cannot balloon prompt assembly or the transport payload.
+  let totalChars = 0;
+  for (const message of normalizedMessages) {
+    totalChars += message.text.length;
+  }
+  if (totalChars > MAX_GATEWAY_TOTAL_CHARS) {
+    return errorResponse(
+      400,
+      "invalid_request_error",
+      "messages_too_large",
+      `Request messages must total at most ${MAX_GATEWAY_TOTAL_CHARS} characters.`,
+    );
   }
 
   // ---- streaming: Phase 1 is non-streaming only (fail closed) ----

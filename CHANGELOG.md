@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #180 (2026-09-28) TOG-7307: gateway intake-limits enforcement matrix pin — `src/intakeLimits.js`
+  gains `MAX_GATEWAY_MESSAGES` (32), `MAX_GATEWAY_MESSAGE_CHARS` (16k), and
+  `MAX_GATEWAY_TOTAL_CHARS` (64k), enforced fail-closed in `src/gateway.js`
+  with 400 `too_many_messages` / `message_too_large` / `messages_too_large`,
+  pinned by a pass/reject boundary matrix plus a joined-parts normalization
+  row (`src/gateway.js`, `src/index.js`, `src/intakeLimits.js`,
+  `test/gateway-intake-limits.test.js`).
 - #186 (2026-09-28) TOG-7274: seller skip-link parity — served `/sellers` confirm, receipt,
   missing-intent, and rejection pages carry the same focusable skip link +
   `#main-content` target as the listing pages; 4-test served-route guard
