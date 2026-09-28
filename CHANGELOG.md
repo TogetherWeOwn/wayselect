@@ -282,6 +282,42 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `{error: "rate_limited", retryAfterSec}` body pinned (keys, types,
   header agreement) via stubbed-verdict + live-limiter tests
   (`test/rate-limit-body-contract.test.js`, test-only, no prod change).
+- #102 (2026-09-27) chore(deps): bump `actions/checkout` 4 → 7
+  (`.github/workflows/ci.yml`, CI-only, no prod change).
+- #106 (2026-09-27) TOG-6732: index page skip-link + `#main-content`
+  parity test vs detail page (`test/listing-index-skiplink.test.js`,
+  test-only, no prod change).
+- #104 (2026-09-27) TOG-5737: README accuracy audit — 13 claim-level
+  fixes vs merged behavior (`README.md`, docs-only, no prod change).
+- #101 (2026-09-27) TOG-5749: transport executable-URL rejection fuzz —
+  seeded (0x5749) malicious route/catalog shapes all rejected
+  (`test/transport-fuzz.test.js`, test-only, no prod change).
+- #99 (2026-09-27) TOG-4969: seller intake + confirm + receipt (S7) —
+  POST `/sellers/submissions` fail-closed validation, confirm screen
+  restating price/capabilities/verdict, intent-only receipt
+  (`web/seller.js`, `web/server.js`, `test/seller-confirm.test.js`,
+  `scripts/seller-acceptance.sh`, `docs/seller-onboarding-spec-v1.md`).
+- #94 (2026-09-27) TOG-6336: large-catalog stress fixture (seeded
+  2000-route synthetic catalog) + refresh benchmark budget CLI
+  (`scripts/generate-large-catalog.mjs`, `bin/benchmark-large-catalog`,
+  `fixtures/catalog.large-synthetic.json`,
+  `test/large-catalog-benchmark.test.js`,
+  `docs/large-catalog-benchmark.md`, `package.json`).
+- #91 (2026-09-27) TOG-6379: concurrent-request test — shared limiter
+  budget, per-response nonce uniqueness, route isolation
+  (`test/concurrent-requests.test.js`, test-only, no prod change).
+- #89 (2026-09-27) TOG-5754: diff-report readability — gap-delta line
+  and empty-diff wording in `formatDiffReport` plus regenerated golden
+  samples (`src/catalogDiff.js`, `test/snapshot.test.js`,
+  `snapshots/diff-report-consecutive-green.md`,
+  `snapshots/sample-diff-with-changes.md`).
+- #86 (2026-09-27) TOG-6039: README docs index linking every `docs/`
+  acceptance spec (`README.md`, docs-only, no prod change).
+- #55 (2026-09-27) TOG-5857: S1 typed-requirement flags on
+  select/explain (R1, R2) — modalities, context/output bounds,
+  tool/structured/reasoning requirements, fail-closed file requirements
+  (`bin/wayselect`, `docs/cli.md`, `src/eligibility.js`, `src/index.js`,
+  `test/cli.test.js`, `test/ranking.test.js`).
 - #100 (2026-09-27) TOG-6386: automated dep-update PRs via Dependabot
   (monthly npm + github-actions, free tier, no auto-merge) + Automation
   section in policy doc (`.github/dependabot.yml`,
