@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #165 (2026-09-28) TOG-6719: gateway rejects unknown top-level body keys —
+  400 `invalid_request_error`/`unknown_field` naming the key (R4-13);
+  G15 pins the rejection, G16 pins §1.1 pass-through keys still route
+  (`src/gateway.js`, `test/gateway.test.js`).
 - #206 (2026-09-28) TOG-7300: catalog-import quarantine human-output golden — the
   `Quarantined N:` block of `wayselect catalog import` (count, `  - route:
   reason` lines, exact placement around the ingested/not-written lines) is

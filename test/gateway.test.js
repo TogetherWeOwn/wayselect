@@ -292,3 +292,45 @@ test("G14 empty candidate set returns 400 no_eligible_route", async (context) =>
   assert.equal(result.body.error.code, "no_eligible_route");
   assert.equal(globalThis.fetch.mock.callCount(), 0);
 });
+
+test("G15 unknown top-level body keys return 400 unknown_field naming the key", async (context) => {
+  // R4-13: client typos (e.g. `mesages`) must surface, never pass silently.
+  noNetwork(context);
+  const all = await candidates();
+  for (const extra of [{ mesages: [] }, { foo: 1 }, { model2: "auto" }]) {
+    const key = Object.keys(extra)[0];
+    const result = await handleChatCompletionsRequest(
+      chatRequest({ candidates: all, body: chatBody(extra) }),
+    );
+    assert.equal(result.httpStatus, 400, JSON.stringify(extra));
+    assert.equal(result.body.error.type, "invalid_request_error");
+    assert.equal(result.body.error.code, "unknown_field");
+    assert.match(result.body.error.message, new RegExp(`\\b${key}\\b`));
+  }
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
+
+test("G16 pass-through keys are accepted without validation", async (context) => {
+  // The §1.1 pass-through/ignored fields must not trip the unknown-key
+  // gate: an otherwise-valid request carrying all of them still routes.
+  noNetwork(context);
+  const result = await handleChatCompletionsRequest(
+    chatRequest({
+      candidates: await candidates(),
+      body: chatBody({
+        temperature: 0.5,
+        top_p: 1,
+        stop: ["done"],
+        user: "test-user",
+        seed: 7,
+        frequency_penalty: 0,
+        presence_penalty: 0,
+        logit_bias: {},
+      }),
+    }),
+  );
+
+  assert.equal(result.httpStatus, 200);
+  assert.equal(result.body.object, "chat.completion");
+  assert.equal(globalThis.fetch.mock.callCount(), 0);
+});
