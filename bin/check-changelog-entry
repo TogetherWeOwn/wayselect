@@ -1,0 +1,202 @@
+#!/usr/bin/env node
+
+// Unreleased-entry gate for Wayselect (TOG-7317).
+//
+// Reds when a change touches shipped code or its tests without adding a
+// CHANGELOG.md bullet under `## Unreleased` (repo process: CHANGELOG.md
+// "Release-note process" — one line per PR naming the TOG id). Docs-only,
+// fixture-only, and CHANGELOG-only changes skip green.
+//
+// Scope: content only — no workflow or permission change beyond the new
+// `changelog-gate` workflow that runs this script. Stdlib only, no new
+// dependencies, no network, no credentials. Local git history is the only
+// input, so contributors can run it directly.
+//
+// Usage:
+//   node bin/check-changelog-entry
+//   node bin/check-changelog-entry --base origin/main --head HEAD
+//   node bin/check-changelog-entry --root <dir>   # scan a scratch tree (tests)
+//
+// Exit codes: 0 when the tree skips the gate or carries a valid new entry,
+// 1 when a code change lacks one, 2 on usage errors. Verdicts print as
+// CHANGELOG-GATE-OK / CHANGELOG-GATE-SKIP / CHANGELOG-GATE-FAIL.
+
+import { execFileSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// Card scope: PRs touching these trees must carry a CHANGELOG bullet.
+const CODE_PREFIXES = ["src/", "web/", "bin/", "test/"];
+const CHANGELOG_REL = "CHANGELOG.md";
+const UNRELEASED_HEADING = "## Unreleased";
+const TOG_RE = /TOG-\d+/;
+
+function usage() {
+  return "usage: node bin/check-changelog-entry [--root <dir>] [--base <ref>] [--head <ref>]";
+}
+
+function parseArgs(argv) {
+  const opts = { root: DEFAULT_ROOT, base: null, head: "HEAD" };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--root" || arg === "--base" || arg === "--head") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("--")) {
+        process.stderr.write(`${usage()}\n`);
+        process.exit(2);
+      }
+      if (arg === "--root") opts.root = resolve(value);
+      else if (arg === "--base") opts.base = value;
+      else opts.head = value;
+      i += 1;
+    } else if (arg === "--help" || arg === "-h") {
+      process.stdout.write(`${usage()}\n`);
+      process.exit(0);
+    } else {
+      process.stderr.write(`unknown argument: ${arg}\n${usage()}\n`);
+      process.exit(2);
+    }
+  }
+  return opts;
+}
+
+function git(root, args) {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function refExists(root, ref) {
+  try {
+    git(root, ["rev-parse", "--verify", "--quiet", ref]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveBase(root, explicit) {
+  if (explicit) {
+    if (!refExists(root, explicit)) {
+      process.stdout.write(
+        `CHANGELOG-GATE-FAIL: base ref "${explicit}" does not exist\n`,
+      );
+      process.exit(1);
+    }
+    return explicit;
+  }
+  // PR checkouts carry origin/main; a bare local clone may only have main.
+  if (refExists(root, "origin/main")) return "origin/main";
+  if (refExists(root, "main")) return "main";
+  process.stdout.write(
+    "CHANGELOG-GATE-FAIL: no base ref found (pass --base <ref>)\n",
+  );
+  process.exit(1);
+  return null;
+}
+
+// Changed paths between base and head. Three-dot reads the branch's own
+// changes (PR shape); two-dot is the fallback when the refs share history
+// directly.
+function changedPaths(root, base, head) {
+  const attempts = [[`${base}...${head}`], [`${base}..${head}`]];
+  for (const [range] of attempts) {
+    try {
+      const out = git(root, ["diff", "--name-only", range, "--"]);
+      return { paths: out.length === 0 ? [] : out.split("\n"), range };
+    } catch {
+      // Try the next range shape.
+    }
+  }
+  process.stdout.write(
+    `CHANGELOG-GATE-FAIL: cannot diff ${base} against ${head}\n`,
+  );
+  process.exit(1);
+  return null;
+}
+
+function isCodePath(path) {
+  return CODE_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+function unreleasedSection(content) {
+  const start = content.indexOf(UNRELEASED_HEADING);
+  if (start === -1) return null;
+  const nextHeading = content.indexOf("\n## ", start + 1);
+  return nextHeading === -1 ? content.slice(start) : content.slice(start, nextHeading);
+}
+
+function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  const base = resolveBase(opts.root, opts.base);
+  const { paths, range } = changedPaths(opts.root, base, opts.head);
+  const touched = paths.filter(isCodePath);
+
+  if (touched.length === 0) {
+    process.stdout.write(
+      `CHANGELOG-GATE-SKIP: no ${CODE_PREFIXES.join(" ")} paths changed (${paths.length} file(s) in ${range})\n`,
+    );
+    process.exit(0);
+  }
+
+  if (!paths.includes(CHANGELOG_REL)) {
+    process.stdout.write(
+      `CHANGELOG-GATE-FAIL: ${touched.length} code file(s) changed (${touched.slice(0, 5).join(", ")}${touched.length > 5 ? ", …" : ""}) with no ${CHANGELOG_REL} update — add one bullet under \`## Unreleased\` naming the TOG id\n`,
+    );
+    process.exit(1);
+  }
+
+  let added;
+  try {
+    const diff = git(opts.root, ["diff", "--unified=0", range, "--", CHANGELOG_REL]);
+    added = diff
+      .split("\n")
+      .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+      .map((line) => line.slice(1));
+  } catch {
+    process.stdout.write(
+      `CHANGELOG-GATE-FAIL: cannot diff ${CHANGELOG_REL} over ${range}\n`,
+    );
+    process.exit(1);
+    return;
+  }
+
+  let section;
+  try {
+    const revised = git(opts.root, ["show", `${opts.head}:${CHANGELOG_REL}`]);
+    section = unreleasedSection(revised);
+  } catch {
+    process.stdout.write(
+      `CHANGELOG-GATE-FAIL: cannot read ${CHANGELOG_REL} at ${opts.head}\n`,
+    );
+    process.exit(1);
+    return;
+  }
+
+  if (section === null) {
+    process.stdout.write(
+      `CHANGELOG-GATE-FAIL: ${CHANGELOG_REL} has no \`## Unreleased\` section\n`,
+    );
+    process.exit(1);
+  }
+
+  const valid = added.filter(
+    (line) => line.startsWith("-") && TOG_RE.test(line) && section.includes(line),
+  );
+  if (valid.length > 0) {
+    process.stdout.write(
+      `CHANGELOG-GATE-OK: ${valid.length} Unreleased bullet(s) with TOG id cover ${touched.length} code file(s)\n`,
+    );
+    process.exit(0);
+  }
+
+  process.stdout.write(
+    `CHANGELOG-GATE-FAIL: no new \`- \` bullet under \`## Unreleased\` names a TOG id — add one line per the release-note process (PR number, TOG id, what changed, files touched)\n`,
+  );
+  process.exit(1);
+}
+
+main();

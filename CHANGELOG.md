@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7317: CHANGELOG Unreleased-entry CI gate — the `changelog-gate`
+  workflow runs `node bin/check-changelog-entry` on `pull_request`
+  (fetch-depth 0): a PR touching `src/`, `web/`, `bin/`, or `test/` without
+  a new `- ` bullet under `## Unreleased` naming a TOG id reds; docs-only,
+  fixture-only, and CHANGELOG-only PRs skip green, pinned offline by
+  `test/changelog-entry-gate.test.js` against scratch git repos
+  (`.github/workflows/changelog-gate.yml`, `bin/check-changelog-entry`,
+  `test/changelog-entry-gate.test.js`).
 - TOG-7302: catalog import --json pinned to the v1 machine schema — the
   schema is now a `command`-dispatched union (`select`/`explain` plus the
   `catalog import` shape), enforced fail-closed via `src/validate-cli-json.js`,
