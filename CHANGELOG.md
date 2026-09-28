@@ -28,6 +28,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   pinned byte-identical for a one-quarantine fixture
   (`test/catalog-import-quarantine-golden.test.js`, test-only, no source
   change: `bin/wayselect` already renders the block).
+- #211 (2026-09-28) TOG-8333: unified `--help` golden across all four bins —
+  `test/cli-help-all-bins.test.js` pins exit-0/empty-stderr plus exact usage
+  bytes for `wayselect`, `wayselect-snapshot`, `wayselect-snapshot-prune`
+  (not covered elsewhere) and `wayselect-search-index-refresh`; test-only, no
+  source change (the snapshot/refresh `--help` fix itself landed via #216,
+  pinned in `test/cli-errors.test.js`).
 - #224 (2026-09-28) TOG-8326: in-band `schemaVersion: "v1"` marker on every
   `--json` payload — `select`/`explain`/`catalog import` outputs carry a
   top-level version marker (`const: "v1"` in `schema/cli-json/v1.json`,
