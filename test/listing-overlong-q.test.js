@@ -53,8 +53,10 @@ describe("overlong-q fail-closed pin (TOG-7296)", () => {
     const q = "a".repeat(LISTINGS_MAX_QUERY_LENGTH + 1);
     const parsed = parseListingsQuery(params(`?q=${encodeURIComponent(q)}`));
     const html = renderInvalidFilter(parsed);
+    // TOG-8615: the error paragraph carries id="filter-error-q" so the
+    // q input's aria-describedby can reference it.
     const expected =
-      `<p>Unknown q &quot;${"a".repeat(64)}&quot;. ` +
+      `<p id="filter-error-q">Unknown q &quot;${"a".repeat(64)}&quot;. ` +
       `Valid values: at most 200 characters.</p>`;
     ok(html.includes(expected), `400 page carries the exact echo bytes, got:\n${html}`);
     ok(html.includes("<h1>Invalid filter</h1>"), "error heading");

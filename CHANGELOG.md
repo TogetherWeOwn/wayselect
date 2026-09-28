@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-8615: invalid-filter 400 page associates errors with inputs — every
+  error entry carries a stable id and the correction filter form references
+  it via `aria-describedby` (plus `aria-invalid` on single-value inputs);
+  facet errors describe their fieldset group, unknown-key errors describe
+  the form (`web/listing-detail.js`,
+  `test/invalid-filter-aria-describedby.test.js`,
+  `test/listing-overlong-q.test.js`).
 - #TBD (2026-09-28) TOG-8619: Dockerfile non-root USER + healthcheck pin — new
   contract test pins the effective runtime user as `node` (no `USER root`/`0`),
   pins `HEALTHCHECK` on `/wayselect-healthz` expecting its 404, and proves the

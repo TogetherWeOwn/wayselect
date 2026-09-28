@@ -430,12 +430,50 @@ function sortOptions(selected) {
   ).join("\n");
 }
 
+// Stable, HTML-safe ids for each invalid-filter error entry (TOG-8615): the
+// first entry of a kind is `filter-error-<kind>`, repeats append `-2`, `-3`,
+// and unknown kinds fall back to `filter-error-item-<index>` so a
+// caller-supplied kind can never inject attribute bytes (the slug keeps only
+// `[a-z0-9_-]`).
+function filterErrorIds(list) {
+  const seen = new Map();
+  return list.map((entry, index) => {
+    const slug = String(entry?.kind ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "");
+    const base = /^[a-z][a-z0-9_-]*$/.test(slug) ? `filter-error-${slug}` : `filter-error-item-${index}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count === 1 ? base : `${base}-${count}`;
+  });
+}
+
+// Ids of the error entries with one kind, in order (TOG-8615). Inputs point
+// at every entry for their kind so repeated bad values (e.g. two bad
+// `capability` params) are all announced.
+function errorRefsFor(kind, list, ids) {
+  const refs = [];
+  list.forEach((entry, index) => {
+    if (entry?.kind === kind) {
+      refs.push(ids[index]);
+    }
+  });
+  return refs;
+}
+
 // Sticky filter inputs (TOG-6733, gap R4-27): the form echoes the submitted
 // `limit`/`offset` alongside `q`/facets/sort so re-submitting the form keeps
 // the current page window instead of silently resetting to 20/0. Values come
 // from the server-sliced `pageInfo` (validated integers upstream), escaped
 // like every other reflected value.
-function filterForm(filters, pageInfo) {
+//
+// TOG-8615: `errors` is the invalid-filter entry list (web/filter.js
+// `{ kind, value, valid }` shapes). Each entry gets a stable id (see
+// `filterErrorIds`) and the control for its kind carries
+// `aria-describedby` pointing at it (plus `aria-invalid` on single-value
+// inputs) so SR users hear the error when they land on the field to fix it.
+// Omitted on the valid index path — no errors, no references.
+function filterForm(filters, pageInfo, errors) {
   const active = filters ?? emptyFilters();
   const q = typeof active.q === "string" ? active.q : "";
   const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
@@ -452,19 +490,30 @@ function filterForm(filters, pageInfo) {
   // the index keeps an unbroken h1 -> h2 hierarchy like the detail page
   // (h1 + h2 Eligibility/Capabilities/List-price). The section name mirrors
   // the form's accessible name so SR users hear one consistent label.
+  // TOG-8615: when `errors` is present, each control references its error
+  // entries via aria-describedby (plus aria-invalid on single-value inputs);
+  // unknown-key (`query`) errors describe the form itself.
+  const list = Array.isArray(errors) && errors.length > 0 ? errors : [];
+  const ids = filterErrorIds(list);
+  const describedAttr = (kind) => {
+    const refs = errorRefsFor(kind, list, ids);
+    return refs.length > 0 ? ` aria-describedby="${refs.join(" ")}"` : "";
+  };
+  const invalidAttr = (kind) =>
+    list.some((entry) => entry?.kind === kind) ? ' aria-invalid="true"' : "";
   return `<section aria-labelledby="filter-heading">
 <h2 id="filter-heading">Filter listings</h2>
-<form method="get" action="/listings" role="search" aria-label="Filter listings">
-<label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"></label>
-<label for="filter-limit">Results per page <input type="number" id="filter-limit" name="limit" value="${escapeHtml(limit)}" min="1" max="${LISTINGS_MAX_LIMIT}"></label>
-<label for="filter-offset">Skip results <input type="number" id="filter-offset" name="offset" value="${escapeHtml(offset)}" min="0"></label>
-<fieldset><legend>Capabilities</legend>
+<form method="get" action="/listings" role="search" aria-label="Filter listings"${describedAttr("query")}>
+<label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"${invalidAttr("q")}${describedAttr("q")}></label>
+<label for="filter-limit">Results per page <input type="number" id="filter-limit" name="limit" value="${escapeHtml(limit)}" min="1" max="${LISTINGS_MAX_LIMIT}"${invalidAttr("limit")}${describedAttr("limit")}></label>
+<label for="filter-offset">Skip results <input type="number" id="filter-offset" name="offset" value="${escapeHtml(offset)}" min="0"${invalidAttr("offset")}${describedAttr("offset")}></label>
+<fieldset id="filter-capabilities"${describedAttr("capability")}><legend>Capabilities</legend>
 ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
 </fieldset>
-<fieldset><legend>Modalities</legend>
+<fieldset id="filter-modalities"${describedAttr("modality")}><legend>Modalities</legend>
 ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 </fieldset>
-<label for="filter-sort">Sort by <select id="filter-sort" name="sort">
+<label for="filter-sort">Sort by <select id="filter-sort" name="sort"${invalidAttr("sort")}${describedAttr("sort")}>
 ${sortOptions(active.sort)}
 </select></label>
 <button type="submit">Apply filters</button>
@@ -482,14 +531,22 @@ function invalidFilterLine({ kind, value, valid }) {
 // (spec-pinned in docs/wayselect-onboarding-spec.md); two or more render
 // as a list so no problem is hidden. `errors` is optional — callers with
 // the legacy `{ kind, value, valid }` shape still render.
+//
+// TOG-8615: every error entry gets a stable `id` (see `filterErrorIds`)
+// and the correction filter form below carries matching `aria-describedby`
+// references on the offending control, so SR users hear the error when
+// they land on the field to fix it. The form shows sticky submitted
+// values where valid; the legacy error copy itself is unchanged.
 export function renderInvalidFilter({ kind, value, valid, errors }, options) {
   const list = Array.isArray(errors) && errors.length > 0 ? errors : [{ kind, value, valid }];
+  const ids = filterErrorIds(list);
   const detail =
     list.length === 1
-      ? `<p>${invalidFilterLine(list[0])}</p>`
-      : `<p>${list.length} invalid filters:</p>\n<ul>\n${list.map((entry) => `<li>${invalidFilterLine(entry)}</li>`).join("\n")}\n</ul>`;
+      ? `<p id="${ids[0]}">${invalidFilterLine(list[0])}</p>`
+      : `<p>${list.length} invalid filters:</p>\n<ul>\n${list.map((entry, index) => `<li id="${ids[index]}">${invalidFilterLine(entry)}</li>`).join("\n")}\n</ul>`;
   const body = `<h1>Invalid filter</h1>
 ${detail}
+${filterForm(undefined, undefined, list)}
 <a class="back" href="/listings">Back to listings</a>`;
   return layout({ title: "Invalid filter", body, cspNonce: pageNonce(options) });
 }
