@@ -618,7 +618,7 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 200, receipt);
         return;
       }
-      sendJson(res, 405, { error: "method_not_allowed" });
+      sendMethodNotAllowed(res, "GET, POST");
       return;
     }
 
