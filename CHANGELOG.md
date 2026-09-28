@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #215 (2026-09-28) TOG-8334: production incident runbook — new `docs/incident-runbook.md`
+  with executable staging rollback (mirrors `docs/deployment-runbook.md` §5),
+  dormant production steps with CEO/CISO gates, health-check commands (§2),
+  owner/approver per step (§1), and a §7 reviewer walk with no dangling
+  references; README docs-index link (docs only, no source change).
 - #230 (2026-09-29) TOG-8456: quarantine models with unknown `limit`
   subfields — unknown keys inside a model's `limit` object quarantine the
   model with a named reason (`limit contains unknown field: <key>`) instead
