@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #176 (2026-09-28) TOG-6736: `bin/` operator catalog doc — one line per
+  script (purpose, when to run, key flags) covering all 29 executables,
+  plus a README docs-index link
+  (`docs/bin-operator-catalog.md`, `README.md`).
 - #170 (2026-09-28) TOG-6044: trailing-slash canonical pin — `/listings` vs `/listings/`
   (and detail `.../p/m` vs `.../p/m/`) both stay 200 with identical bodies
   and carry `<link rel="canonical">` to the slashless path (index, detail

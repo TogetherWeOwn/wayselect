@@ -1,0 +1,45 @@
+# `bin/` operator catalog
+
+One line per executable in `bin/`: what it does, when to run it, and its key flags.
+All paths are relative to the repo root. Unless noted, scripts are stdlib-only
+(no `npm ci` needed), offline, and fixture-only.
+
+Conventions used below: `--now <ISO>` pins the evaluation clock (reproducibility);
+`--max-catalog-age-hours <n>` overrides the 24 h freshness window;
+`--catalog <path>` overrides the default fixture catalog.
+
+| Script | Purpose | When to run | Key flags |
+| --- | --- | --- | --- |
+| `bin/accept-fixture-refresh` | QA acceptance for fixture refresh: re-runs refresh on scratch copies, checks hash pin, same-stamp no-op, `--check`, golden demo, full suite | After touching `bin/refresh-catalog-fixtures` or the refresh pipeline | `--out <file>`, `--keep-tmp` |
+| `bin/accept-wayselect-buyer` | Acceptance for the buyer activation spec (search → compare → terminal honesty) against the real preview server | After changing buyer search/compare surfaces | (none) |
+| `bin/accept-wayselect-buyer-listing` | Acceptance for the buyer listing slice (schema keys, explain trace, stale fail-closed, confirm-intent refusal, provenance receipt) | After changing listing fields or purchase-intent validation | (none) |
+| `bin/accept-wayselect-capability-select` | Acceptance for capability-aware dry-run select (A1–A7 goldens on small fixtures, no network) | After changing select/eligibility capability logic | (none) |
+| `bin/accept-wayselect-checkout` | Acceptance for the preview checkout click-path (listing → eligibility → confirm-intent → stub 403 refusal), happy + decline paths | After changing checkout, eligibility display, or purchase intake | (none) |
+| `bin/accept-wayselect-dryrun-explain` | Acceptance for the CLI `--dry-run` eligibility-explain path with fixture-only inputs | After changing `select`/`explain` output or reason codes | (none) |
+| `bin/accept-wayselect-eligibility` | Acceptance for fail-closed eligibility explain (unknown/blocked capabilities; asserts no `--dry-run` flag — dry-run is the implicit only mode) | After changing eligibility rules or CLI surface | (none) |
+| `bin/accept-wayselect-gateway-phase1` | Acceptance for the Phase-1 gateway handler (auto-route, pinned eligible/ineligible, 401 cases, synthetic-only labels; fetch disabled in-process) | After changing `src/gateway.js` | (none) |
+| `bin/accept-wayselect-payout` | Acceptance for the seller payout-status slice (probes SKIP until the slice lands; still exits 0) | After changing payout fields or payout read/release contract | (none) |
+| `bin/accept-wayselect-search-filter` | Acceptance for the catalog search/filter slice: runs the spec reference filter over the fixture catalog and checks the expected-results table | After changing `src/catalog.js` filtering | (none) |
+| `bin/accept-wayselect-seller` | Acceptance for the seller slice (list baseline; offer/accept + gating probes SKIP until those slices land) | After changing seller surfaces | (none) |
+| `bin/accept-wayselect-seller-payout` | Acceptance for the seller payout-eligibility checklist (PE1–PE6; F-probes SKIP until offers/payout land) | After changing seller submission or payout-eligibility rules | (none) |
+| `bin/accept-wayselect-web` | Acceptance for the web slices (field contract, empty/error states, preview-flag gating; search probes SKIP until that slice lands) | After changing `web/server.js` or listing pages | (none) |
+| `bin/benchmark-large-catalog` | Times normalize / search-index / probe / snapshot / diff over the ~2000-route large fixture and fails when a stage exceeds budget | After changing perf-sensitive catalog paths; keeps `docs/large-catalog-benchmark.md` honest | `--catalog <path>` |
+| `bin/check-ingestion-provenance` | Audits committed staging snapshot backfills in `snapshots/`: provenance pinning, content-hash chain, stale/future backfills | After adding backfills or changing provenance rules; CI gate | `--dir <path>`, `--now <ISO>`, `--max-catalog-age-hours <n>`, or explicit files |
+| `bin/check-models-dev-freshness` | Freshness probe: diffs the live models.dev catalog (or a saved copy) against the fixture snapshot (added/removed/changed) and reports a verdict | Scheduled freshness check or before a fixture refresh; offline with `--input` | `--fetch`, `--input <file>`, `--fetch-url <url>`, `--catalog <path>`, `--now <ISO>`, `--max-catalog-age-hours <n>`, `--report <path>`, `--json` |
+| `bin/check-no-todo-markers` | Fails when tracked debt-marker words appear in text files (case-sensitive whole-word; own source scans clean by construction) | Before pushing; CI marker-gate job (no `npm ci` needed) | `--root <dir>` (scratch-tree scans, used by tests) |
+| `bin/check-node-engines` | Fails fast when the running Node does not satisfy `engines.node` (`>=20`) | First gate before `npm ci`; CI runs it on every matrix leg | (none) |
+| `bin/check-preview-health` | Preview health probe: listing index + detail contract, search-API forward contract (SKIP until search lands), fixture freshness, purchase-stub 403 guard | Scheduled/on-demand staging health check | `--base-url <url>` (deployed preview; default: ephemeral local server), `--catalog <path>`, `--now <ISO>`, `--max-catalog-age-hours <n>` |
+| `bin/check-provenance-drift` | Read-only drift detector on committed fixtures: self-hash vs recorded hash, evidence-file pin, freshness window (never writes, never refreshes) | After any fixture change and on a schedule; pairs with `accept-fixture-refresh` | `--catalog <path>`, `--evidence <path>`, `--now <ISO>`, `--max-catalog-age-hours <n>`, `--out <path>` |
+| `bin/eval-wayselect-search-prompts` | Search-prompt regression eval: compares v1/v2/v3 prompt versions over 30 fixed queries; measures only, never gates (regressions still exit 0) | After changing search ranking or prompt versions; `--write` refreshes the results file | `--seed <n>` (default 5492), `--write` |
+| `bin/pre-push-check` | Runs every CI gate locally (engine, `node --check`, JSON parse, workflow structure, `npm test`, marker gate, smoke + search-index probe, e2E staging evidence + demo) | Before every push; predicts green CI | (none) |
+| `bin/refresh-catalog-fixtures` | Advances the whole fixture set by one uniform clock delta with a recomputed provenance stamp (same stamp = byte-identical no-op); `--check` verifies without writing | The only way to refresh fixtures — never hand-edit; scheduled or on demand | `--timestamp <ISO>`, `--check`, `--catalog/--configuration/--request <path>`, `--source <label>`, `--now <ISO>`, `--max-age-hours <n>` |
+| `bin/smoke-wayselect-ingestion` | Nightly ingestion smoke on fixtures only: normalization + provenance, freshness, stale fail-closed, schema validation, snapshot hashing, dry-run demo | Nightly via CI schedule; runs on every push/PR through the same job | (none) |
+| `bin/smoke-wayselect-staging-preview` | Staging deploy smoke: preview health (index/detail/404/403-refusal/security headers) + buyer happy path | After a staging deploy; without `--base-url` probes an ephemeral local server | `--base-url <url>` (or `WAYSELECT_STAGING_URL`), `--catalog <path>`, `--now <ISO>`, `--max-catalog-age-hours <n>` |
+| `bin/wayselect` | The CLI: `select`/`explain` subcommands (human + `--json`, exit codes 0/1/2/3), `catalog import` ingestion path, and the legacy bare-invocation fixture demo | Daily operator use; `npm run demo` runs the fixture demo | `select`/`explain`: `--catalog/--configuration/--request <path>`, `--operation/--require/--allow/--evaluation-time`, `--json`, `--max-catalog-age-hours <n>`; `catalog import`: file or `--fetch`, `--fetch-url/--source/--snapshot-timestamp/--snapshot-hash/--out`, `--json` |
+| `bin/wayselect-search-index-refresh` | Rebuilds/probes the catalog search index off the loaded fixture; `--check` runs the refresh probe without writing | After changing search-index code; CI via `npm run check:search-index` | `--check`, `--catalog <path>`, `--out <path>`, `--previous <path>`, `--now <ISO>`, `--max-catalog-age-hours <n>` |
+| `bin/wayselect-snapshot` | Writes a staging-only catalog snapshot (recomputed SHA-256, provenance gaps) plus an optional Markdown diff against `--previous`; stale/future catalogs fail closed | Periodic staging snapshots and snapshot diffs | `--catalog <path>`, `--out <dir>`, `--previous <file>`, `--report <path>`, `--now <ISO>`, `--max-catalog-age-hours <n>`, `--fail-on-gaps` |
+| `bin/wayselect-snapshot-prune` | Applies the snapshot retention policy (keep N newest + max age); dry-run by default, deletes only with `--apply`, only `snapshot-*.json` are candidates | Periodic `snapshots/` hygiene | `--dir <path>`, `--keep-last <n>`, `--max-age-days <n>`, `--now <ISO>`, `--apply` |
+
+Related docs: CLI reference (`docs/cli.md`), pre-push gate (`docs/pre-push-check.md`),
+ingestion-smoke triage (`docs/ingestion-smoke-triage-runbook.md`), snapshot retention
+(`docs/snapshot-retention.md`), search-prompt eval rerun (`docs/search-prompt-eval-seed-rerun.md`).
