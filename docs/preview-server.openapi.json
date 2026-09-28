@@ -144,19 +144,30 @@
       }
     },
     "/listings/{provider}/{model}/purchase": {
-      "summary": "Stub CTA target (TOG-5710): never writes, always refuses; NOT flag-gated (refuses with the flag off too)",
+      "summary": "Stub CTA target (TOG-5710): never writes, always refuses; NOT flag-gated (refuses with the flag off too); honors the optional Idempotency-Key header (TOG-6030)",
       "parameters": [
         { "name": "provider", "in": "path", "required": true, "description": "Provider id; exact case-sensitive match, uppercase variants 404 as unknown listings", "schema": { "type": "string" } },
-        { "name": "model", "in": "path", "required": true, "description": "Model id; exact case-sensitive match", "schema": { "type": "string" } }
+        { "name": "model", "in": "path", "required": true, "description": "Model id; exact case-sensitive match", "schema": { "type": "string" } },
+        { "name": "Idempotency-Key", "in": "header", "required": false, "description": "Optional opaque client token (UUID recommended, at most 256 chars). Same key + same purchase replays the stored 403 refusal with the key echoed and replayed:true (no duplicate effect); same key + different route is 422 idempotency_key_reused (mint a fresh key); overlong keys are 400 invalid_idempotency_key. Validation runs after the 404/405 gates, so a key never masks a routing verdict.", "schema": { "type": "string", "maxLength": 256, "example": "550e8400-e29b-41d4-a716-446655440000" } }
       ],
       "post": {
         "operationId": "postPurchase",
-        "summary": "404 for unknown listings (nonexistent resource 404s first), 403 preview_only for real listings; trailing slash is the same route; always JSON",
+        "summary": "404 for unknown listings (nonexistent resource 404s first), 403 preview_only for real listings (with idempotencyKey echo, replayed:true on replay); 400 invalid_idempotency_key for overlong keys; 422 idempotency_key_reused when the key was already used for a different purchase; trailing slash is the same route; always JSON",
         "responses": {
           "403": {
-            "description": "Known listing: purchases disabled in preview, no backend writes; refusal copy is exactly { error: preview_only, message } plus the triage requestId",
+            "description": "Known listing: purchases disabled in preview, no backend writes; first effect echoes the sent Idempotency-Key as idempotencyKey, a replay adds replayed:true — plus the triage requestId",
             "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PurchaseRefusal" } } }
+          },
+          "400": {
+            "description": "Overlong Idempotency-Key (>256 chars): invalid_idempotency_key with the validator vocab (code invalid-value, key idempotencyKey)",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdempotencyKeyRejected" } } }
+          },
+          "422": {
+            "description": "Idempotency-Key already used for a different purchase attempt: mint a fresh key for a different attempt",
+            "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdempotencyKeyReused" } } }
           },
           "404": {
             "description": "Unknown listing or undecodable segments: { error: listing_not_found, requestId }",
@@ -353,10 +364,37 @@
       "PurchaseRefusal": {
         "type": "object",
         "required": ["error", "message", "requestId"],
+        "description": "Preview purchase refusal. idempotencyKey echoes the sent Idempotency-Key header (first effect and replays); replayed:true marks replays.",
         "properties": {
           "error": { "type": "string", "example": "preview_only" },
           "message": { "type": "string", "example": "Purchases are disabled in preview. No backend writes." },
+          "idempotencyKey": { "type": "string", "maxLength": 256, "description": "Echo of the request Idempotency-Key header; absent when no key was sent" },
+          "replayed": { "type": "boolean", "description": "True when this 403 replays a stored idempotency record (no new effect); absent on first effects" },
           "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Triage id echoed from the x-request-id response header (TOG-6717)" }
+        }
+      },
+      "IdempotencyKeyRejected": {
+        "type": "object",
+        "required": ["error", "code", "key", "source", "message", "requestId"],
+        "description": "Overlong Idempotency-Key header (>256 chars): same invalid-value vocab as the purchase validator",
+        "properties": {
+          "error": { "type": "string", "example": "invalid_idempotency_key" },
+          "code": { "type": "string", "example": "invalid-value" },
+          "key": { "type": "string", "example": "idempotencyKey" },
+          "source": { "type": ["string", "null"], "example": null },
+          "message": { "type": "string" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "IdempotencyKeyReused": {
+        "type": "object",
+        "required": ["error", "key", "message", "requestId"],
+        "description": "Idempotency-Key already used for a different purchase attempt: mint a fresh key for a different attempt",
+        "properties": {
+          "error": { "type": "string", "example": "idempotency_key_reused" },
+          "key": { "type": "string", "example": "idempotencyKey" },
+          "message": { "type": "string" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
         }
       },
       "ListingNotFound": {
