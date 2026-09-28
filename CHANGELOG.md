@@ -18,6 +18,14 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #223 (2026-09-28) TOG-8612: oversized JSON body 413 contract pin — new
+  test hits the live preview server's seller-intake route with >64KB bodies
+  over both oversize paths (lying `Content-Length`, chunked stream) and
+  asserts the full refusal contract (413, `{error,key,source,message}` +
+  agreeing `x-request-id`, `no-store`/`nosniff`), plus socket reuse and a
+  still-200 valid intake afterward; audit found the cap
+  (`MAX_JSON_BODY_BYTES`) and mapping already landed, so test-only, no
+  source change (`test/oversized-body-413-contract.test.js`).
 - #213 (2026-09-28) TOG-8061: buyer trust-signals slice — stub ratings (T1 index
   line, T2 detail section), guarantee copy (T3), dispute entry link (T4, no
   second form per F8), single-builder fragment parity (T5), JSON-only
@@ -29,6 +37,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   test/preview-route-table.test.js, test/env-var-matrix.test.js,
   docs/preview-server.openapi.json, docs/wayselect-env-var-matrix.md,
   docs/bin-operator-catalog.md, package.json.
+- #210 (2026-09-28) TOG-8331: reduced-motion audit pin on preview pages — audit
+  found no offenders (both preview layouts already disable the skip-link
+  slide and skeleton pulse under `prefers-reduced-motion`); extends the
+  TOG-5744 pin to all twelve preview renderers (eight listing + four
+  seller) so a new transition or page cannot regress silently
+  (`test/listing-focus-motion.test.js`, test-only, no source change).
 - #227 (2026-09-28) TOG-8639: open-source front-door slice — CI + MIT
   badges at the top of `README.md` (badge URLs verified 200), new
   `docs/export-control.md` (public-availability basis, SHA-256/nonce-only
