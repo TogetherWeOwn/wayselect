@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #203 (2026-09-28) TOG-7287: no-JS fallback audit for listing-detail — `docs/wayselect-no-js-fallback.md`
+  states what renders with JS disabled (full `<noscript>` body N1–N8, byte-identical
+  to the fragment; skeleton/fetch/retry inert), README docs-index link, pinned
+  offline by `test/listing-detail-no-js.test.js` (docs + test only, no source
+  change: the noscript branch already renders `listingDetailBody`).
 - #192 (2026-09-28) TOG-7281: warn-only large-catalog benchmark CI job — the `large-catalog-bench`
   job runs `node bin/benchmark-large-catalog` and uploads the timings JSON as
   the `large-catalog-timings` artifact; a budget miss annotates `::warning::`
