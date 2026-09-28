@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7311: aborted detail-fragment user-visible copy pin — an aborted
+  delayed fragment shows the `role="alert"` error panel and `role="status"`
+  announcement ("Couldn't load listing details. Check your connection and
+  retry."), clears `aria-busy`, and focuses Retry (which re-issues the same
+  JSON fragment request); no `AbortError` special-case in the shell script,
+  pinned offline by `test/detail-fragment-abort-copy.test.js` via `node:vm`
+  execution of the real inline script (test-only, no source change: server
+  timer cleanup landed in #126).
+
 - #194 (2026-09-28) TOG-6061: route-table drift pin — contract test
   extracts exact-path and regex dispatch operands from `web/server.js` and
   set-compares them against `docs/preview-server.openapi.json` paths (plus
