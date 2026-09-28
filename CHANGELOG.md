@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #210 (2026-09-28) TOG-8331: reduced-motion audit pin on preview pages — audit
+  found no offenders (both preview layouts already disable the skip-link
+  slide and skeleton pulse under `prefers-reduced-motion`); extends the
+  TOG-5744 pin to all twelve preview renderers (eight listing + four
+  seller) so a new transition or page cannot regress silently
+  (`test/listing-focus-motion.test.js`, test-only, no source change).
 - #227 (2026-09-28) TOG-8639: open-source front-door slice — CI + MIT
   badges at the top of `README.md` (badge URLs verified 200), new
   `docs/export-control.md` (public-availability basis, SHA-256/nonce-only
