@@ -19,7 +19,10 @@ this pins the large-input paths instead.
 ## Stages and budgets
 
 Run: `npm run bench:large-catalog` (prints JSON `{ timings, budget, ok }`; exits 1 over budget).
-CI cover: `test/large-catalog-benchmark.test.js` asserts the same budgets via `npm test`.
+CI cover: `test/large-catalog-benchmark.test.js` asserts the same budgets via `npm test`
+(enforcement — a miss reds the `test` job), plus the warn-only `large-catalog-bench`
+CI job (measurement — runs the same binary, uploads the timings JSON as the
+`large-catalog-timings` artifact; a miss only annotates `::warning::`, never reds).
 
 | Stage | What | Budget | Measured (2026-09-27, `c76b924` + this slice) | Headroom |
 |---|---|---|---|---|
