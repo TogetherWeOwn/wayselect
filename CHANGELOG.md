@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #208 (2026-09-28) TOG-7131: host-mediated deploy trigger — both deploy jobs move to
+  `ubuntu-latest` (the PUBLIC repo can never match the org's
+  `allows_public_repositories=false` self-hosted groups, so those labels
+  queued forever); Coolify rebuilds from the host mirror via autodeploy with
+  the panel bearer held host-side (TOG-7094), and GitHub owns the Deployment
+  record plus target gate (URL-only), mirror settle, /healthz poll, and
+  post-deploy smoke. No panel credential in the workflow
+  (`.github/workflows/ci.yml`, `scripts/check-deploy-target.mjs`,
+  `test/check-deploy-target.test.js`).
 - #203 (2026-09-28) TOG-7287: no-JS fallback audit for listing-detail — `docs/wayselect-no-js-fallback.md`
   states what renders with JS disabled (full `<noscript>` body N1–N8, byte-identical
   to the fragment; skeleton/fetch/retry inert), README docs-index link, pinned

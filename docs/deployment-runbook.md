@@ -73,7 +73,19 @@ Explicitly **not** server config (do not set these on a deployment):
   `web/server.js` (delays the detail fragment only, unset/non-positive means
   no delay). Do not set it on a deployment.
 
-## 4. Rollback
+## 4. How staging deploys (TOG-7131)
+
+The trigger is host-mediated: Coolify rebuilds from the host mirror
+(`git@<host>:/srv/git/wayselect.git`) via mirror autodeploy, with the panel
+bearer held host-side under operator control (TOG-7094). GitHub holds no
+panel credential and sends no bearer — the `deploy-staging` job
+(`.github/workflows/ci.yml`, `runs-on: ubuntu-latest`) owns the Deployment
+record, the fail-closed URL gate (`scripts/check-deploy-target.mjs`), the
+mirror-settle delay, the `/healthz` settle poll, and the post-deploy smoke.
+Green means "it is live". Host provisioning (mirror, Coolify app, staging
+URL, autodeploy) is operator work on TOG-7094, not in this runbook.
+
+## 5. Rollback
 
 Deployments are immutable image tags; rollback is redeploying the previous tag.
 
@@ -90,7 +102,7 @@ Deployments are immutable image tags; rollback is redeploying the previous tag.
 No data migration exists (no database, no volumes), so rollback is
 stateless: stop the bad container, start the previous tag, probe green.
 
-## 5. What this runbook does NOT cover (explicit non-goals)
+## 6. What this runbook does NOT cover (explicit non-goals)
 
 - No production activation: no prod host, DNS, TLS, secrets manager, or
   traffic cutover is defined here.
