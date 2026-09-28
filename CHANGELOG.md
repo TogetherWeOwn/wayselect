@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #201 (2026-09-28) TOG-6050: cache headers on cacheable GETs — fixture-
+  deterministic success JSON (`GET /healthz`, flag-on index 200 JSON, detail
+  200 JSON fragment) carries `ETag` (strong sha256 content hash) +
+  `Cache-Control: public, max-age=60` with 304 on matching `If-None-Match`;
+  HTML, error JSON (`no-store`), and seller-transactional JSON unchanged
+  (`web/server.js`, `test/cacheable-get-etag.test.js`,
+  `test/json-error-no-store.test.js`, `docs/preview-server.openapi.json`).
 - #190 (2026-09-28) TOG-6733: sticky filter inputs on the index page — the
   filter form echoes submitted `q`/`limit`/`offset` (escaped, from validated
   `pageInfo`) so re-submits keep the current page window; 3-test guard

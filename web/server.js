@@ -5,7 +5,11 @@
 //   GET /healthz                            — liveness probe (TOG-5726):
 //                                            `{status:"ok",version}` JSON,
 //                                            ungated by WAYSELECT_PREVIEW
-//                                            and exempt from rate limiting
+//                                            and exempt from rate limiting;
+//                                            cacheable (TOG-6050): ETag +
+//                                            `Cache-Control: public,
+//                                            max-age=60` with 304 on
+//                                            matching `If-None-Match`
 //   GET /favicon.ico                         — 204 No Content (TOG-6369):
 //                                            ungated by WAYSELECT_PREVIEW;
 //                                            pins the browser-requested icon
@@ -15,10 +19,17 @@
 //                                            flag-on honors `Accept:
 //                                            application/json` with the paged
 //                                            result / invalid-filter error;
-//                                            flag-off stays HTML-only)
+//                                            flag-off stays HTML-only; the
+//                                            flag-on 200 JSON result is
+//                                            cacheable (TOG-6050): ETag +
+//                                            `Cache-Control: public,
+//                                            max-age=60` with 304 on
+//                                            matching `If-None-Match`)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
-//                                            the `{ html }` content fragment)
+//                                            the `{ html }` content fragment,
+//                                            cacheable like the index 200
+//                                            JSON (TOG-6050))
 //   POST /listings/:provider/:model/purchase — stub CTA target: 404 for
 //                                            unknown listings, 403 for known
 //                                            listings (no backend writes)
@@ -69,7 +80,7 @@
 //     `Accept: text/html` without `application/json` (a browser address-bar
 //     navigation). `*/*` (fetch/curl defaults) gets JSON.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { isPreviewEnabled } from "./preview.js";
@@ -192,10 +203,54 @@ function sendJson(res, status, payload) {
     sendJsonError(res, status, payload);
     return;
   }
-  // Success JSON keeps default cache semantics: cacheable GETs (ETag,
-  // validators, 304) belong to TOG-6050, which decides per route there.
+  // Success JSON keeps default cache semantics unless the route opts into
+  // the TOG-6050 cacheable contract below (sendCacheableJson).
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
   res.end(JSON.stringify(payload));
+}
+
+// Cacheable success-JSON contract (TOG-6050): fixture-deterministic GET
+// bodies get a strong content-hash ETag plus a short shared-cache window,
+// with `If-None-Match` revalidation answering 304. Only routes whose 200
+// body is a pure function of fixture data + request target may use this —
+// HTML pages (per-response nonce CSP), error JSON (no-store, TOG-6367),
+// and transactional bodies (seller intents, recordedAt timestamps) stay out.
+// `Vary` is the caller's job (routes that negotiate on Accept already set
+// `Vary: Accept` before calling); this helper only adds the validators.
+export const CACHEABLE_JSON_CACHE_CONTROL = "public, max-age=60";
+
+export function etagForJsonBody(body) {
+  return `"sha256-${createHash("sha256").update(body, "utf8").digest("base64url")}"`;
+}
+
+// Weak comparison per RFC 9110 §13.1.2 (If-None-Match): `*` matches, and a
+// `W/`-prefixed tag matches its strong counterpart by opaque value.
+export function etagMatches(ifNoneMatch, etag) {
+  if (typeof ifNoneMatch !== "string") {
+    return false;
+  }
+  return ifNoneMatch.split(",").some((candidate) => {
+    const tag = candidate.trim().replace(/^W\//, "");
+    return tag === "*" || tag === etag;
+  });
+}
+
+function sendCacheableJson(req, res, status, payload) {
+  const body = JSON.stringify(payload);
+  const etag = etagForJsonBody(body);
+  const headers = {
+    "content-type": "application/json; charset=utf-8",
+    ...SECURITY_HEADERS,
+    "cache-control": CACHEABLE_JSON_CACHE_CONTROL,
+    etag,
+  };
+  if (etagMatches(req.headers?.["if-none-match"], etag)) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(status, headers);
+  res.end(body);
 }
 
 // Wrong-method refusal (TOG-6364): RFC 9110 §15.5.6 requires a 405 response
@@ -385,7 +440,9 @@ export function createApp(env = process.env, options = {}) {
       probePathname = null;
     }
     if (req.method === "GET" && probePathname === "/healthz") {
-      sendJson(res, 200, { status: "ok", version: SERVER_VERSION });
+      // TOG-6050: the probe body is constant per process (version read once
+      // at module load), so it carries the cacheable contract with ETag/304.
+      sendCacheableJson(req, res, 200, { status: "ok", version: SERVER_VERSION });
       return;
     }
     if (probePathname === "/healthz") {
@@ -504,7 +561,10 @@ export function createApp(env = process.env, options = {}) {
       // TOG-6028: bound the HTML render with limit/offset (fail-closed above).
       const { page, total, limit, offset } = paginateListings(ordered, parsed.paging);
       if (wantsIndexJson) {
-        sendJson(res, 200, { listings: page, total, limit, offset });
+        // TOG-6050: the 200 result is a pure function of fixture data +
+        // query, so it carries the cacheable contract with ETag/304. The
+        // 400 invalid_filter error stays on plain sendJson (no-store).
+        sendCacheableJson(req, res, 200, { listings: page, total, limit, offset });
         return;
       }
       sendPage(
@@ -759,7 +819,9 @@ export function createApp(env = process.env, options = {}) {
       if (String(req.headers?.accept ?? "").includes("application/json")) {
         const sendFragment = () => {
           try {
-            sendJson(res, 200, listingDetailFragment(listing));
+            // TOG-6050: the fragment is a pure function of the stub fixture,
+            // so it carries the cacheable contract with ETag/304.
+            sendCacheableJson(req, res, 200, listingDetailFragment(listing));
           } catch {
             const errNonce = newCspNonce();
             sendHtml(
@@ -779,9 +841,10 @@ export function createApp(env = process.env, options = {}) {
           const fragmentTimer = setTimeout(() => {
             req.removeListener("close", onFragmentAbort);
             // The abort may win the race after the delay elapses: writing
-            // to a destroyed socket throws, and the throw inside sendJson
-            // would escape through the timer (the inner catch's sendHtml
-            // throws again). A dropped fragment sends nothing — skip it.
+            // to a destroyed socket throws, and the throw inside
+            // sendCacheableJson would escape through the timer (the inner
+            // catch's sendHtml throws again). A dropped fragment sends
+            // nothing — skip it.
             if (!res.destroyed && !res.writableEnded) {
               sendFragment();
             }
