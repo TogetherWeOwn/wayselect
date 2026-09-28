@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #204 (2026-09-28) TOG-7290: empty-input `select` CLI UX pin — empty catalog (empty body +
+  empty configuration) prints the zero-candidate `no-eligible-route` page
+  (human + `--json`, exit 3), empty configuration excludes every fixture
+  candidate with its reason on both outputs (exit 3, `--json` validates
+  against the v1 schema), and empty catalog with the default configuration
+  fails closed on the first dangling route (exit 1); the empty-catalog
+  `--json` shape (`rankedCandidates: []`) is documented as not validating
+  under the current v1 `minItems: 1` bound (`test/cli-empty-inputs.test.js`,
+  test-only, no source change).
 - #208 (2026-09-28) TOG-7131: host-mediated deploy trigger — both deploy jobs move to
   `ubuntu-latest` (the PUBLIC repo can never match the org's
   `allows_public_repositories=false` self-hosted groups, so those labels
