@@ -58,7 +58,12 @@ describe("double-encoded purchase path segments (TOG-6710)", () => {
 
   function asJson(response, label) {
     strictEqual(response.contentType, JSON_CT, `${label}: JSON content type`);
-    return JSON.parse(response.text);
+    // TOG-6717 rides alongside every error body: this file pins the
+    // decoding→status/error-code mapping, not the envelope shape, so the
+    // triage id is stripped here. The id contract lives in
+    // test/request-id-json-errors.test.js.
+    const { requestId: _requestId, ...body } = JSON.parse(response.text);
+    return body;
   }
 
   it("POST to a collapsing %252F target is the listing route's 405, never a purchase refusal", async () => {

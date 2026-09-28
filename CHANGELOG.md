@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #166 (2026-09-28) TOG-6717: request id on JSON errors — every JSON error
+  carries a crypto-random `x-request-id` header echoed as `requestId` in the
+  body (128-bit hex, distinct per response, header/body agree; success JSON
+  unchanged), so staging triage can match responses to logs
+  (`web/server.js`, `test/request-id-json-errors.test.js`, plus
+  `requestId` tolerance in 12 routing-test pins and updated key lists in
+  the 429/purchase-refusal shape contracts).
 - #168 (2026-09-28) TOG-6042: nightly ingestion-smoke failure-triage runbook — where the
   `17 6 * * *` cron result surfaces, who triages, first 5 diagnostic
   commands, and bug-card vs re-run rule, with a green-cron acceptance

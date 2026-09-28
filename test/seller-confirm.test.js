@@ -231,7 +231,10 @@ describe("seller intake + confirm routes (TOG-4969)", () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
     const missing = await fetch(`${base}/sellers/submissions/northstar/nope/confirm`);
     strictEqual(missing.status, 404);
-    deepStrictEqual(await missing.json(), {
+    // TOG-6717 rides alongside the error fields: this pin owns the
+    // routing (status/routeId), not the envelope shape.
+    const { requestId: _requestId, ...missingBody } = await missing.json();
+    deepStrictEqual(missingBody, {
       error: "no_pending_intent",
       routeId: "northstar/nope",
     });

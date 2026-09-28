@@ -52,7 +52,10 @@ describe("preview 404 content-type contract (TOG-5714)", () => {
     const fragMiss = await get(base, "/listings/northstar/nope", "application/json");
     strictEqual(fragMiss.status, 404);
     strictEqual(fragMiss.contentType, JSON_CT);
-    deepStrictEqual(JSON.parse(fragMiss.text), { error: "listing_not_found" });
+    // TOG-6717 rides alongside the error code: this pin owns the
+    // content-type routing, not the envelope shape.
+    const { requestId: _fragRequestId, ...fragBody } = JSON.parse(fragMiss.text);
+    deepStrictEqual(fragBody, { error: "listing_not_found" });
     // A client negotiating both stays on JSON (the shell fetch contract).
     const both = await get(base, "/listings/northstar/nope", "text/html,application/json");
     strictEqual(both.status, 404);
@@ -66,7 +69,9 @@ describe("preview 404 content-type contract (TOG-5714)", () => {
       const unknown = await get(base, "/nope", accept);
       strictEqual(unknown.status, 404, `accept=${accept}`);
       strictEqual(unknown.contentType, JSON_CT, `accept=${accept}`);
-      deepStrictEqual(JSON.parse(unknown.text), { error: "not_found" }, `accept=${accept}`);
+      // TOG-6717 rides alongside the error code (see above).
+      const { requestId: _unknownRequestId, ...unknownBody } = JSON.parse(unknown.text);
+      deepStrictEqual(unknownBody, { error: "not_found" }, `accept=${accept}`);
     }
     // Explicit browser navigation: HTML not-found page.
     const browser = await get(base, "/nope", "text/html");

@@ -41,7 +41,10 @@ describe("405 Allow header + method consistency (TOG-6364)", () => {
     strictEqual(res.allow, allow, `${where}: Allow header`);
     strictEqual(res.contentType, JSON_CT, `${where}: content-type`);
     strictEqual(res.nosniff, "nosniff", `${where}: security headers`);
-    deepStrictEqual(JSON.parse(res.text), { error: "method_not_allowed" }, where);
+    // TOG-6717 rides alongside the error code: this pin owns the routing
+    // (status/Allow), not the envelope shape, so the triage id is stripped.
+    const { requestId: _requestId, ...body } = JSON.parse(res.text);
+    deepStrictEqual(body, { error: "method_not_allowed" }, where);
   }
 
   it("GET-only routes 405 with `Allow: GET` for every wrong method", async () => {
