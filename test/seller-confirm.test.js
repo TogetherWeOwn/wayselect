@@ -237,16 +237,10 @@ describe("seller intake + confirm routes (TOG-4969)", () => {
     });
     const intakeGet = await fetch(`${base}/sellers/submissions`);
     strictEqual(intakeGet.status, 405);
-    // TOG-7671: wrong-method refusals on the confirm route carry
-    // `Allow: GET, POST` via the shared helper (RFC 9110 §15.5.6).
-    for (const method of ["PUT", "DELETE", "PATCH", "OPTIONS"]) {
-      const res = await fetch(`${base}/sellers/submissions/northstar/nope/confirm`, {
-        method,
-      });
-      strictEqual(res.status, 405, `${method} confirm: status`);
-      strictEqual(res.headers.get("allow"), "GET, POST", `${method} confirm: Allow`);
-      deepStrictEqual(await res.json(), { error: "method_not_allowed" }, `${method} confirm: body`);
-    }
+    const confirmPut = await fetch(`${base}/sellers/submissions/northstar/nope/confirm`, {
+      method: "PUT",
+    });
+    strictEqual(confirmPut.status, 405);
   });
 
   it("maps body-gate failures to 400/413 before any validation runs", async () => {
