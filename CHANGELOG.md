@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #194 (2026-09-28) TOG-6061: route-table drift pin — contract test
+  extracts exact-path and regex dispatch operands from `web/server.js` and
+  set-compares them against `docs/preview-server.openapi.json` paths (plus
+  `routeBucket` lockstep), failing with the stale side named
+  (`test/preview-route-table.test.js`).
+
 - #191 (2026-09-28) TOG-6043: README deploy section matches landed runbook — new
   "Deploying the preview server (staging only)" section (Docker build/run,
   health-probe verify, three-variable env contract, merge-to-main staging
@@ -145,6 +151,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   missing-intent, and rejection pages carry the same focusable skip link +
   `#main-content` target as the listing pages; 4-test served-route guard
   (`test/seller-skiplink.test.js`).
+
 - #182 (2026-09-28) TOG-7661: flag-on index honors `Accept:
   application/json` — 200 paged result `{listings, total, limit, offset}`
   (incl. empty state and offset-past-end with intact total), 400
