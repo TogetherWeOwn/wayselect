@@ -57,7 +57,9 @@ test("TOG-6372: every export of the three audited modules has a doc row", () => 
     );
     total += names.size;
     for (const name of [...names].sort()) {
-      if (!doc.includes(`\`${name}\``)) missing.push(`${rel}: ${name}`);
+      // Table-row anchor: the export must own a `| \`name\` |` row, so
+      // deleting the row (leaving a prose backtick behind) still fails.
+      if (!doc.includes(`| \`${name}\` |`)) missing.push(`${rel}: ${name}`);
     }
   }
   assert.ok(total >= 21, `expected >=21 exports, found ${total} — the parser is broken`);

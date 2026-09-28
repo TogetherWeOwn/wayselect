@@ -101,13 +101,15 @@ Source constants: `DEFAULT_BACKFILL_MAX_AGE_MS` is 24h;
   `bin/smoke-wayselect-ingestion` (exercises `buildSnapshot` via
   `src/index.js`).
 - CI (`.github/workflows/ci.yml`) runs `npm test` (whole suite, including
-  the CLI-exec tests listed above) plus `npm run smoke`. No per-helper-CLI
-  CI job exists; coverage rides the suite.
+  the CLI-exec tests listed above) plus `npm run smoke`, plus a dedicated
+  `search-index-probe` job (`npm run check:search-index` — the R1–R5
+  fixture-only refresh probe). No other per-helper-CLI CI job exists;
+  remaining helper coverage rides the suite.
 
 ## Maintenance
 
 `test/cli-module-coverage.test.js` enforces this doc: it extracts every
 `export const|function|class` name from the three modules and fails if any
-is missing from this doc (backticked), if any backticked `bin/` path in this
+lacks its own `| \`name\` |` table row here, if any backticked `bin/` path in this
 doc does not exist, or if this doc is missing from the `README.md` docs
 index. Add the row when you add the export.
