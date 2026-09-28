@@ -45,6 +45,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   pinned by a pass/reject boundary matrix plus a joined-parts normalization
   row (`src/gateway.js`, `src/index.js`, `src/intakeLimits.js`,
   `test/gateway-intake-limits.test.js`).
+- #184 (2026-09-28) TOG-7317: CHANGELOG Unreleased-entry CI gate — new
+  `changelog-gate` workflow runs `node bin/check-changelog-entry` on
+  `pull_request` (fetch-depth 0): a PR touching `src/`, `web/`, `bin/`, or
+  `test/` without a new `- ` bullet under `## Unreleased` naming a TOG id
+  reds; docs-only, fixture-only, and CHANGELOG-only PRs skip green, pinned
+  offline by `test/changelog-entry-gate.test.js` against scratch git repos
+  (`.github/workflows/changelog-gate.yml`, `bin/check-changelog-entry`,
+  `test/changelog-entry-gate.test.js`).
+
 - #186 (2026-09-28) TOG-7274: seller skip-link parity — served `/sellers` confirm, receipt,
   missing-intent, and rejection pages carry the same focusable skip link +
   `#main-content` target as the listing pages; 4-test served-route guard
