@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- #TBD (2026-09-28) TOG-6368: noindex on preview pages — every HTML page
+- #181 (2026-09-28) TOG-6368: noindex on preview pages — every HTML page
   carries `<meta name="robots" content="noindex, nofollow">` (both layouts)
   and every HTML response carries `X-Robots-Tag: noindex, nofollow`;
   JSON responses carry neither. 6-test guard
