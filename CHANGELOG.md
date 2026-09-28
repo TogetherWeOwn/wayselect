@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7307: gateway intake-limits enforcement matrix pin — `src/intakeLimits.js`
+  gains `MAX_GATEWAY_MESSAGES` (32), `MAX_GATEWAY_MESSAGE_CHARS` (16k), and
+  `MAX_GATEWAY_TOTAL_CHARS` (64k), enforced fail-closed in `src/gateway.js`
+  with 400 `too_many_messages` / `message_too_large` / `messages_too_large`,
+  pinned by a pass/reject boundary matrix plus a joined-parts normalization
+  row (`src/gateway.js`, `src/index.js`, `src/intakeLimits.js`,
+  `test/gateway-intake-limits.test.js`).
 - #177 (2026-09-28) TOG-6040: preview-server route table — OpenAPI 3.1 doc
   covering every route/method/params/status in `web/server.js` (incl.
   `sort` vocabulary, `x-request-id` triage envelope, case-sensitive
