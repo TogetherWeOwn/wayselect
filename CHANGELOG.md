@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-8613: hand-edited snapshot tamper-reason pin — new
+  test asserts the stable `contentHash: recomputed hash does not match the
+  recorded hash` + `backfill may be tampered or edited by hand` reason for a
+  tampered snapshot entry (library audit + `bin/check-ingestion-provenance`
+  CLI), independent of the TOG-7660 declared-hash bug (test-only, no source
+  change: `src/provenanceAudit.js` already emits the reason)
+  (`test/snapshot-tamper-reason.test.js`).
 - #TBD (2026-09-28) TOG-8612: oversized JSON body 413 contract pin — new
   test hits the live preview server's seller-intake route with >64KB bodies
   over both oversize paths (lying `Content-Length`, chunked stream) and
