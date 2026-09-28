@@ -406,6 +406,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Seller acceptance](docs/wayselect-seller-acceptance.md) — list → offer → accept slice.
 - [Seller payout-eligibility checklist](docs/wayselect-seller-payout-eligibility.md) — payout-eligibility rules (part 4).
 - [Snapshot retention policy](docs/snapshot-retention.md) — keep-last-10 + 30-day prune rule and `bin/wayselect-snapshot-prune` usage.
+- [Snapshot backup/restore + catalog rollback](docs/snapshot-backup-restore.md) — back up snapshots, restore one on a scratch copy, roll back a bad catalog ingestion; one-command drill via `bin/accept-snapshot-restore`.
 - [Web acceptance](docs/wayselect-web-acceptance.md) — listing-detail + search/filter web slices.
 - [Slow-network knob](docs/wayselect-slow-network-knob.md) — `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` operator contract (fragment only, never the shell).
 - [No-JS fallback](docs/wayselect-no-js-fallback.md) — what renders with JavaScript disabled on the listing-detail page (full `<noscript>` content, pinned offline).
