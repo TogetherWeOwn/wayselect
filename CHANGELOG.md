@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-6368: noindex on preview pages — every HTML page
+  carries `<meta name="robots" content="noindex, nofollow">` (both layouts)
+  and every HTML response carries `X-Robots-Tag: noindex, nofollow`;
+  JSON responses carry neither. 6-test guard
+  (`web/listing-detail.js`, `web/seller.js`, `web/server.js`,
+  `test/preview-noindex.test.js`).
 - #177 (2026-09-28) TOG-6040: preview-server route table — OpenAPI 3.1 doc
   covering every route/method/params/status in `web/server.js` (incl.
   `sort` vocabulary, `x-request-id` triage envelope, case-sensitive
