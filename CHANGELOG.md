@@ -44,6 +44,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `rate_limited` body), plus POST-bucket independence
   (`test/post-rate-limit-coverage.test.js`, test-only, no source
   change: the limiter already gates every route shape).
+- #197 (2026-09-28) TOG-6726: atomic snapshot writes — `bin/wayselect-snapshot`
+  publishes snapshots and diff reports via temp-file + fsync + rename
+  (`src/atomicWrite.js`), so a mid-write crash leaves the previous file
+  byte-identical instead of a corrupt half-written file; 5-test partial-write
+  pin (`test/snapshot-atomic-write.test.js`).
 - #183 (2026-09-28) TOG-7296: overlong-q fail-closed exact-bytes pin — `q`
   beyond `LISTINGS_MAX_QUERY_LENGTH` (200) fails closed with kind `q`, the
   echo exactly the first 64 input chars, `valid: ["at most 200 characters"]`,
