@@ -50,6 +50,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`.github/workflows/ci.yml`, `test/npm-audit-gate.test.js`,
   `bin/pre-push-check`, `docs/pre-push-check.md`, `CONTRIBUTING.md`,
   `test/pre-push-parity.test.js`).
+- TOG-7281: warn-only large-catalog benchmark CI job — the `large-catalog-bench`
+  job runs `node bin/benchmark-large-catalog` and uploads the timings JSON as
+  the `large-catalog-timings` artifact; a budget miss annotates `::warning::`
+  and never reds (budgets stay enforced by
+  `test/large-catalog-benchmark.test.js`), with a P9 local mirror in
+  `bin/pre-push-check` pinned by `test/pre-push-parity.test.js`
+  (`.github/workflows/ci.yml`, `bin/pre-push-check`,
+  `test/pre-push-parity.test.js`, `docs/pre-push-check.md`,
+  `docs/large-catalog-benchmark.md`, `CONTRIBUTING.md`,
+  `.github/pull_request_template.md`).
 - TOG-7271: gateway operator-key handling audit pin — hostile
   operator/wrong keys through every gateway error path (401 variants,
   500 misconfig/transport branches, all 400 validators), success bodies,
