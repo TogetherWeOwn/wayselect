@@ -21,6 +21,10 @@
 //      npm run check:search-index)
 //   8. E2E staging acceptance (evidence to a temp dir, repo stays clean) +
 //      demo CLI run (the acceptance workflow's local steps)
+//   9. Large-catalog benchmark measurement (TOG-7281: mirrors the warn-only
+//      CI job — runs node bin/benchmark-large-catalog, timings JSON to a
+//      temp dir; an over-budget run prints the same ::warning:: note CI
+//      emits, and fails this gate so a regression is caught before push)
 //
 // Intentionally not run locally: `npm ci` (CI's clean-install step; the
 // local gate uses the existing node_modules), `npm audit --audit-level=high`
@@ -36,7 +40,7 @@
 // Exit code: 0 when every step passes, 1 otherwise.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readdirSync, readFileSync, existsSync, statSync, mkdtempSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, statSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 
@@ -295,6 +299,35 @@ process.stdout.write("RUN P8 — e2e staging acceptance + demo\n");
     ok = fail("P8", "e2e staging acceptance failed", `exit ${e2e.status}`) && ok;
   } else {
     ok = fail("P8", "demo failed", `exit ${demo.status}`) && ok;
+  }
+}
+
+// ---- P9: large-catalog benchmark measurement (TOG-7281: mirrors the
+// warn-only `large-catalog-bench` CI job) ----
+process.stdout.write("RUN P9 — node bin/benchmark-large-catalog\n");
+{
+  const timingsDir = mkdtempSync(join(tmpdir(), "wayselect-pre-push-bench-"));
+  const timingsPath = join(timingsDir, "large-catalog-timings.json");
+  // Mirror the CI step (bench | tee <timings file>): capture stdout to the
+  // temp timings file, repo stays clean. CI annotates an over-budget run
+  // with ::warning:: and stays green; locally the same miss fails this gate
+  // (budgets are also enforced by P5 via test/large-catalog-benchmark.test.js),
+  // so a regression is caught before push.
+  const bench = spawnSync(process.execPath, ["bin/benchmark-large-catalog"], {
+    cwd: ROOT,
+    stdio: "pipe",
+    shell: process.platform === "win32",
+  });
+  try {
+    writeFileSync(timingsPath, bench.stdout ?? "");
+  } catch {
+    // A temp-dir write failure must not mask the bench verdict below.
+  }
+  if (bench.status === 0) {
+    pass("P9", `large-catalog bench green (timings at ${timingsPath})`);
+  } else {
+    process.stdout.write("::warning::large-catalog benchmark over budget (warn-only; budgets enforced by test/large-catalog-benchmark.test.js)\n");
+    ok = fail("P9", "large-catalog benchmark over budget", `exit ${bench.status}; timings at ${timingsPath}`) && ok;
   }
 }
 

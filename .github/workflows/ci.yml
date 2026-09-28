@@ -60,6 +60,40 @@ jobs:
       - run: npm ci
       - run: npm run check:search-index
 
+  large-catalog-bench:
+    # TOG-7281: warn-only large-catalog benchmark measurement, fixture-only,
+    # no network/credentials. Budgets stay enforced by
+    # test/large-catalog-benchmark.test.js (the `test` job); this job only
+    # publishes the timings JSON as an artifact. A budget miss warns, never
+    # reds: the run step uses continue-on-error, the upload runs always with
+    # if-no-files-found:warn, so even a crashing bench keeps this job green.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # NOTE: `run:` leads each step below so the pre-push parity extractor
+      # (test/pre-push-parity.test.js, `-\s*run:`) sees both steps — key
+      # order is irrelevant to YAML/Actions. `shell: bash` selects
+      # `bash -eo pipefail` so a bench exit 1 survives the `| tee` pipe;
+      # the default `bash -e` would report tee's exit 0 and the warning
+      # step below would never fire on a budget miss.
+      - run: node bin/benchmark-large-catalog | tee ${{ runner.temp }}/large-catalog-timings.json
+        id: bench
+        continue-on-error: true
+        shell: bash
+      - run: echo "::warning::large-catalog benchmark over budget (warn-only; budgets enforced by test/large-catalog-benchmark.test.js)"
+        if: steps.bench.outcome == 'failure'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: large-catalog-timings
+          path: ${{ runner.temp }}/large-catalog-timings.json
+          if-no-files-found: warn
+
   marker-gate:
     # TOG-7315: debt-marker introduction gate. Stdlib only, so no `npm ci`:
     # any newly added tracked marker word (see the word list in the script)
