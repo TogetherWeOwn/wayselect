@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-7131: host-mediated deploy trigger — both deploy jobs move to
+- #208 (2026-09-28) TOG-7131: host-mediated deploy trigger — both deploy jobs move to
   `ubuntu-latest` (the PUBLIC repo can never match the org's
   `allows_public_repositories=false` self-hosted groups, so those labels
   queued forever); Coolify rebuilds from the host mirror via autodeploy with
