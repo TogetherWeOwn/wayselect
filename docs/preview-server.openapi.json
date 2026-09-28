@@ -148,11 +148,11 @@
       "parameters": [
         { "name": "provider", "in": "path", "required": true, "description": "Provider id; exact case-sensitive match, uppercase variants 404 as unknown listings", "schema": { "type": "string" } },
         { "name": "model", "in": "path", "required": true, "description": "Model id; exact case-sensitive match", "schema": { "type": "string" } },
-        { "name": "Idempotency-Key", "in": "header", "required": false, "description": "Optional opaque client token (UUID recommended, at most 256 chars). Same key + same purchase replays the stored 403 refusal with the key echoed and replayed:true (no duplicate effect); same key + different route is 422 idempotency_key_reused (mint a fresh key); overlong keys are 400 invalid_idempotency_key. Validation runs after the 404/405 gates, so a key never masks a routing verdict.", "schema": { "type": "string", "maxLength": 256, "example": "550e8400-e29b-41d4-a716-446655440000" } }
+        { "name": "Idempotency-Key", "in": "header", "required": false, "description": "Optional opaque client token (UUID recommended, at most 256 chars). Same key + same purchase replays the stored 403 refusal with the key echoed and replayed:true (no duplicate effect); same key + different route is 422 idempotency_key_reused (mint a fresh key); blank keys are 400 invalid_idempotency_key (missing-field) and overlong keys are 400 invalid_idempotency_key (invalid-value). Validation runs after the 404/405 gates, so a key never masks a routing verdict.", "schema": { "type": "string", "maxLength": 256, "example": "550e8400-e29b-41d4-a716-446655440000" } }
       ],
       "post": {
         "operationId": "postPurchase",
-        "summary": "404 for unknown listings (nonexistent resource 404s first), 403 preview_only for real listings (with idempotencyKey echo, replayed:true on replay); 400 invalid_idempotency_key for overlong keys; 422 idempotency_key_reused when the key was already used for a different purchase; trailing slash is the same route; always JSON",
+        "summary": "404 for unknown listings (nonexistent resource 404s first), 403 preview_only for real listings (with idempotencyKey echo, replayed:true on replay); 400 invalid_idempotency_key for blank/overlong keys; 422 idempotency_key_reused when the key was already used for a different purchase; trailing slash is the same route; always JSON",
         "responses": {
           "403": {
             "description": "Known listing: purchases disabled in preview, no backend writes; first effect echoes the sent Idempotency-Key as idempotencyKey, a replay adds replayed:true — plus the triage requestId",
@@ -160,7 +160,7 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PurchaseRefusal" } } }
           },
           "400": {
-            "description": "Overlong Idempotency-Key (>256 chars): invalid_idempotency_key with the validator vocab (code invalid-value, key idempotencyKey)",
+            "description": "Blank Idempotency-Key (code missing-field) or overlong key (>256 chars, code invalid-value): invalid_idempotency_key with the validator vocab (key idempotencyKey)",
             "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdempotencyKeyRejected" } } }
           },

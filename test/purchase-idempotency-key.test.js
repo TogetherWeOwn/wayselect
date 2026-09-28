@@ -11,8 +11,9 @@
 //     `Idempotency-Key` header — same key + same (routeId, key) effect
 //     replays the 403 refusal with the key echoed and `replayed: true`
 //     (one recorded effect, not two); same key + different route is 422
-//     `idempotency_key_reused`; overlong keys are 400
-//     `invalid_idempotency_key`; no key refuses exactly as before with no
+//     `idempotency_key_reused`; blank/overlong keys are 400
+//     `invalid_idempotency_key` (missing-field/invalid-value, same vocab
+//     as the validator); no key refuses exactly as before with no
 //     echo field; key validation never masks the 404/405 gates and every
 //     error carries the TOG-6717 triage id with header/body agreement.
 //
@@ -261,6 +262,26 @@ describe("purchase route idempotency-key support (TOG-6030)", () => {
     );
     strictEqual(accepted.status, 403, "boundary key: 403");
     strictEqual(accepted.body.idempotencyKey, boundary, "boundary key: echoed");
+  });
+
+  it("fails closed 400 on blank keys, matching the validator (never stored or echoed)", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" }, { logger: () => {} });
+    for (const blank of ["", "   "]) {
+      const res = await fetch(`${base}/listings/northstar/alpha-chat/purchase`, {
+        method: "POST",
+        headers: { [IDEMPOTENCY_KEY_HEADER]: blank },
+      });
+      strictEqual(res.status, 400, `blank key ${JSON.stringify(blank)}: 400`);
+      const body = await res.json();
+      strictEqual(body.error, "invalid_idempotency_key", "400: error name");
+      strictEqual(body.code, "missing-field", "400: validator vocab code");
+      strictEqual(body.key, "idempotencyKey", "400: offending key");
+      assertTriageId(
+        { requestIdHeader: res.headers.get(REQUEST_ID_HEADER), body },
+        `blank key ${JSON.stringify(blank)}`,
+        ["error", "code", "key", "source", "message"],
+      );
+    }
   });
 
   it("refuses without a key exactly as before (no echo field, triage id intact)", async () => {

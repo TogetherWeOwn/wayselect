@@ -46,8 +46,8 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   blank/mistyped/overlong >256 fail closed) and optional `Idempotency-Key`
   header on POST purchase (same key replays the 403 refusal with
   `replayed: true`, no duplicate effect; same key on a different route is
-  422 `idempotency_key_reused`; overlong is 400; never masks the 404/405
-  gates), with OpenAPI + route-table pins (`src/purchase.js`,
+  422 `idempotency_key_reused`; blank/overlong is 400; never masks the
+  404/405 gates), with OpenAPI + route-table pins (`src/purchase.js`,
   `src/intakeLimits.js`, `src/index.js`, `web/server.js`,
   `test/purchase-idempotency-key.test.js`, `test/preview-route-table.test.js`,
   `docs/preview-server.openapi.json`).

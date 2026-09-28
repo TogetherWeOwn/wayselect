@@ -393,20 +393,23 @@ export function createApp(env = process.env, options = {}) {
   // unread stale intents cannot grow the map.
   const sellerIntents = new Map();
   // Purchase idempotency records (TOG-6030): the preview stub records no
-  // durable effect, so the "effect" is the (routeId, echo-fingerprint)
-  // pair — idempotencyKey -> { routeId, fingerprint, storedAt }.
-  // Same key + same fingerprint replays the stored refusal without a new
-  // record; same key + different fingerprint is 422 `idempotency_key_reused`
-  // (the client must mint a fresh key for a different attempt). In-memory
-  // only — restart clears, no backend, no secrets, no PII at rest: only
-  // the route and a canonical fingerprint, never a raw body or key echo
-  // into logs.
+  // durable effect, and the stub takes no body variance (POST purchase
+  // carries no payload — routing is path-only), so the "effect" is just
+  // the route the key was first seen on: idempotencyKey -> { routeId,
+  // fingerprint }. Same key + same route replays the stored refusal
+  // without a new record; same key + different route is 422
+  // `idempotency_key_reused` (the client must mint a fresh key for a
+  // different attempt). In-memory only — restart clears, no backend, no
+  // secrets, no PII at rest: only the route and a canonical fingerprint,
+  // never a raw body or key echo into logs. No TTL: records live for the
+  // process lifetime, bounded by the eviction cap below.
   const purchaseIdempotency = new Map();
-  const purchaseEffects = [];
-  // Effect fingerprint: the (routeId, idempotencyKey) pair the server
+  // Route fingerprint: the (routeId, idempotencyKey) pair the server
   // derives itself — never client-supplied — canonicalized so equal
-  // effects hash equal and unequal effects hash unequal.
-  function purchaseEffectFingerprint(routeId, idempotencyKey) {
+  // pairs match and unequal pairs mismatch. Named for what it hashes
+  // (route + key, not a payload): a future backend with request bodies
+  // must hash the body too, never copy this as real dedup.
+  function purchaseRouteFingerprint(routeId, idempotencyKey) {
     return stableStringify({ idempotencyKey, routeId });
   }
   // Records one idempotent effect, evicting the oldest entries past the cap
@@ -421,11 +424,8 @@ export function createApp(env = process.env, options = {}) {
     }
     purchaseIdempotency.set(idempotencyKey, {
       routeId,
-      fingerprint: purchaseEffectFingerprint(routeId, idempotencyKey),
-      storedAt: now(),
+      fingerprint: purchaseRouteFingerprint(routeId, idempotencyKey),
     });
-    purchaseEffects.push(routeId);
-    return purchaseEffects.length;
   }
   // Reads the live intent for a route: null when never staged or expired.
   // Expired entries are deleted on read so a stale confirm never revives.
@@ -655,16 +655,26 @@ export function createApp(env = process.env, options = {}) {
       // idempotency-key support (TOG-6030, gap G2). Ordering after the
       // 404/405 gates: a replayed key on an unknown listing still 404s,
       // and a wrong-method replay still 405s, so the key never masks a
-      // routing verdict. An overlong key fails closed 400 (same vocab as
-      // the purchase validator: invalid-value on `idempotencyKey`); a
-      // reused key with a different (routeId, key) fingerprint is 422
-      // `idempotency_key_reused` (mint a fresh key for a different
-      // attempt). Same key + same fingerprint replays the stored refusal
-      // without recording a second effect. Without a key the stub refuses
-      // exactly as before (no echo field).
+      // routing verdict. A blank key fails closed 400 (same vocab as
+      // the purchase validator: missing-field on `idempotencyKey`); an
+      // overlong key fails closed 400 (invalid-value); a reused key on
+      // a different route is 422 `idempotency_key_reused` (mint a fresh
+      // key for a different attempt). Same key + same route replays the
+      // stored refusal without recording a second effect. Without a key
+      // the stub refuses exactly as before (no echo field).
       const rawKey = req.headers?.[IDEMPOTENCY_KEY_HEADER];
       const idempotencyKey =
         rawKey === undefined || rawKey === null ? null : String(rawKey);
+      if (idempotencyKey !== null && idempotencyKey.trim() === "") {
+        sendJson(res, 400, {
+          error: "invalid_idempotency_key",
+          code: "missing-field",
+          key: "idempotencyKey",
+          source: null,
+          message: "idempotencyKey must be a non-empty string",
+        });
+        return;
+      }
       if (idempotencyKey !== null && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
         sendJson(res, 400, {
           error: "invalid_idempotency_key",
@@ -677,7 +687,7 @@ export function createApp(env = process.env, options = {}) {
       }
       const routeId = `${providerId}/${modelId}`;
       if (idempotencyKey !== null) {
-        const fingerprint = purchaseEffectFingerprint(routeId, idempotencyKey);
+        const fingerprint = purchaseRouteFingerprint(routeId, idempotencyKey);
         const record = purchaseIdempotency.get(idempotencyKey);
         if (record !== undefined) {
           if (record.fingerprint !== fingerprint) {
