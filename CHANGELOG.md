@@ -18,6 +18,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-8752: purchase validator deep-nesting fail-closed —
+  `assertNoLocationFields` in `src/purchase.js` recursed one frame per
+  nesting level, so a ~100k-deep submission threw an uncaught RangeError
+  instead of a typed `PurchaseSubmissionError`; the walk is now an
+  explicit stack capped at `MAX_LOCATION_SCAN_DEPTH` (32, in
+  `src/intakeLimits.js`, shared for the seller twin under TOG-8429) that
+  fails closed with `invalid-value` naming the offending key, keeping
+  forbidden-field pre-order unchanged, pinned by a 100k-deep regression
+  test at top level and inside provenance (`src/purchase.js`,
+  `src/intakeLimits.js`, `test/purchase.test.js`).
 - #206 (2026-09-28) TOG-7300: catalog-import quarantine human-output golden — the
   `Quarantined N:` block of `wayselect catalog import` (count, `  - route:
   reason` lines, exact placement around the ingested/not-written lines) is

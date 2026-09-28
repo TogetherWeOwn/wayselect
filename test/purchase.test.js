@@ -167,6 +167,33 @@ describe("purchase-submission intake", () => {
     }
   });
 
+  it("fails closed with a typed error on deeply-nested input (TOG-8752)", async () => {
+    const fixtures = await readPurchaseFixtures();
+    const source = "synthetic://wayselect/purchase-fixture-v1";
+
+    // ~100k nesting levels used to throw an uncaught RangeError from
+    // assertNoLocationFields; it must fail closed with PurchaseSubmissionError.
+    let deep = { v: 1 };
+    for (let i = 0; i < 100000; i++) deep = { nest: deep };
+    const topLevel = validSubmission(fixtures);
+    topLevel.evil = deep;
+    assertRejects(topLevel, {
+      code: "invalid-value",
+      key: `${"submission.evil" + ".nest".repeat(31)}.nest`,
+      source,
+    });
+
+    let deepProvenance = { v: 1 };
+    for (let i = 0; i < 100000; i++) deepProvenance = { nest: deepProvenance };
+    const inProvenance = validSubmission(fixtures);
+    inProvenance.provenance.evil = deepProvenance;
+    assertRejects(inProvenance, {
+      code: "invalid-value",
+      key: `${"provenance.evil" + ".nest".repeat(31)}.nest`,
+      source,
+    });
+  });
+
   it("rejects malformed provenance fail-closed", async () => {
     const fixtures = await readPurchaseFixtures();
 
