@@ -152,12 +152,12 @@
       ],
       "post": {
         "operationId": "postPurchase",
-        "summary": "404 for unknown listings (nonexistent resource 404s first), 403 preview_only for real listings (with idempotencyKey echo, replayed:true on replay); 400 invalid_idempotency_key for blank/overlong keys; 422 idempotency_key_reused when the key was already used for a different purchase; trailing slash is the same route; always JSON",
+        "summary": "404 for unknown listings (nonexistent resource 404s first), 403 preview_only for same-origin real listings (with idempotencyKey echo, replayed:true on replay), 403 forbidden_origin for cross-origin requests (TOG-6366, checked before the listing lookup); 400 invalid_idempotency_key for blank/overlong keys; 422 idempotency_key_reused when the key was already used for a different purchase; trailing slash is the same route; always JSON",
         "responses": {
           "403": {
-            "description": "Known listing: purchases disabled in preview, no backend writes; first effect echoes the sent Idempotency-Key as idempotencyKey, a replay adds replayed:true — plus the triage requestId",
+            "description": "Same-origin known listing: purchases disabled in preview, no backend writes; first effect echoes the sent Idempotency-Key as idempotencyKey, a replay adds replayed:true — plus the triage requestId. Cross-origin (Origin/Referer authority mismatch, TOG-6366): { error: forbidden_origin } plus the triage requestId, refused before the listing lookup so known and unknown listings refuse identically",
             "headers": { "x-request-id": { "$ref": "#/components/headers/RequestId" } },
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PurchaseRefusal" } } }
+            "content": { "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/PurchaseRefusal" }, { "$ref": "#/components/schemas/ForbiddenOrigin" }] } } }
           },
           "400": {
             "description": "Blank Idempotency-Key (code missing-field) or overlong key (>256 chars, code invalid-value): invalid_idempotency_key with the validator vocab (key idempotencyKey)",
@@ -474,6 +474,15 @@
           "error": { "type": "string", "example": "idempotency_key_reused" },
           "key": { "type": "string", "example": "idempotencyKey" },
           "message": { "type": "string" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+        }
+      },
+      "ForbiddenOrigin": {
+        "type": "object",
+        "required": ["error", "requestId"],
+        "description": "Cross-origin purchase refusal (TOG-6366): the request's Origin (else Referer) authority mismatched its Host, refused before the listing lookup",
+        "properties": {
+          "error": { "type": "string", "example": "forbidden_origin" },
           "requestId": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
         }
       },

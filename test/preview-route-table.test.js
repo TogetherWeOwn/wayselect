@@ -229,6 +229,7 @@ describe("preview route table (TOG-6040)", () => {
       "PurchaseRefusal",
       "IdempotencyKeyRejected",
       "IdempotencyKeyReused",
+      "ForbiddenOrigin",
       "RateLimited",
       "BodyError",
       "InvalidSubmission",
