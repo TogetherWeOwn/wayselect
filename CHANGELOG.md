@@ -133,6 +133,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   with small newly-authored fixtures only, plus `accept:capability-select`
   (`test/capability-select-golden.test.js`,
   `bin/accept-wayselect-capability-select`, `package.json`, test-only).
+- #118 (2026-09-27) TOG-5722: wire search-index `--check` probe and e2e
+  staging acceptance into CI as fixture-only jobs, no network/credentials
+  (`.github/workflows/ci.yml`).
 - #120 (2026-09-27) TOG-6383: slow-network knob operator doc (gap T5) —
   `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` contract plus guard test
   (`docs/wayselect-slow-network-knob.md`,
