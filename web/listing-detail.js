@@ -82,6 +82,7 @@ function layout({ title, body, cspNonce, canonical }) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">${canonicalTag}
+<meta name="robots" content="noindex, nofollow">
 <title>${escapeHtml(title)} — Wayselect</title>
 <style${nonceAttr(cspNonce)}>
 :root { color-scheme: light dark; }

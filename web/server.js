@@ -112,9 +112,13 @@ const SECURITY_HEADERS = {
 // carry the request nonce (`newCspNonce`), so `style-src`/`script-src`
 // allowlist exactly that nonce and there is no `'unsafe-inline'` anywhere.
 // `form-action 'self'` covers the filter GET form and the purchase POST
-// form.
+// form. TOG-6368: `X-Robots-Tag: noindex, nofollow` keeps stub preview
+// pages out of search indexes — defense in depth alongside the
+// `<meta name="robots">` tag in both HTML layouts (web/listing-detail.js,
+// web/seller.js), covering crawlers that ignore the meta tag.
 const HTML_SECURITY_HEADERS = {
   "x-frame-options": "DENY",
+  "x-robots-tag": "noindex, nofollow",
 };
 
 // TOG-6049: 128-bit nonce per HTML response (base64, CSP grammar-safe).
