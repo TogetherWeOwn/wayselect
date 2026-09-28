@@ -22,6 +22,28 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `bin/check-provenance-drift` asserts 0 clean, 1 on drift, 2 on usage
   error in one place (`test/drift-exit-code-contract.test.js`, test-only,
   no source change).
+- #187 (2026-09-28) TOG-7302: catalog import --json pinned to the v1 machine
+  schema — the schema is now a `command`-dispatched union (`select`/`explain`
+  plus the `catalog import` shape), enforced fail-closed via
+  `src/validate-cli-json.js`, with live output pinned byte-for-byte to
+  `test/fixtures/cli-json-catalog-import.v1.json` so any machine-shape drift
+  fails (`schema/cli-json/v1.json`, `src/validate-cli-json.js`,
+  `test/cli-json-contract.test.js`,
+  `test/fixtures/cli-json-catalog-import.v1.json`,
+  `docs/cli-json-contract.md`).
+- #172 (2026-09-28) TOG-7278: staging smoke probes the gateway — 401 on
+  missing/wrong key (byte-identical, WWW-Authenticate, no transport call)
+  and auto-route dry run (200, dryRun+synthetic, one FakeTransport call),
+  in-process with a per-run throwaway key. Files:
+  bin/smoke-wayselect-staging-preview, support/gateway-smoke-probes.js,
+  test/smoke-gateway-probes.test.js, test/smoke-staging-preview.test.js.
+- #201 (2026-09-28) TOG-6050: cache headers on cacheable GETs — fixture-
+  deterministic success JSON (`GET /healthz`, flag-on index 200 JSON, detail
+  200 JSON fragment) carries `ETag` (strong sha256 content hash) +
+  `Cache-Control: public, max-age=60` with 304 on matching `If-None-Match`;
+  HTML, error JSON (`no-store`), and seller-transactional JSON unchanged
+  (`web/server.js`, `test/cacheable-get-etag.test.js`,
+  `test/json-error-no-store.test.js`, `docs/preview-server.openapi.json`).
 - #190 (2026-09-28) TOG-6733: sticky filter inputs on the index page — the
   filter form echoes submitted `q`/`limit`/`offset` (escaped, from validated
   `pageInfo`) so re-submits keep the current page window; 3-test guard
@@ -35,6 +57,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `rate_limited` body), plus POST-bucket independence
   (`test/post-rate-limit-coverage.test.js`, test-only, no source
   change: the limiter already gates every route shape).
+- #197 (2026-09-28) TOG-6726: atomic snapshot writes — `bin/wayselect-snapshot`
+  publishes snapshots and diff reports via temp-file + fsync + rename
+  (`src/atomicWrite.js`), so a mid-write crash leaves the previous file
+  byte-identical instead of a corrupt half-written file; 5-test partial-write
+  pin (`test/snapshot-atomic-write.test.js`).
 - #183 (2026-09-28) TOG-7296: overlong-q fail-closed exact-bytes pin — `q`
   beyond `LISTINGS_MAX_QUERY_LENGTH` (200) fails closed with kind `q`, the
   echo exactly the first 64 input chars, `valid: ["at most 200 characters"]`,
@@ -42,6 +69,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`test/listing-overlong-q.test.js`, test-only, no source change:
   `web/filter.js` already truncates at 64 and `web/listing-detail.js`
   already renders the single-error paragraph).
+- #195 (2026-09-28) TOG-6728: large-fixture generator determinism pin — test-only run-twice
+  byte-identical assertion on `generateLargeCatalog()` CLI write bytes plus explicit
+  seed/time default pin and seed-divergence guard; documents the seed knob
+  (`test/large-fixture-determinism.test.js`).
 - #180 (2026-09-28) TOG-7307: gateway intake-limits enforcement matrix pin — `src/intakeLimits.js`
   gains `MAX_GATEWAY_MESSAGES` (32), `MAX_GATEWAY_MESSAGE_CHARS` (16k), and
   `MAX_GATEWAY_TOTAL_CHARS` (64k), enforced fail-closed in `src/gateway.js`
@@ -49,6 +80,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   pinned by a pass/reject boundary matrix plus a joined-parts normalization
   row (`src/gateway.js`, `src/index.js`, `src/intakeLimits.js`,
   `test/gateway-intake-limits.test.js`).
+- #184 (2026-09-28) TOG-7317: CHANGELOG Unreleased-entry CI gate — new
+  `changelog-gate` workflow runs `node bin/check-changelog-entry` on
+  `pull_request` (fetch-depth 0): a PR touching `src/`, `web/`, `bin/`, or
+  `test/` without a new `- ` bullet under `## Unreleased` naming a TOG id
+  reds; docs-only, fixture-only, and CHANGELOG-only PRs skip green, pinned
+  offline by `test/changelog-entry-gate.test.js` against scratch git repos
+  (`.github/workflows/changelog-gate.yml`, `bin/check-changelog-entry`,
+  `test/changelog-entry-gate.test.js`).
+
 - #186 (2026-09-28) TOG-7274: seller skip-link parity — served `/sellers` confirm, receipt,
   missing-intent, and rejection pages carry the same focusable skip link +
   `#main-content` target as the listing pages; 4-test served-route guard

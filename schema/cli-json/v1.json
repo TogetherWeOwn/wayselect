@@ -2,144 +2,237 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/TogetherWeOwn/wayselect/schema/cli-json/v1.json",
   "title": "WayselectCliJson",
-  "description": "Versioned schema (v1) for `wayselect select --json` / `wayselect explain --json` machine output. Fail-closed: additionalProperties is false at every object level, so undeclared fields are rejected. Bump procedure: docs/cli-json-contract.md.",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "command",
-    "dryRun",
-    "dryRunLabel",
-    "status",
-    "selectedRouteId",
-    "policy",
-    "rateDisclaimer",
-    "provenance",
-    "request",
-    "evaluationTime",
-    "maxEvidenceAgeHours",
-    "rankedCandidates"
+  "description": "Versioned schema (v1) for wayselect --json machine output, dispatched on `command`: `select`/`explain` share the selection shape; `catalog import` has the import shape. Fail-closed: additionalProperties is false at every object level, so undeclared fields are rejected. Bump procedure: docs/cli-json-contract.md.",
+  "oneOf": [
+    { "$ref": "#/definitions/selectExplain" },
+    { "$ref": "#/definitions/catalogImport" }
   ],
-  "properties": {
-    "command": {
-      "description": "Which subcommand produced this output; the shape is otherwise identical.",
-      "enum": ["select", "explain"]
-    },
-    "dryRun": {
-      "description": "Always true: the CLI is fixture-only, no live model calls.",
-      "const": true
-    },
-    "dryRunLabel": {
-      "description": "Human-readable dry-run banner; pinned so wording changes are declared.",
-      "const": "dry-run / synthetic estimate — no live model calls, credentials, or network use"
-    },
-    "status": {
-      "description": "Routing verdict: a route was selected, or no candidate was eligible.",
-      "enum": ["selected", "no-eligible-route"]
-    },
-    "selectedRouteId": {
-      "description": "Selected route id, or null when status is no-eligible-route.",
-      "anyOf": [
-        { "type": "null" },
-        { "type": "string", "minLength": 1 }
-      ]
-    },
-    "policy": {
-      "description": "Selection policy; pinned so policy changes are declared.",
-      "const": "lowest-synthetic-estimated-rate-then-lexicographic-route-id"
-    },
-    "rateDisclaimer": {
-      "description": "Synthetic-estimate disclaimer; pinned so wording changes are declared.",
-      "const": "Synthetic/list-price estimates only; not actual cost or savings."
-    },
-    "provenance": {
-      "description": "Catalog provenance. fetchedAt is wall-clock (any valid ISO); the rest pins to the fixture.",
+  "definitions": {
+    "selectExplain": {
+      "title": "WayselectSelectExplainJson",
+      "description": "Versioned shape (v1) for `wayselect select --json` / `wayselect explain --json` machine output. The shape is identical apart from `command`. Fail-closed: additionalProperties is false at every object level, so undeclared fields are rejected.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "snapshotTimestamp", "snapshotHash", "fetchedAt"],
+      "required": [
+        "command",
+        "dryRun",
+        "dryRunLabel",
+        "status",
+        "selectedRouteId",
+        "policy",
+        "rateDisclaimer",
+        "provenance",
+        "request",
+        "evaluationTime",
+        "maxEvidenceAgeHours",
+        "rankedCandidates"
+      ],
       "properties": {
-        "source": { "type": "string", "minLength": 1 },
-        "snapshotTimestamp": { "type": "string", "format": "date-time" },
-        "snapshotHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "fetchedAt": { "type": "string", "format": "date-time" }
-      }
-    },
-    "request": {
-      "description": "Normalized selection request. requirements is {} when no typed requirements constrain the request.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["operation", "requiredCapabilities", "providerAllowlist", "requirements"],
-      "properties": {
-        "operation": { "type": "string", "minLength": 1 },
-        "requiredCapabilities": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+        "command": {
+          "description": "Which subcommand produced this output; the shape is otherwise identical.",
+          "enum": ["select", "explain"]
         },
-        "providerAllowlist": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
+        "dryRun": {
+          "description": "Always true: the CLI is fixture-only, no live model calls.",
+          "const": true
         },
-        "requirements": {
-          "description": "Typed requirements (TOG-4794). Empty object when absent; otherwise the normalized seven-field shape.",
+        "dryRunLabel": {
+          "description": "Human-readable dry-run banner; pinned so wording changes are declared.",
+          "const": "dry-run / synthetic estimate — no live model calls, credentials, or network use"
+        },
+        "status": {
+          "description": "Routing verdict: a route was selected, or no candidate was eligible.",
+          "enum": ["selected", "no-eligible-route"]
+        },
+        "selectedRouteId": {
+          "description": "Selected route id, or null when status is no-eligible-route.",
+          "anyOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1 }
+          ]
+        },
+        "policy": {
+          "description": "Selection policy; pinned so policy changes are declared.",
+          "const": "lowest-synthetic-estimated-rate-then-lexicographic-route-id"
+        },
+        "rateDisclaimer": {
+          "description": "Synthetic-estimate disclaimer; pinned so wording changes are declared.",
+          "const": "Synthetic/list-price estimates only; not actual cost or savings."
+        },
+        "provenance": {
+          "description": "Catalog provenance. fetchedAt is wall-clock (any valid ISO); the rest pins to the fixture.",
           "type": "object",
           "additionalProperties": false,
+          "required": ["source", "snapshotTimestamp", "snapshotHash", "fetchedAt"],
           "properties": {
-            "inputModalities": {
+            "source": { "type": "string", "minLength": 1 },
+            "snapshotTimestamp": { "type": "string", "format": "date-time" },
+            "snapshotHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "fetchedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        "request": {
+          "description": "Normalized selection request. requirements is {} when no typed requirements constrain the request.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation", "requiredCapabilities", "providerAllowlist", "requirements"],
+          "properties": {
+            "operation": { "type": "string", "minLength": 1 },
+            "requiredCapabilities": {
               "type": "array",
               "items": { "type": "string", "minLength": 1 }
             },
-            "outputModalities": {
+            "providerAllowlist": {
               "type": "array",
+              "minItems": 1,
               "items": { "type": "string", "minLength": 1 }
             },
-            "minContextWindow": { "type": ["integer", "null"], "minimum": 0 },
-            "maxOutputTokens": { "type": ["integer", "null"], "minimum": 0 },
-            "toolCalling": { "type": "boolean" },
-            "structuredOutput": { "type": "boolean" },
-            "reasoning": { "type": "boolean" }
+            "requirements": {
+              "description": "Typed requirements (TOG-4794). Empty object when absent; otherwise the normalized seven-field shape.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "inputModalities": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "outputModalities": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "minContextWindow": { "type": ["integer", "null"], "minimum": 0 },
+                "maxOutputTokens": { "type": ["integer", "null"], "minimum": 0 },
+                "toolCalling": { "type": "boolean" },
+                "structuredOutput": { "type": "boolean" },
+                "reasoning": { "type": "boolean" }
+              }
+            }
+          }
+        },
+        "evaluationTime": { "type": "string", "format": "date-time" },
+        "maxEvidenceAgeHours": { "type": "number", "minimum": 0 },
+        "rankedCandidates": {
+          "description": "All candidates, eligible first (lowest synthetic rate, then lexicographic route id), then excluded in catalog order.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rank",
+              "routeId",
+              "providerId",
+              "modelId",
+              "supportState",
+              "eligible",
+              "estimatedRatePerMillion",
+              "reasons"
+            ],
+            "properties": {
+              "rank": { "type": "integer", "minimum": 1 },
+              "routeId": { "type": "string", "minLength": 1 },
+              "providerId": { "type": "string", "minLength": 1 },
+              "modelId": { "type": "string", "minLength": 1 },
+              "supportState": {
+                "enum": [
+                  "catalogued",
+                  "configured",
+                  "conformance-tested",
+                  "unavailable",
+                  "unsupported"
+                ]
+              },
+              "eligible": { "type": "boolean" },
+              "estimatedRatePerMillion": { "type": ["number", "null"], "minimum": 0 },
+              "reasons": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
           }
         }
       }
     },
-    "evaluationTime": { "type": "string", "format": "date-time" },
-    "maxEvidenceAgeHours": { "type": "number", "minimum": 0 },
-    "rankedCandidates": {
-      "description": "All candidates, eligible first (lowest synthetic rate, then lexicographic route id), then excluded in catalog order.",
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "rank",
-          "routeId",
-          "providerId",
-          "modelId",
-          "supportState",
-          "eligible",
-          "estimatedRatePerMillion",
-          "reasons"
-        ],
-        "properties": {
-          "rank": { "type": "integer", "minimum": 1 },
-          "routeId": { "type": "string", "minLength": 1 },
-          "providerId": { "type": "string", "minLength": 1 },
-          "modelId": { "type": "string", "minLength": 1 },
-          "supportState": {
-            "enum": [
-              "catalogued",
-              "configured",
-              "conformance-tested",
-              "unavailable",
-              "unsupported"
-            ]
-          },
-          "eligible": { "type": "boolean" },
-          "estimatedRatePerMillion": { "type": ["number", "null"], "minimum": 0 },
-          "reasons": {
-            "type": "array",
-            "items": { "type": "string", "minLength": 1 }
+    "catalogImport": {
+      "title": "WayselectCatalogImportJson",
+      "description": "Versioned shape (v1) for `wayselect catalog import --json` machine output. Fail-closed: additionalProperties is false at every object level, so undeclared fields are rejected.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "dryRun",
+        "networkUsed",
+        "source",
+        "snapshotTimestamp",
+        "snapshotHash",
+        "rawHash",
+        "providerCount",
+        "entryCount",
+        "quarantined",
+        "outPath"
+      ],
+      "properties": {
+        "command": {
+          "description": "Which subcommand produced this output; const-pinned so renames are declared.",
+          "const": "catalog import"
+        },
+        "dryRun": {
+          "description": "Always true: catalog import is a dry-run adapter, never a configuration step.",
+          "const": true
+        },
+        "networkUsed": {
+          "description": "True only for the explicit opt-in --fetch path, which no test exercises.",
+          "type": "boolean"
+        },
+        "source": {
+          "description": "Provenance source label (explicit --source, file:// input path, or fetch URL).",
+          "type": "string",
+          "minLength": 1
+        },
+        "snapshotTimestamp": {
+          "description": "Provenance snapshot timestamp (explicit --snapshot-timestamp, otherwise wall-clock now).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "snapshotHash": {
+          "description": "Canonical SHA-256 body hash of the ingested catalog mapping.",
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "rawHash": {
+          "description": "SHA-256 hash of the raw input text as read.",
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "providerCount": {
+          "description": "Providers with at least one surviving entry; the CLI fails closed on zero entries, so success is >= 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "entryCount": {
+          "description": "Ingested entries; the CLI fails closed on zero, so success is >= 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "quarantined": {
+          "description": "Per-entry quarantine reasons for dropped providers/models; empty when everything ingests cleanly.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["routeId", "reason"],
+            "properties": {
+              "routeId": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 1 }
+            }
           }
+        },
+        "outPath": {
+          "description": "Absolute path the catalog document was written to, or null when no --out was given.",
+          "anyOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1 }
+          ]
         }
       }
     }
