@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #182 (2026-09-28) TOG-7661: flag-on index honors `Accept:
+  application/json` — 200 paged result `{listings, total, limit, offset}`
+  (incl. empty state and offset-past-end with intact total), 400
+  `{error: invalid_filter, kind, value, valid, errors}` for every filter
+  kind incl. sort (with the TOG-6717 request id), HTML default for
+  browsers, `Vary: Accept` on every flag-on variant; flag-off index stays
+  HTML-only (`web/server.js`, `test/listing-index-json.test.js`,
+  `test/vary-accept.test.js`, `test/preview-disabled-json.test.js`,
+  `test/preview-route-table.test.js`, `docs/preview-server.openapi.json`).
 - #131 (2026-09-27) TOG-6910: deploy-on-merge to Coolify staging +
   reviewer-gated production — `deploy-staging`/`deploy-production` jobs in
   `.github/workflows/ci.yml` (self-hosted runners, bearer-header transport
