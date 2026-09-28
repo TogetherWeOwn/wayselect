@@ -327,7 +327,8 @@ describe("sortListings (TOG-6362)", () => {
 describe("filter-bar rendering", () => {
   it("renders a GET filter form with q, capability, modality, and sort controls", () => {
     const html = renderListingIndex(STUB_LISTINGS, undefined, emptyFilters());
-    ok(html.includes('<form method="get" action="/listings"'));
+    // TOG-6393: the form action pins the results fragment.
+    ok(html.includes('<form method="get" action="/listings#results"'));
     ok(html.includes('name="q"'));
     ok(html.includes('name="capability"'));
     ok(html.includes('name="modality"'));

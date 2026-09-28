@@ -123,7 +123,8 @@ describe("filter form keyboard operability (TOG-6038)", () => {
     ok(!form.includes("disabled"), "no disabled controls");
     ok(!form.includes('role="button"'), "no div/span pseudo-buttons");
     ok(form.includes('<button type="submit">Apply filters</button>'), "named submit");
-    ok(form.includes('<a href="/listings">Clear filters</a>'), "named clear link");
+    // TOG-6393: the clear link lands back on the results focus target.
+    ok(form.includes('<a href="/listings#results">Clear filters</a>'), "named clear link");
   });
 
   it("groups controls under named legends with an accessible form name", () => {

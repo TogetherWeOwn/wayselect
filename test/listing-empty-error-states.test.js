@@ -26,11 +26,15 @@ describe("empty-state rendering (index)", () => {
   it("renders the empty copy with a clear link and no result list", () => {
     const html = renderListingIndex([], undefined, emptyFilters());
     ok(html.includes("No listings match these filters."), "empty copy");
-    ok(html.includes('href="/listings"'), "clear link");
+    // TOG-6393: the clear link lands back on the focus target.
+    ok(html.includes('href="/listings#results"'), "clear link");
     ok(html.includes("Clear filters"), "clear link label");
     ok(!html.includes("<ul>"), "no result list");
     ok(html.includes('role="status"'), "empty state announced");
-    ok(html.includes('aria-label="Results"'), "results section kept");
+    ok(
+      html.includes('<section aria-label="Results" id="results" tabindex="-1">'),
+      "results focus target kept",
+    );
   });
 
   it("keeps the filter form with the active filters reflected", () => {
@@ -39,7 +43,8 @@ describe("empty-state rendering (index)", () => {
       undefined,
       { q: "zzz-no-such-listing", capabilities: ["tool_call"], modalities: [] },
     );
-    ok(html.includes('<form method="get" action="/listings"'), "filter form kept");
+    // TOG-6393: the form action pins the results fragment.
+    ok(html.includes('<form method="get" action="/listings#results"'), "filter form kept");
     ok(html.includes('value="zzz-no-such-listing"'), "active q reflected");
     ok(html.includes('value="tool_call" checked'), "active capability checked");
   });
@@ -170,7 +175,7 @@ describe("empty-state and error-state server routes (TOG-5720)", () => {
     const html = await res.text();
     ok(html.includes("No listings match these filters."), "empty copy");
     ok(html.includes("Clear filters"), "clear link");
-    ok(html.includes('href="/listings"'), "clear target");
+    ok(html.includes('href="/listings#results"'), "clear target");
     ok(!html.includes("<ul>"), "no result list");
   });
 

@@ -432,7 +432,15 @@ function filterForm(filters) {
   const q = typeof active.q === "string" ? active.q : "";
   const capabilities = Array.isArray(active.capabilities) ? active.capabilities : [];
   const modalities = Array.isArray(active.modalities) ? active.modalities : [];
-  return `<form method="get" action="/listings" role="search" aria-label="Filter listings">
+  // TOG-6393 (Gap A2): the action pins the in-page `#results` fragment.
+  // Filter submits are plain full-page GETs, so the browser resets focus
+  // to the document on every submit — without a fragment the fresh page
+  // lands at the top and keyboard/SR users must re-find the results.
+  // The action stays the bare index (no query state rides along) with the
+  // static fragment appended, so a stale or hostile query string can never
+  // corrupt the submit target. `Clear filters` below carries the same
+  // fragment for the same reason.
+  return `<form method="get" action="/listings#results" role="search" aria-label="Filter listings">
 <label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"></label>
 <fieldset><legend>Capabilities</legend>
 ${checkboxRow("capability", VALID_CAPABILITIES, capabilities)}
@@ -444,7 +452,7 @@ ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 ${sortOptions(active.sort)}
 </select></label>
 <button type="submit">Apply filters</button>
-<a href="/listings">Clear filters</a>
+<a href="/listings#results">Clear filters</a>
 </form>`;
 }
 
@@ -474,6 +482,12 @@ ${detail}
 // array renders with the legacy "N listings found." copy. Prev/Next links
 // preserve the active filters (and the explicit sort, TOG-6362) so paging
 // never drops a filter or silently reverts to stub order.
+// Pinned fragment every index navigation lands on: the focusable results
+// section (TOG-6393). Appended after escaping at each call site — never
+// inside `pageHref`, so URL building and fragment pinning stay separate
+// and a hostile filter value can never inject past the query string.
+const RESULTS_FRAGMENT = "#results";
+
 function pageHref(filters, limit, offset) {
   const params = new URLSearchParams();
   if (typeof filters?.q === "string" && filters.q !== "") {
@@ -499,15 +513,19 @@ function pageHref(filters, limit, offset) {
 }
 
 function pageNav(filters, total, limit, offset, shown) {
+  // TOG-6393 (Gap A2): Prev/Next are full-page GETs like the filter form,
+  // so they land on `#results` too — the fresh page opens with focus
+  // context at the new window, not at the top. Query state (filters, sort,
+  // paging) is preserved; only the static fragment is appended.
   const links = [];
   if (offset > 0) {
     links.push(
-      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}">Previous</a>`,
+      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}${RESULTS_FRAGMENT}">Previous</a>`,
     );
   }
   if (offset + shown < total) {
     links.push(
-      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}">Next</a>`,
+      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}${RESULTS_FRAGMENT}">Next</a>`,
     );
   }
   return links.length === 0 ? "" : `<nav aria-label="Listings pages"><p>${links.join(" ")}</p></nav>`;
@@ -525,18 +543,27 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
   const windowed = total !== listings.length || offset > 0;
   const countCopy = total === 1 ? "1 listing" : `${total} listings`;
   let results;
+  // TOG-6393 (Gap A2): the results section is the focus target for every
+  // full-page navigation into the index. `tabindex="-1"` is the same
+  // programmatic-focus pattern as `#main-content` in `layout` — reachable
+  // by fragment and script, never added to the tab order (TOG-6038 pins
+  // no tab-order overrides). Every render state carries it so the target
+  // never appears or disappears between navigations. The `role="status"`
+  // announcer (TOG-6051) is untouched: announcement stays separate from
+  // focus, and the paragraph itself takes no id and no tabindex.
+  const resultsOpen = `<section aria-label="Results" id="results" tabindex="-1">`;
   if (listings.length === 0) {
     // Offset past the end is a valid empty page, not a filter miss: say so
     // and link back to the first page instead of blaming the filters.
     results =
       total > 0
-        ? `<section aria-label="Results">\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
-        : `<section aria-label="Results">\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
+        ? `${resultsOpen}\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}${RESULTS_FRAGMENT}">Back to first page</a>\n</section>`
+        : `${resultsOpen}\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings${RESULTS_FRAGMENT}">Clear filters</a>\n</section>`;
   } else {
     const status =
       `${countCopy} found.` + (windowed ? ` Showing ${offset + 1}-${offset + listings.length}.` : "");
     results =
-      `<section aria-label="Results">\n<p role="status" aria-live="polite">${escapeHtml(status)}</p>\n<ul>\n${listings
+      `${resultsOpen}\n<p role="status" aria-live="polite">${escapeHtml(status)}</p>\n<ul>\n${listings
         .map((listing) => {
           const described = describeEligibility(
             evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
