@@ -18,6 +18,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-9168: pin listing `q` unicode contract — `trim().toLowerCase()` only, no
+  NFC/NFKC normalization or casefold (test/listing-filter-unicode.test.js).
+
 - #220 (2026-09-28) TOG-8637: library API reference — `docs/api.md`
   documents the public names re-exported by `src/index.js` with one
   runnable example per export (`docs/api.md`).
