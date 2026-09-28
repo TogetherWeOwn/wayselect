@@ -1,0 +1,328 @@
+#!/usr/bin/env node
+
+// QA acceptance harness for snapshot backup/restore + catalog rollback
+// (TOG-8327; procedure in docs/snapshot-backup-restore.md).
+//
+// What it proves, end to end on scratch copies (live fixtures and the
+// committed snapshots/ directory untouched):
+//   1. backup: the staged backup verifies — refresh --check passes on the
+//      catalog at its recorded stamp, and check-ingestion-provenance passes
+//      on every backed-up snapshot.
+//   2. restore: losing every snapshot and copying the backup back yields a
+//      directory the provenance audit passes (N/N backfills passed).
+//   3. rollback-detect: a bad ingestion (an upstream feed that silently drops
+//      providers, ingested through the real ingestModelsDev boundary) builds
+//      a snapshot whose --previous diff flags every lost route as removed.
+//   4. rollback: byte-restoring the catalog backup returns service —
+//      refresh --check is ok, the demo still selects northstar/alpha-chat on
+//      the fake transport with networkUsed:false, and rebuilding the snapshot
+//      reproduces a committed content hash with no route changes.
+//   5. suite: the full test suite stays green.
+//
+// Usage: node bin/accept-snapshot-restore [--out evidence.json] [--keep-tmp]
+//   (or: npm run accept:snapshot-restore)
+// Zero dependencies: Node standard library only, plus the real src/index.js
+// ingestion primitive for the bad-feed step. No network access. Exit 0 on
+// zero failures, 1 otherwise, 2 on harness errors. Clocks derive from the
+// live catalog stamp (+2h, mirroring support/helpers.js) so the harness stays
+// re-runnable across real refreshes. The bad-feed stamp sits 1h past the
+// recorded stamp so the drill reads as "the bad ingestion arrived later".
+
+import { execFile } from "node:child_process";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { ingestModelsDev } from "../src/index.js";
+
+const execFileAsync = promisify(execFile);
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const ISSUE = "TOG-8327";
+const CLOCK_OFFSET_MS = 2 * 60 * 60 * 1000;
+const BAD_FEED_OFFSET_MS = 60 * 60 * 1000;
+
+const GOLDEN = {
+  status: "selected",
+  routeId: "northstar/alpha-chat",
+  adapter: "fake",
+  networkUsed: false,
+};
+
+function parseArgs(argv) {
+  const out = { out: null, keepTmp: false };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--out") out.out = resolve(argv[++i]);
+    else if (argv[i] === "--keep-tmp") out.keepTmp = true;
+    else if (argv[i] === "--help" || argv[i] === "-h") {
+      process.stdout.write(
+        "Usage: node bin/accept-snapshot-restore [--out evidence.json] [--keep-tmp]\n",
+      );
+      process.exit(0);
+    } else throw new Error(`Unknown argument: ${argv[i]}`);
+  }
+  return out;
+}
+
+async function gitHead() {
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT });
+  return stdout.trim();
+}
+
+async function runBin(script, args) {
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [join(REPO_ROOT, script), ...args], {
+      cwd: REPO_ROOT,
+    });
+    return { ok: true, stdout };
+  } catch (error) {
+    const detail = error.stderr?.trim() || error.stdout?.trim() || error.message;
+    throw new Error(`${script} ${args.join(" ")} exited ${error.code ?? "?"}: ${detail.slice(0, 300)}`);
+  }
+}
+
+const checks = [];
+async function check(name, fn) {
+  try {
+    const detail = await fn();
+    checks.push({ name, status: "pass", detail });
+    process.stdout.write(`PASS  ${name}\n`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    checks.push({ name, status: "fail", detail });
+    process.stdout.write(`FAIL  ${name}: ${detail}\n`);
+  }
+}
+
+function assertEqual(actual, expected, label) {
+  if (actual !== expected)
+    throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+
+// A bad upstream feed: same shape as a real models.dev response, but the
+// legacy and orbit providers (and two northstar models) silently vanished.
+// Small, synthetic, authored for this drill — never a redistributed snapshot.
+function authoredBadFeed() {
+  return {
+    northstar: {
+      id: "northstar",
+      name: "Northstar Synthetic Provider",
+      models: {
+        "alpha-chat": {
+          id: "alpha-chat",
+          name: "Alpha Chat",
+          attachment: false,
+          reasoning: false,
+          tool_call: true,
+          structured_output: true,
+          modalities: { input: ["text"], output: ["text"] },
+          cost: { input: 1, output: 2 },
+        },
+      },
+    },
+  };
+}
+
+function snapshotFiles(dir) {
+  return readdirSync(dir)
+    .filter((name) => name.startsWith("snapshot-") && name.endsWith(".json"))
+    .sort();
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const repoHead = await gitHead();
+  const scratch = mkdtempSync(join(tmpdir(), "snapshot-restore-accept-"));
+  const backup = join(scratch, "backup");
+  const work = join(scratch, "work");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(backup, { recursive: true });
+  mkdirSync(work, { recursive: true });
+
+  const live = {
+    catalog: readFileSync(join(REPO_ROOT, "fixtures/catalog.synthetic.json"), "utf8"),
+    configuration: readFileSync(join(REPO_ROOT, "fixtures/configuration.synthetic.json"), "utf8"),
+    request: readFileSync(join(REPO_ROOT, "fixtures/request.synthetic.json"), "utf8"),
+  };
+  const liveSnapshots = snapshotFiles(join(REPO_ROOT, "snapshots"));
+  if (liveSnapshots.length === 0) {
+    throw new Error("no snapshot-*.json files in snapshots/; nothing to back up");
+  }
+  for (const name of liveSnapshots) {
+    writeFileSync(join(backup, name), readFileSync(join(REPO_ROOT, "snapshots", name), "utf8"));
+  }
+  writeFileSync(join(backup, "catalog.synthetic.json"), live.catalog);
+  writeFileSync(join(backup, "configuration.synthetic.json"), live.configuration);
+  writeFileSync(join(backup, "request.synthetic.json"), live.request);
+  writeFileSync(join(work, "catalog.synthetic.json"), live.catalog);
+  writeFileSync(join(work, "configuration.synthetic.json"), live.configuration);
+  writeFileSync(join(work, "request.synthetic.json"), live.request);
+
+  const recorded = JSON.parse(live.catalog).provenance.snapshotTimestamp;
+  const catalogHash = JSON.parse(live.catalog).provenance.snapshotHash;
+  const workNow = new Date(Date.parse(recorded) + CLOCK_OFFSET_MS).toISOString();
+  const badStamp = new Date(Date.parse(recorded) + BAD_FEED_OFFSET_MS).toISOString();
+  const badNow = new Date(Date.parse(badStamp) + CLOCK_OFFSET_MS).toISOString();
+  const newestBackup = join(backup, liveSnapshots[liveSnapshots.length - 1]);
+  const backupEntryCount = JSON.parse(readFileSync(newestBackup, "utf8")).entries.length;
+  const backupHashes = liveSnapshots.map(
+    (name) => JSON.parse(readFileSync(join(backup, name), "utf8")).contentHash,
+  );
+  process.stdout.write(`backup ${liveSnapshots.length} snapshots + fixture trio (recorded ${recorded})\n`);
+
+  await check("backup: staged backup verifies clean", async () => {
+    const { stdout } = await runBin("bin/refresh-catalog-fixtures", [
+      "--check",
+      "--catalog",
+      join(backup, "catalog.synthetic.json"),
+      "--now",
+      recorded,
+    ]);
+    assertEqual(JSON.parse(stdout).ok, true, "refresh --check ok");
+    const audit = await runBin("bin/check-ingestion-provenance", ["--dir", backup]);
+    const match = audit.stdout.match(/(\d+)\/(\d+) backfills passed/);
+    if (!match || match[1] !== match[2] || match[1] === "0") {
+      throw new Error(`audit did not pass clean: ${audit.stdout.trim().split("\n").pop()}`);
+    }
+    return `refresh --check ok; audit ${match[1]}/${match[2]} backfills passed`;
+  });
+
+  await check("restore: lost snapshots restore from backup", async () => {
+    // Simulate total snapshot loss in work, then copy the backup back.
+    for (const name of snapshotFiles(work)) rmSync(join(work, name));
+    assertEqual(snapshotFiles(work).length, 0, "work snapshots after loss");
+    for (const name of liveSnapshots) {
+      writeFileSync(join(work, name), readFileSync(join(backup, name), "utf8"));
+    }
+    const audit = await runBin("bin/check-ingestion-provenance", ["--dir", work]);
+    const match = audit.stdout.match(/(\d+)\/(\d+) backfills passed/);
+    if (!match || match[1] !== match[2]) {
+      throw new Error(`restored audit did not pass clean: ${audit.stdout.trim().split("\n").pop()}`);
+    }
+    return `restored ${match[1]}/${match[2]} backfills passed`;
+  });
+
+  let badSummary = null;
+  await check("rollback-detect: bad ingestion diff flags removed routes", async () => {
+    const ingested = ingestModelsDev(authoredBadFeed(), {
+      source: "synthetic://wayselect/restore-drill",
+      snapshotTimestamp: badStamp,
+    });
+    assertEqual(ingested.quarantined.length, 0, "bad feed quarantined");
+    writeFileSync(
+      join(work, "bad-catalog.json"),
+      `${JSON.stringify({ provenance: ingested.provenance, catalog: ingested.catalog }, null, 2)}\n`,
+    );
+    const { stdout } = await runBin("bin/wayselect-snapshot", [
+      "--catalog",
+      join(work, "bad-catalog.json"),
+      "--out",
+      work,
+      "--now",
+      badNow,
+      "--previous",
+      newestBackup,
+    ]);
+    badSummary = JSON.parse(stdout).diffSummary;
+    assertEqual(
+      badSummary.removedCount,
+      backupEntryCount - 1,
+      "diff removedCount (every route the bad feed dropped)",
+    );
+    assertEqual(badSummary.routeCountAfter, 1, "bad snapshot route count");
+    return `6→1 routes, removed ${badSummary.removedCount}: ${badSummary.removedCount} lost routes flagged`;
+  });
+
+  await check("rollback: catalog backup restores service", async () => {
+    // Rollback is a byte-restore of the backup, never a hand-edit: the
+    // catalog hash gate fails closed on anything else.
+    writeFileSync(join(work, "catalog.synthetic.json"), readFileSync(join(backup, "catalog.synthetic.json"), "utf8"));
+    assertEqual(
+      readFileSync(join(work, "catalog.synthetic.json"), "utf8"),
+      readFileSync(join(backup, "catalog.synthetic.json"), "utf8"),
+      "restored catalog bytes",
+    );
+    const { stdout: checkOut } = await runBin("bin/refresh-catalog-fixtures", [
+      "--check",
+      "--catalog",
+      join(work, "catalog.synthetic.json"),
+      "--now",
+      recorded,
+    ]);
+    assertEqual(JSON.parse(checkOut).ok, true, "refresh --check ok after rollback");
+    const { stdout: demoOut } = await runBin("bin/wayselect", [
+      "--catalog",
+      join(work, "catalog.synthetic.json"),
+      "--configuration",
+      join(work, "configuration.synthetic.json"),
+      "--request",
+      join(work, "request.synthetic.json"),
+    ]);
+    const demo = JSON.parse(demoOut);
+    assertEqual(demo.selection.status, GOLDEN.status, "selection.status");
+    assertEqual(demo.selection.selected?.routeId, GOLDEN.routeId, "selected.routeId");
+    assertEqual(demo.transport.adapter, GOLDEN.adapter, "transport.adapter");
+    assertEqual(demo.transport.networkUsed, GOLDEN.networkUsed, "transport.networkUsed");
+    assertEqual(demo.provenance.snapshotHash, catalogHash, "demo provenance hash");
+    const { stdout: rebuiltOut } = await runBin("bin/wayselect-snapshot", [
+      "--catalog",
+      join(work, "catalog.synthetic.json"),
+      "--out",
+      work,
+      "--now",
+      workNow,
+      "--previous",
+      newestBackup,
+    ]);
+    const rebuilt = JSON.parse(rebuiltOut);
+    if (!backupHashes.includes(rebuilt.contentHash)) {
+      throw new Error(`rebuilt ${rebuilt.contentHash} matches no committed snapshot (snapshots/ stale?)`);
+    }
+    assertEqual(rebuilt.diffSummary.contentHashChanged, false, "rebuilt contentHashChanged");
+    assertEqual(rebuilt.diffSummary.removedCount, 0, "rebuilt removedCount");
+    return `demo selects ${GOLDEN.routeId}; rebuild reproduces ${rebuilt.contentHash.slice(0, 20)}…`;
+  });
+
+  await check("suite: full test suite stays green", async () => {
+    const files = readdirSync(join(REPO_ROOT, "test"))
+      .filter((f) => f.endsWith(".test.js"))
+      .map((f) => join("test", f));
+    try {
+      await execFileAsync(process.execPath, ["--test", "--import", "./support/no-network-guard.js", ...files], { cwd: REPO_ROOT });
+    } catch (error) {
+      const tail = (error.stdout || "").trim().split("\n").slice(-8).join(" | ");
+      throw new Error(`node --test failed: ${tail.slice(0, 300)}`);
+    }
+    return `${files.length} test files, exit 0`;
+  });
+
+  const failed = checks.filter((c) => c.status === "fail");
+  const evidence = {
+    issue: ISSUE,
+    ranAt: new Date().toISOString(),
+    repoHead,
+    recordedSnapshot: recorded,
+    catalogHash,
+    backupSnapshots: liveSnapshots,
+    backupContentHashes: backupHashes,
+    golden: GOLDEN,
+    checks,
+    verdict: failed.length === 0 ? "PASS" : "NEEDS WORK",
+  };
+  if (args.out) {
+    writeFileSync(args.out, JSON.stringify(evidence, null, 2) + "\n");
+    process.stdout.write(`Evidence: ${args.out}\n`);
+  }
+  process.stdout.write(
+    `\nVerdict: QA ${repoHead.slice(0, 7)}: ${evidence.verdict} (${checks.length - failed.length}/${checks.length} checks passed)\n`,
+  );
+
+  if (!args.keepTmp) rmSync(scratch, { recursive: true, force: true });
+  else process.stdout.write(`Scratch kept: ${scratch}\n`);
+  process.exit(failed.length === 0 ? 0 : 1);
+}
+
+main().catch((error) => {
+  process.stderr.write(`ERROR: ${error instanceof Error ? error.stack : error}\n`);
+  process.exit(2);
+});

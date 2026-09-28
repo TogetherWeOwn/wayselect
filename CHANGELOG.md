@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-8327: snapshot backup/restore + catalog rollback procedure —
+  `docs/snapshot-backup-restore.md` (backup, scratch-copy restore, bad-ingestion
+  diff detection, byte-restore rollback, reviewer walk) with one-command drill
+  `bin/accept-snapshot-restore` (`npm run accept:snapshot-restore`, 5/5 checks
+  incl. full suite, proven on scratch), wiring (`package.json` script, README
+  index, `docs/bin-operator-catalog.md` row), pinned by
+  `test/snapshot-backup-restore.test.js`.
 - #202 (2026-09-28) TOG-7314: /listings pagination filter-persist audit pin — `pageHref`
   keeps q, capability, modality and limit on Prev/Next, numbered pages,
   and the past-end recovery link, with a served round-trip following Next
