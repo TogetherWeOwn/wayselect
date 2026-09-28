@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-7294: purchase-route 405 `Allow` header pin — every non-POST method
+- #199 (2026-09-28) TOG-7294: purchase-route 405 `Allow` header pin — every non-POST method
   on `/listings/:provider/:model/purchase` 405s with `Allow: POST`
   (status + Allow + content-type + nosniff + exact
   `{error:"method_not_allowed"}` body), trailing-slash parity, 405
