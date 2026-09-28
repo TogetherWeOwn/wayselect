@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-8334: production incident runbook — new `docs/incident-runbook.md`
+  with executable staging rollback (mirrors `docs/deployment-runbook.md` §4),
+  dormant production steps with CEO/CISO gates, health-check commands (§2),
+  owner/approver per step (§1), and a §7 reviewer walk with no dangling
+  references; README docs-index link (docs only, no source change).
 - #203 (2026-09-28) TOG-7287: no-JS fallback audit for listing-detail — `docs/wayselect-no-js-fallback.md`
   states what renders with JS disabled (full `<noscript>` body N1–N8, byte-identical
   to the fragment; skeleton/fetch/retry inert), README docs-index link, pinned
