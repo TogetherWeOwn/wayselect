@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-6040: preview-server route table — OpenAPI 3.1 doc covering every
+  route/method/params/status in `web/server.js`, linked from the README
+  docs index, with static + live route coverage
+  (`docs/preview-server.openapi.json`, `test/preview-route-table.test.js`,
+  `README.md` docs index).
 - TOG-6042: nightly ingestion-smoke failure-triage runbook — where the
   `17 6 * * *` cron result surfaces, who triages, first 5 diagnostic
   commands, and bug-card vs re-run rule, with a green-cron acceptance
