@@ -40,6 +40,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   model with a named reason (`limit contains unknown field: <key>`) instead
   of being silently dropped; known `context`/`output` mapping unchanged, plus
   a pin test (`src/ingest.js`, `test/ingest.test.js`).
+- #228 (2026-09-29) TOG-8332: response-header hardening audit — deny-by-default
+  `Permissions-Policy` (`camera=(), microphone=(), geolocation=(), payment=(),
+  usb=()`) on every preview response (HTML/JSON, 200/304/204/4xx/5xx incl. 429);
+  HSTS deliberately absent (plain-HTTP server; RFC 6797 §8.1). Pinned by
+  `test/response-header-hardening.test.js` (`web/server.js`,
+  `test/response-header-hardening.test.js`).
 - #229 (2026-09-28) TOG-8346: open-source community pack — new `CODE_OF_CONDUCT.md`
   (Contributor Covenant v2.1, private-first reporting, no-retaliation rule),
   new `.github/ISSUE_TEMPLATE/` (bug + feature forms, blank issues disabled,
