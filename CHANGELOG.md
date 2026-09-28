@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #172 (2026-09-28) TOG-7278: staging smoke probes the gateway — 401 on
+  missing/wrong key (byte-identical, WWW-Authenticate, no transport call)
+  and auto-route dry run (200, dryRun+synthetic, one FakeTransport call),
+  in-process with a per-run throwaway key. Files:
+  bin/smoke-wayselect-staging-preview, support/gateway-smoke-probes.js,
+  test/smoke-gateway-probes.test.js, test/smoke-staging-preview.test.js.
 - #201 (2026-09-28) TOG-6050: cache headers on cacheable GETs — fixture-
   deterministic success JSON (`GET /healthz`, flag-on index 200 JSON, detail
   200 JSON fragment) carries `ETag` (strong sha256 content hash) +
