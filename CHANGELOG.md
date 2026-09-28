@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- (2026-09-28) TOG-8061: buyer trust-signals slice — stub ratings (T1 index
+- #213 (2026-09-28) TOG-8061: buyer trust-signals slice — stub ratings (T1 index
   line, T2 detail section), guarantee copy (T3), dispute entry link (T4, no
   second form per F8), single-builder fragment parity (T5), JSON-only
   disputes stub routes (D2–D10, `invalid_dispute` fail-closed, in-memory
@@ -29,6 +29,17 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   test/preview-route-table.test.js, test/env-var-matrix.test.js,
   docs/preview-server.openapi.json, docs/wayselect-env-var-matrix.md,
   docs/bin-operator-catalog.md, package.json.
+- #227 (2026-09-28) TOG-8639: open-source front-door slice — CI + MIT
+  badges at the top of `README.md` (badge URLs verified 200), new
+  `docs/export-control.md` (public-availability basis, SHA-256/nonce-only
+  crypto inventory, no controlled technology) linked from the README docs
+  index, and `CONTRIBUTING.md` license line corrected from "not yet chosen"
+  to MIT; header audit finds all 212 code files without per-file headers,
+  recorded in the card comment rather than added (`README.md`,
+  `docs/export-control.md`, `CONTRIBUTING.md`).
+- #220 (2026-09-28) TOG-8637: library API reference — `docs/api.md`
+  documents the public names re-exported by `src/index.js` with one
+  runnable example per export (`docs/api.md`).
 - #214 (2026-09-28) TOG-8429: deep-nesting DoS fix — `assertNoLocationFields` in
   `src/sellerSubmission.js` and `src/purchase.js` recursed one frame per
   nesting level, so a single 6000-deep `provenance.nested` body (~36KB, under
