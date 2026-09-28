@@ -23,6 +23,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   and the past-end recovery link, with a served round-trip following Next
   under q; test-only, no source change (audit: filters already preserved)
   (`test/listing-pagination-filter-persist.test.js`).
+- #216 (2026-09-28) TOG-7659: snapshot and search-index-refresh `--help` —
+  both staging CLIs treated `--help`/`-h` as a value flag and failed with
+  `Missing value for --help` (exit 1); now print usage to stdout with exit 0
+  before value-flag parsing, mirroring `bin/check-provenance-drift`, with
+  regression tests pinning exact usage bytes (`bin/wayselect-snapshot`,
+  `bin/wayselect-search-index-refresh`, `test/cli-errors.test.js`).
 - #200 (2026-09-28) TOG-6727: snapshot-prune directory confinement —
   `bin/wayselect-snapshot-prune` refuses a `--dir` containing `..`
   segments (exit 2, `--dir must not contain .. segments`, zero files
