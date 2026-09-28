@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #205 (2026-09-28) TOG-7309: forced-colors badge treatment audit — the eligibility/
+  capability badges (`.badge-*`) were the one author-colored surface with
+  no `forced-colors: active` rule (focus rings got theirs in #137), so
+  High Contrast flattened every variant to identical boxes; one new rule
+  per layout (`.badge { border: 1px solid CanvasText; }`, buttons need
+  nothing — native controls draw their own borders), pinned by a 5-test
+  guard over every listing + seller page (`web/listing-detail.js`,
+  `web/seller.js`, `test/forced-colors-badges.test.js`).
+
 - #202 (2026-09-28) TOG-7314: /listings pagination filter-persist audit pin — `pageHref`
   keeps q, capability, modality and limit on Prev/Next, numbered pages,
   and the past-end recovery link, with a served round-trip following Next
@@ -66,7 +75,6 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   with private GitHub-Advisory reporting, 72h-ack / 7d-assess / 30d-fix SLA,
   fixture-only scope with explicit out-of-scope list, and a no-bounty statement;
   README gains a Security section pointer (`SECURITY.md`, `README.md`).
-
 - #204 (2026-09-28) TOG-7290: empty-input `select` CLI UX pin — empty catalog (empty body +
   empty configuration) prints the zero-candidate `no-eligible-route` page
   (human + `--json`, exit 3), empty configuration excludes every fixture
