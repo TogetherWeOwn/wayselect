@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #164 (2026-09-27) TOG-6051: index result-count live region — the
+  result-count paragraph carries explicit `aria-live="polite"` alongside
+  `role="status"` in all three index states so filter changes announce the
+  new count (copy unchanged, no visual change)
+  (`web/listing-detail.js`, `test/listing-a11y.test.js`).
 - #163 (2026-09-27) TOG-6047: search-prompt eval seed-rerun contract — documented
   seed 5492 with reviewer rerun steps and expected determinism, plus a pin
   test asserting the doc seed matches the script default, npm script, and

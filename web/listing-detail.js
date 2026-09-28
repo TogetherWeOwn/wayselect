@@ -487,13 +487,13 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
     // and link back to the first page instead of blaming the filters.
     results =
       total > 0
-        ? `<section aria-label="Results">\n<p role="status">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
-        : `<section aria-label="Results">\n<p role="status">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
+        ? `<section aria-label="Results">\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
+        : `<section aria-label="Results">\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
   } else {
     const status =
       `${countCopy} found.` + (windowed ? ` Showing ${offset + 1}-${offset + listings.length}.` : "");
     results =
-      `<section aria-label="Results">\n<p role="status">${escapeHtml(status)}</p>\n<ul>\n${listings
+      `<section aria-label="Results">\n<p role="status" aria-live="polite">${escapeHtml(status)}</p>\n<ul>\n${listings
         .map((listing) => {
           const described = describeEligibility(
             evaluations.get(`${listing.providerId}/${listing.modelId}`) ?? null,
