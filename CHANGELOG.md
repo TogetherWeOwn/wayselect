@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #200 (2026-09-28) TOG-6727: snapshot-prune directory confinement —
+  `bin/wayselect-snapshot-prune` refuses a `--dir` containing `..`
+  segments (exit 2, `--dir must not contain .. segments`, zero files
+  deleted) before any listing or deletion; resolved absolute scratch dirs
+  stay legal (`bin/wayselect-snapshot-prune`, `src/cliErrors.js`,
+  `src/index.js`, `docs/snapshot-retention.md`,
+  `test/snapshot-prune.test.js`).
 - TOG-7311: aborted detail-fragment user-visible copy pin — an aborted
   delayed fragment shows the `role="alert"` error panel and `role="status"`
   announcement ("Couldn't load listing details. Check your connection and
