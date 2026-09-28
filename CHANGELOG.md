@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7300: catalog-import quarantine human-output golden — the
+  `Quarantined N:` block of `wayselect catalog import` (count, `  - route:
+  reason` lines, exact placement around the ingested/not-written lines) is
+  pinned byte-identical for a one-quarantine fixture
+  (`test/catalog-import-quarantine-golden.test.js`, test-only, no source
+  change: `bin/wayselect` already renders the block).
 - #224 (2026-09-28) TOG-8326: in-band `schemaVersion: "v1"` marker on every
   `--json` payload — `select`/`explain`/`catalog import` outputs carry a
   top-level version marker (`const: "v1"` in `schema/cli-json/v1.json`,
