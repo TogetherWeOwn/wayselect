@@ -24,7 +24,7 @@ Conventions across every export:
 - `options.now` pins the clock; `evaluationOptions` in `support/helpers.js`
   uses snapshot + 2h with `skipCatalogCheck: true`.
 
-The surface below is exactly the 89 names re-exported by `src/index.js`
+The surface below is exactly the 90 names re-exported by `src/index.js`
 (grouped by source module). Helpers that live in a source module but are
 *not* re-exported (e.g. `isRouteId`, `nowMs`, `SCHEMA_VERSION`) are
 intentionally omitted.
@@ -476,6 +476,18 @@ console.log(MAX_DESCRIPTION_LENGTH);
 ```js
 import { MAX_ETAG_LENGTH } from "./src/index.js";
 console.log(MAX_ETAG_LENGTH);
+// 256
+```
+
+### `MAX_IDEMPOTENCY_KEY_LENGTH`
+
+Cap for the optional client-generated purchase idempotency token
+(UUID recommended; sent as the `Idempotency-Key` header on the preview
+purchase route, validated in `src/purchase.js`).
+
+```js
+import { MAX_IDEMPOTENCY_KEY_LENGTH } from "./src/index.js";
+console.log(MAX_IDEMPOTENCY_KEY_LENGTH);
 // 256
 ```
 
