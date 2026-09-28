@@ -124,29 +124,35 @@ function assertKnownKeys(value, allowedKeys, label, key, source) {
 // catch (here callers catch `instanceof PurchaseSubmissionError`). Not
 // HTTP-reachable today (the purchase route ignores bodies), but the buyer
 // acceptance scripts run this validator, so the same crash applied there.
-// Visits the same nodes in the same pre-order as the old recursion, so the
-// first forbidden field reported is unchanged.
+// The frame stack below replays the old recursion's depth-first pre-order
+// exactly, so the first forbidden field reported is byte-identical.
 function assertNoLocationFields(value, path, source) {
-  const pending = [[value, path]];
-  while (pending.length > 0) {
-    const [current, currentPath] = pending.pop();
-    if (current === null || typeof current !== "object") {
+  const frames = [{ value, path, entries: null, index: 0 }];
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1];
+    if (frame.value === null || typeof frame.value !== "object") {
+      frames.pop();
       continue;
     }
-    const entries = Object.entries(current);
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-      const [field, nested] = entries[index];
-      const key = `${currentPath}.${field}`;
-      if (FORBIDDEN_LOCATION_KEYS.has(field)) {
-        fail(
-          "forbidden-field",
-          key,
-          source,
-          `submission must not contain executable location field: ${key}`,
-        );
-      }
-      pending.push([nested, key]);
+    if (frame.entries === null) {
+      frame.entries = Object.entries(frame.value);
     }
+    if (frame.index >= frame.entries.length) {
+      frames.pop();
+      continue;
+    }
+    const [field, nested] = frame.entries[frame.index];
+    frame.index += 1;
+    const key = `${frame.path}.${field}`;
+    if (FORBIDDEN_LOCATION_KEYS.has(field)) {
+      fail(
+        "forbidden-field",
+        key,
+        source,
+        `submission must not contain executable location field: ${key}`,
+      );
+    }
+    frames.push({ value: nested, path: key, entries: null, index: 0 });
   }
 }
 

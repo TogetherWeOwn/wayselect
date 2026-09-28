@@ -115,6 +115,73 @@ describe("deep-nesting DoS regression (TOG-8429)", () => {
     throw new Error("expected a forbidden-field rejection for the buried url, but the submission passed");
   });
 
+  it("reports the first forbidden field in the old recursion's depth-first pre-order", async () => {
+    // Re-review pin (TOG-8917): the frame stack must replay the old recursion
+    // exactly — dive into a value before checking the next sibling. Unknown
+    // wrapper keys carry the shapes so the location scan (which runs before
+    // the unknown-field check) is what reports them.
+    const shapes = [
+      [
+        "nested dives before later sibling",
+        { a: { url: "https://evil.example.invalid" }, endpoint: "https://evil.example.invalid" },
+        "submission.a.url",
+      ],
+      [
+        "earlier sibling still wins",
+        { endpoint: "https://evil.example.invalid", a: { url: "https://evil.example.invalid" } },
+        "submission.endpoint",
+      ],
+      [
+        "deep pair resolves innermost-first",
+        {
+          a: { b: { baseUrl: "https://evil.example.invalid" } },
+          c: { apiUrl: "https://evil.example.invalid" },
+        },
+        "submission.a.b.baseUrl",
+      ],
+      [
+        "arrays index in order",
+        { items: [{ url: "https://evil.example.invalid" }, { endpoint: "https://evil.example.invalid" }] },
+        "submission.items.0.url",
+      ],
+    ];
+    const fixtures = JSON.parse(
+      await readFile(new URL("../fixtures/seller-submission.synthetic.json", import.meta.url), "utf8"),
+    );
+    for (const [name, shape, expectedKey] of shapes) {
+      const body = { ...fixtures.valid, ...shape };
+      try {
+        validateSellerSubmission(body, { now: NOW });
+      } catch (error) {
+        ok(error instanceof SellerSubmissionError, `${name}: typed error, got ${error}`);
+        strictEqual(error.code, "forbidden-field", `${name}: code`);
+        strictEqual(error.key, expectedKey, `${name}: key`);
+        continue;
+      }
+      throw new Error(`${name}: expected a forbidden-field rejection, but the submission passed`);
+    }
+  });
+
+  it("purchase validator reports the first forbidden field in depth-first pre-order", async () => {
+    const fixtures = JSON.parse(
+      await readFile(new URL("../fixtures/purchase.synthetic.json", import.meta.url), "utf8"),
+    );
+    const body = {
+      ...fixtures.valid,
+      a: { url: "https://evil.example.invalid" },
+      endpoint: "https://evil.example.invalid",
+    };
+    try {
+      validatePurchaseSubmission(body, { now: NOW });
+    } catch (error) {
+      ok(error instanceof PurchaseSubmissionError, `expected PurchaseSubmissionError, got ${error}`);
+      strictEqual(error.code, "forbidden-field", "code");
+      strictEqual(error.key, "submission.a.url", "nested dives before later sibling");
+      return;
+    }
+    throw new Error("expected a forbidden-field rejection, but the submission passed");
+  });
+
   it("purchase validator fails closed with unknown-field at repro depth", async () => {
     const fixtures = JSON.parse(
       await readFile(new URL("../fixtures/purchase.synthetic.json", import.meta.url), "utf8"),

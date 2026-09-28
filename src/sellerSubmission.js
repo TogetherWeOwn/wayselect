@@ -150,31 +150,38 @@ function assertKnownKeys(value, allowedKeys, label, key, source) {
 // `{"n": ...}` nesting (well under the 64KB body gate) exhausted the call
 // stack: the RangeError escaped the route's `instanceof
 // SellerSubmissionError` catch in web/server.js and killed the whole preview
-// process (one request = remote DoS). The stack below visits the same nodes
-// in the same pre-order as the old recursion, so the first forbidden field
-// reported is unchanged — only the call-stack growth is gone, and any depth
-// fails closed with a typed error.
+// process (one request = remote DoS). The frame stack below replays the old
+// recursion's depth-first pre-order exactly — check each field name, then
+// descend into its value before the next sibling — so the first forbidden
+// field reported is byte-identical to the old code. Only the call-stack
+// growth is gone, and any depth fails closed with a typed error.
 function assertNoLocationFields(value, path, source) {
-  const pending = [[value, path]];
-  while (pending.length > 0) {
-    const [current, currentPath] = pending.pop();
-    if (current === null || typeof current !== "object") {
+  const frames = [{ value, path, entries: null, index: 0 }];
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1];
+    if (frame.value === null || typeof frame.value !== "object") {
+      frames.pop();
       continue;
     }
-    const entries = Object.entries(current);
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-      const [field, nested] = entries[index];
-      const key = `${currentPath}.${field}`;
-      if (FORBIDDEN_LOCATION_KEYS.has(field)) {
-        fail(
-          "forbidden-field",
-          key,
-          source,
-          `submission must not contain executable location field: ${key}`,
-        );
-      }
-      pending.push([nested, key]);
+    if (frame.entries === null) {
+      frame.entries = Object.entries(frame.value);
     }
+    if (frame.index >= frame.entries.length) {
+      frames.pop();
+      continue;
+    }
+    const [field, nested] = frame.entries[frame.index];
+    frame.index += 1;
+    const key = `${frame.path}.${field}`;
+    if (FORBIDDEN_LOCATION_KEYS.has(field)) {
+      fail(
+        "forbidden-field",
+        key,
+        source,
+        `submission must not contain executable location field: ${key}`,
+      );
+    }
+    frames.push({ value: nested, path: key, entries: null, index: 0 });
   }
 }
 
