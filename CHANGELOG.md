@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-7299: search-index queue dedup single-flight pin — 8 overlapping
+  identical enqueues collapse to one pending job (`deduped:true`, same
+  `jobId`, `pendingCount()===1`, single drain result), distinct refreshes
+  drain FIFO and agree with independent builds, and re-stamped bodies stay
+  distinct (`test/search-index-queue-dedup.test.js`, test-only, no source
+  change: `createRefreshQueue` already keys on body hash + provenance
+  stamp).
 - TOG-7280: npm audit CI gate — the `audit` job runs
   `npm audit --audit-level=high` after `npm ci`, so a new high/critical
   advisory reds CI; registry-dependent, so CI-only by design with the
