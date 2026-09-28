@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #168 (2026-09-28) TOG-6042: nightly ingestion-smoke failure-triage runbook — where the
+  `17 6 * * *` cron result surfaces, who triages, first 5 diagnostic
+  commands, and bug-card vs re-run rule, with a green-cron acceptance
+  check (`docs/ingestion-smoke-triage-runbook.md`, `README.md` docs index).
 - #161 (2026-09-27) TOG-6362: explicit `sort` param on `/listings` (gap G1) —
   `default` keeps stub order; `price-asc` / `price-desc` order by the synthetic
   list-price estimate with unknown prices last and code-unit route-ID tie-break;

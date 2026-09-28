@@ -310,6 +310,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
 - [Search-prompt eval seed-rerun contract](docs/search-prompt-eval-seed-rerun.md) — documented seed 5492, rerun steps, and expected determinism for the search-prompt regression eval.
 - [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
+- [Nightly ingestion-smoke triage runbook](docs/ingestion-smoke-triage-runbook.md) — where the `17 6 * * *` cron surfaces, who triages, first 5 commands, bug-card vs re-run rule.
 - [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
 - [Buyer listing spec](docs/wayselect-buyer-listing.md) — listing fields + purchase acceptance (v2).
 - [Eligibility-explain acceptance](docs/wayselect-eligibility-acceptance.md) — fail-closed eligibility paths on the CLI.
