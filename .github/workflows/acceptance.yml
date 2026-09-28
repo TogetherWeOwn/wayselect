@@ -1,0 +1,22 @@
+name: acceptance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  acceptance:
+    # TOG-4800: release acceptance gate. The matrix covers Node 20 (the
+    # minimum in package.json engines) and the current LTS.
+    strategy:
+      matrix:
+        node-version: [20.x, 24.x]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: acceptance (clean checkout, install, test, demo, edge spot-checks)
+        run: scripts/acceptance.sh

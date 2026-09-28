@@ -1,0 +1,47 @@
+# Automated dependency-update PRs (TOG-6386, Gap O2).
+#
+# Policy: docs/dependency-update-policy.md. This file is the automation behind
+# the monthly check — it opens PRs, it never merges them (no auto-merge:
+# every update lands via human review on a policy-conformant PR).
+#
+# Free tier: Dependabot version updates are free for public repos.
+# Rooms used: npm (3 pinned packages) + github-actions (2 CI pins).
+# Monthly PR arrival is the trigger for the first-week-of-month owner review.
+# Dependabot does not support day-of-month scheduling, so "first week" stays
+# a human step on the tracking card, not a machine schedule.
+#
+# npm notes:
+# - `versioning-strategy: increase` preserves the exact-pin style (no ^/~
+#   ranges introduced); the lockfile updates in the same PR.
+# - minor+patch are grouped into ONE PR per cycle (policy: one
+#   policy-conformant PR per cycle); majors arrive separately so major bumps
+#   stay deliberate PRs, never drive-bys.
+#
+# github-actions notes:
+# - Dependabot opens action PRs as floating tags (`@v4`). Policy requires
+#   SHA pins with the tag as trailing comment (`@<sha> # v4`), so the
+#   reviewer MUST convert the ref to SHA-pin form before merge. Never merge
+#   a floating-tag action update as-is.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"

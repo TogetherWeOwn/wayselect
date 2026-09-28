@@ -18,5 +18,15 @@
   { "id": "Q17", "query": "zzz-no-such-listing", "expectedTop1": null, "note": "mirrors the S8 empty-state probe; no-match" },
   { "id": "Q18", "query": "", "expectedTop1": "northstar/alpha-chat", "note": "blank query means no text filtering (S3); stub order first" },
   { "id": "Q19", "query": "reasoning model", "expectedTop1": null, "note": "reasoning cue matches no listing (Alpha/Image false, Unknown null); honest no-match" },
-  { "id": "Q20", "query": "attach an image", "expectedTop1": "northstar/image-lite", "note": "attachment + image cues; only Image Lite satisfies both" }
+  { "id": "Q20", "query": "attach an image", "expectedTop1": "northstar/image-lite", "note": "attachment + image cues; only Image Lite satisfies both" },
+  { "id": "Q21", "query": "no image", "expectedTop1": "northstar/alpha-chat", "note": "negated image cue: v2 reads it as a requirement and top-1s Image Lite; only Alpha Chat provably lacks image" },
+  { "id": "Q22", "query": "chat without image", "expectedTop1": "northstar/alpha-chat", "note": "positive chat + negated image; v2 requires both and no-matches" },
+  { "id": "Q23", "query": "model without tools", "expectedTop1": "northstar/image-lite", "note": "negated tool_call: Alpha Chat has tools; Unknown Tools is unknown (fail-closed), so only Image Lite (explicitly false) answers" },
+  { "id": "Q24", "query": "not a picture model", "expectedTop1": "northstar/alpha-chat", "note": "leading negation over a picture cue; v2 top-1s the picture listing" },
+  { "id": "Q25", "query": "image model with tools", "expectedTop1": null, "note": "impossible conjunction: no listing combines image input with tool_call=true; honest no-match under all versions" },
+  { "id": "Q26", "query": "function calling", "expectedTop1": "northstar/alpha-chat", "note": "positive control: multi-word tool_call phrasing; v2 already answers" },
+  { "id": "Q27", "query": "screenshot", "expectedTop1": "northstar/image-lite", "note": "positive control: one word cues both attachment and image; v2 already answers" },
+  { "id": "Q28", "query": "schema", "expectedTop1": "northstar/alpha-chat", "note": "positive control: structured_output shorthand; v2 already answers" },
+  { "id": "Q29", "query": "no chat", "expectedTop1": "northstar/image-lite", "note": "negated chat operation: Alpha Chat is text-in/text-out; v2 top-1s it anyway" },
+  { "id": "Q30", "query": "image no chat", "expectedTop1": "northstar/image-lite", "note": "mixed polarity: positive image + negated chat; Image Lite has image input but no text-in, so it is not a chat operation" }
 ]
