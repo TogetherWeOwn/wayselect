@@ -18,6 +18,16 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-28) TOG-8752: purchase validator deep-nesting fail-closed —
+  `assertNoLocationFields` in `src/purchase.js` recursed one frame per
+  nesting level, so a ~100k-deep submission threw an uncaught RangeError
+  instead of a typed `PurchaseSubmissionError`; the walk is now an
+  explicit stack capped at `MAX_LOCATION_SCAN_DEPTH` (32, in
+  `src/intakeLimits.js`, shared for the seller twin under TOG-8429) that
+  fails closed with `invalid-value` naming the offending key, keeping
+  forbidden-field pre-order unchanged, pinned by a 100k-deep regression
+  test at top level and inside provenance (`src/purchase.js`,
+  `src/intakeLimits.js`, `test/purchase.test.js`).
 - #221 (2026-09-28) TOG-8613: hand-edited snapshot tamper-reason pin — new
   test asserts the stable `contentHash: recomputed hash does not match the
   recorded hash` + `backfill may be tampered or edited by hand` reason for a

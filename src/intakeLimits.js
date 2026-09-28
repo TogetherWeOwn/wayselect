@@ -23,6 +23,15 @@ export const SYNTHETIC_SOURCE_PREFIX = "synthetic://";
 // S3 body cap for future POST routes (~64KB; enforced in web/jsonBody.js).
 export const MAX_JSON_BODY_BYTES = 64 * 1024;
 
+// TOG-8752 location-scan bound: the forbidden location-field walk
+// (assertNoLocationFields) runs before unknown-field checks, so it must
+// tolerate arbitrarily shaped input. Past this nesting depth the submission
+// fails closed with `invalid-value` naming the offending key instead of
+// recursing into a RangeError. Legit envelopes nest ≤3 levels, so 32 leaves
+// wide headroom. Shared by the purchase validator; the seller validator
+// adopts it under TOG-8429.
+export const MAX_LOCATION_SCAN_DEPTH = 32;
+
 // R4-06 read bound for POST routes (total deadline for one streamed body in
 // web/jsonBody.js). A ≤64KB body that cannot complete within 10s is a
 // trickling/stalled sender, not a slow client — fail closed with

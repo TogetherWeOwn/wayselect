@@ -27,6 +27,7 @@ const FORBIDDEN_LOCATION_KEYS = new Set(["url", "endpoint", "baseUrl", "apiUrl"]
 import {
   MAX_BUYER_ID_LENGTH,
   MAX_ETAG_LENGTH,
+  MAX_LOCATION_SCAN_DEPTH,
   MAX_MODEL_ID_LENGTH,
   MAX_PROVIDER_ID_LENGTH,
   ROUTE_ID_PATTERN,
@@ -106,21 +107,44 @@ function assertKnownKeys(value, allowedKeys, label, key, source) {
   }
 }
 
+// TOG-8752: iterative forbidden-field walk with an explicit depth cap.
+// The recursive version threw an uncaught RangeError on ~100k-level nesting
+// instead of failing closed; a stack-based walk plus MAX_LOCATION_SCAN_DEPTH
+// returns a typed `invalid-value` naming the offending key. Arrays are
+// traversed (same coverage as the old `typeof === "object"` check).
 function assertNoLocationFields(value, path, source) {
   if (value === null || typeof value !== "object") {
     return;
   }
-  for (const [field, nested] of Object.entries(value)) {
-    if (FORBIDDEN_LOCATION_KEYS.has(field)) {
-      const key = `${path}.${field}`;
+  const stack = [{ node: value, keyPath: path, depth: 0 }];
+  while (stack.length > 0) {
+    const { node, keyPath, depth } = stack.pop();
+    if (depth > MAX_LOCATION_SCAN_DEPTH) {
       fail(
-        "forbidden-field",
-        key,
+        "invalid-value",
+        keyPath,
         source,
-        `submission must not contain executable location field: ${key}`,
+        `submission exceeds maximum nesting depth of ${MAX_LOCATION_SCAN_DEPTH} at ${keyPath}`,
       );
     }
-    assertNoLocationFields(nested, `${path}.${field}`, source);
+    // Pushed reversed so the pop order matches the old recursion's
+    // pre-order: the first forbidden field reported is unchanged.
+    const entries = Object.entries(node);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [field, nested] = entries[index];
+      const key = `${keyPath}.${field}`;
+      if (FORBIDDEN_LOCATION_KEYS.has(field)) {
+        fail(
+          "forbidden-field",
+          key,
+          source,
+          `submission must not contain executable location field: ${key}`,
+        );
+      }
+      if (nested !== null && typeof nested === "object") {
+        stack.push({ node: nested, keyPath: key, depth: depth + 1 });
+      }
+    }
   }
 }
 
