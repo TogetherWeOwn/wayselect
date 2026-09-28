@@ -53,7 +53,10 @@ describe("preview-disabled JSON fragment contract (TOG-6375)", () => {
       const res = await get(base, path, "application/json");
       strictEqual(res.status, 404, path);
       strictEqual(res.contentType, JSON_CT, path);
-      deepStrictEqual(JSON.parse(res.text), { error: "preview_disabled" }, path);
+      // TOG-6717 rides alongside the error code: this pin owns the flag
+      // gate, not the envelope shape.
+      const { requestId: _requestId, ...flagBody } = JSON.parse(res.text);
+      deepStrictEqual(flagBody, { error: "preview_disabled" }, path);
     }
   });
 
@@ -64,7 +67,9 @@ describe("preview-disabled JSON fragment contract (TOG-6375)", () => {
     const res = await get(base, "/listings/northstar/alpha-chat", "text/html,application/json");
     strictEqual(res.status, 404);
     strictEqual(res.contentType, JSON_CT);
-    deepStrictEqual(JSON.parse(res.text), { error: "preview_disabled" });
+    // TOG-6717 rides alongside the error code (see above).
+    const { requestId: _combinedRequestId, ...combinedBody } = JSON.parse(res.text);
+    deepStrictEqual(combinedBody, { error: "preview_disabled" });
   });
 
   it("keeps the HTML disabled page as the flag-off default", async () => {
@@ -97,6 +102,8 @@ describe("preview-disabled JSON fragment contract (TOG-6375)", () => {
     ok(JSON.parse(frag.text).html.includes("<h1>Alpha Chat</h1>"), "fragment content");
     const miss = await get(base, "/listings/northstar/nope", "application/json");
     strictEqual(miss.status, 404);
-    deepStrictEqual(JSON.parse(miss.text), { error: "listing_not_found" });
+    // TOG-6717 rides alongside the error code (see above).
+    const { requestId: _missRequestId, ...missBody } = JSON.parse(miss.text);
+    deepStrictEqual(missBody, { error: "listing_not_found" });
   });
 });

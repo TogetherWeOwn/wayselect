@@ -23,7 +23,12 @@ describe("purchase route encoded-slash edges (TOG-6032)", () => {
 
   async function postPurchase(base, path) {
     const res = await fetch(`${base}${path}`, { method: "POST" });
-    return { status: res.status, body: await res.json() };
+    // TOG-6717 rides alongside every error body: this file pins the
+    // encoding→status/error-code mapping, not the envelope shape, so the
+    // triage id is stripped here. The id contract lives in
+    // test/request-id-json-errors.test.js.
+    const { requestId: _requestId, ...body } = await res.json();
+    return { status: res.status, body };
   }
 
   it("decodes %2F within a segment, then 404s on the miss (no segment escape)", async () => {
@@ -96,7 +101,9 @@ describe("purchase route encoded-slash edges (TOG-6032)", () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
     const get = await fetch(`${base}/listings/northstar%2Fevil/alpha-chat/purchase`);
     strictEqual(get.status, 405);
-    deepStrictEqual(await get.json(), { error: "method_not_allowed" });
+    // TOG-6717 rides alongside the error code (see postPurchase above).
+    const { requestId: _getRequestId, ...getBody } = await get.json();
+    deepStrictEqual(getBody, { error: "method_not_allowed" });
     // One encoded slash collapses the path to listing-route shape
     // (provider=`northstar%2falpha-chat`, model=`purchase`), so POST is a
     // 405 there too — never a purchase attempt.

@@ -32,7 +32,10 @@ describe("seller-intake 405 Allow header (TOG-6707)", () => {
       strictEqual(res.headers.get("allow"), "POST", `${method} /sellers/submissions: Allow`);
       strictEqual(res.headers.get("content-type"), JSON_CT, `${method} /sellers/submissions: content-type`);
       strictEqual(res.headers.get("x-content-type-options"), "nosniff", `${method} /sellers/submissions: nosniff`);
-      deepStrictEqual(JSON.parse(text), { error: "method_not_allowed" }, `${method} /sellers/submissions: body`);
+      // TOG-6717 rides alongside the error code: this pin owns the
+      // routing (status/Allow), not the envelope shape.
+      const { requestId: _requestId, ...body } = JSON.parse(text);
+      deepStrictEqual(body, { error: "method_not_allowed" }, `${method} /sellers/submissions: body`);
     }
   });
 
@@ -41,6 +44,8 @@ describe("seller-intake 405 Allow header (TOG-6707)", () => {
     const res = await fetch(`${base}/sellers/submissions/`, { method: "GET" });
     strictEqual(res.status, 405);
     strictEqual(res.headers.get("allow"), "POST");
-    deepStrictEqual(await res.json(), { error: "method_not_allowed" });
+    // TOG-6717 rides alongside the error code (see above).
+    const { requestId: _slashRequestId, ...slashBody } = await res.json();
+    deepStrictEqual(slashBody, { error: "method_not_allowed" });
   });
 });

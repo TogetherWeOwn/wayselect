@@ -290,7 +290,10 @@ describe("preview server with eligibility display", () => {
       method: "POST",
     });
     strictEqual(res.status, 403);
-    deepStrictEqual(await res.json(), {
+    // TOG-6717 rides alongside the refusal copy: this pin owns the
+    // stub-refusal routing, not the envelope shape.
+    const { requestId: _requestId, ...refusalBody } = await res.json();
+    deepStrictEqual(refusalBody, {
       error: "preview_only",
       message: "Purchases are disabled in preview. No backend writes.",
     });

@@ -7,7 +7,9 @@
 //
 //   - status 403 with the JSON content-type;
 //   - body is exactly `{ error: "preview_only", message: "Purchases are
-//     disabled in preview. No backend writes." }` — no more, no fewer keys;
+//     disabled in preview. No backend writes.", requestId }` — no more, no
+//     fewer keys (`requestId` is the TOG-6717 triage id, 32 lowercase hex,
+//     echoed from the `x-request-id` header);
 //   - `error` is the string "preview_only"; `message` is the exact string
 //     above, verbatim (client copy depends on it);
 //   - identical for every stub listing (`STUB_LISTINGS`, iterated — a new
@@ -20,7 +22,7 @@
 //
 // node:test, zero dependencies.
 
-import { deepStrictEqual, strictEqual } from "node:assert/strict";
+import { deepStrictEqual, ok, strictEqual } from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { createApp } from "../web/server.js";
 import { STUB_LISTINGS } from "../web/stub-listing.js";
@@ -48,20 +50,40 @@ describe("purchase refusal body contract (TOG-6384)", () => {
       `${base}/listings/${listing.providerId}/${listing.modelId}/purchase`,
       { method: "POST" },
     );
-    return { status: res.status, contentType: res.headers.get("content-type"), body: await res.json() };
+    return {
+      status: res.status,
+      contentType: res.headers.get("content-type"),
+      requestIdHeader: res.headers.get("x-request-id"),
+      body: await res.json(),
+    };
+  }
+
+  // Exact shape: an added, dropped, or reworded field fails here, not on a
+  // prod client. The refusal copy stays byte-identical (REFUSAL_BODY); the
+  // TOG-6717 triage id rides alongside it, echoed from the header.
+  function assertRefusal(reply, where) {
+    deepStrictEqual(
+      { error: reply.body.error, message: reply.body.message },
+      { ...REFUSAL_BODY },
+      `${where}: refusal copy`,
+    );
+    ok(/^[0-9a-f]{32}$/.test(reply.body.requestId ?? ""), `${where}: requestId is 32 lowercase hex`);
+    strictEqual(reply.requestIdHeader, reply.body.requestId, `${where}: header and body agree`);
+    deepStrictEqual(
+      Object.keys(reply.body).sort(),
+      ["error", "message", "requestId"],
+      `${where}: no extra fields`,
+    );
   }
 
   it("refuses every stub listing with the exact body (flag on)", async () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
     for (const listing of STUB_LISTINGS) {
       const route = `${listing.providerId}/${listing.modelId}`;
-      const { status, contentType, body } = await postPurchase(base, listing);
+      const { status, contentType, ...reply } = await postPurchase(base, listing);
       strictEqual(status, 403, route);
       strictEqual(contentType, JSON_CT, route);
-      // Exact shape: an added, dropped, or reworded field fails here, not
-      // on a prod client.
-      deepStrictEqual(body, REFUSAL_BODY, route);
-      deepStrictEqual(Object.keys(body).sort(), ["error", "message"], `${route}: no extra fields`);
+      assertRefusal(reply, route);
     }
   });
 
@@ -73,18 +95,21 @@ describe("purchase refusal body contract (TOG-6384)", () => {
     // even when preview content routes are hidden.
     const refused = await postPurchase(off, listing);
     strictEqual(refused.status, 403, `${route} (flag off)`);
-    deepStrictEqual(refused.body, REFUSAL_BODY, `${route} (flag off)`);
+    assertRefusal(refused, `${route} (flag off)`);
     // Trailing slash is the same route, not a different refusal.
     const res = await fetch(`${off}/listings/${route}/purchase/`, { method: "POST" });
     strictEqual(res.status, 403, `${route}/ (trailing slash)`);
     strictEqual(res.headers.get("content-type"), JSON_CT, `${route}/ (trailing slash)`);
-    deepStrictEqual(await res.json(), REFUSAL_BODY, `${route}/ (trailing slash)`);
+    assertRefusal(
+      { requestIdHeader: res.headers.get("x-request-id"), body: await res.json() },
+      `${route}/ (trailing slash)`,
+    );
   });
 
   it("404s unknown listings first: 403 always means a real listing", async () => {
     const base = await start({ WAYSELECT_PREVIEW: "1" });
     const missing = await fetch(`${base}/listings/a/b/purchase`, { method: "POST" });
     strictEqual(missing.status, 404);
-    deepStrictEqual(await missing.json(), { error: "listing_not_found" });
+    strictEqual((await missing.json()).error, "listing_not_found");
   });
 });

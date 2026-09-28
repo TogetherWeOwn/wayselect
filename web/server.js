@@ -124,6 +124,17 @@ export function newCspNonce() {
   return randomBytes(16).toString("base64");
 }
 
+// Per-request correlation id (TOG-6717): every JSON error carries a
+// crypto-random id both as an `x-request-id` response header and as
+// `requestId` in the body, so staging triage can match a response to logs.
+// 128-bit hex (32 lowercase chars) minted per response — client input is
+// never trusted or echoed. Success JSON carries no id (error-only scope).
+export const REQUEST_ID_HEADER = "x-request-id";
+
+export function newRequestId() {
+  return randomBytes(16).toString("hex");
+}
+
 export function htmlCsp(nonce) {
   return (
     "default-src 'self'; frame-ancestors 'none'; " +
@@ -142,17 +153,35 @@ function sendHtml(res, status, html, nonce) {
   res.end(html);
 }
 
+// Shared JSON-error writer (TOG-6717): mints one crypto-random request id
+// per error response, stamps it on the `x-request-id` header, and echoes it
+// as `requestId` in the body, so staging triage can match a response to
+// logs. Every JSON error path funnels through here — `sendJson`'s error
+// branch, `sendMethodNotAllowed`, the inline 429 refusal, and the direct
+// `sendJson` 405 — so the id is always present and header and body always
+// agree. Error JSON is dynamic (per-request 403/404/405/400/413 bodies,
+// never cacheable content), so error statuses also carry
+// `Cache-Control: no-store` (TOG-6367).
+function sendJsonError(res, status, payload, extraHeaders = {}) {
+  const requestId = newRequestId();
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    ...SECURITY_HEADERS,
+    "cache-control": "no-store",
+    ...extraHeaders,
+    [REQUEST_ID_HEADER]: requestId,
+  });
+  res.end(JSON.stringify({ ...payload, requestId }));
+}
+
 function sendJson(res, status, payload) {
-  // TOG-6367: error JSON is dynamic (per-request 403/404/405/400/413
-  // bodies, never cacheable content), so error statuses carry
-  // `Cache-Control: no-store` — shared caches must not store them.
+  if (status >= 400) {
+    sendJsonError(res, status, payload);
+    return;
+  }
   // Success JSON keeps default cache semantics: cacheable GETs (ETag,
   // validators, 304) belong to TOG-6050, which decides per route there.
-  const headers = { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS };
-  if (status >= 400) {
-    headers["cache-control"] = "no-store";
-  }
-  res.writeHead(status, headers);
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
   res.end(JSON.stringify(payload));
 }
 
@@ -160,15 +189,10 @@ function sendJson(res, status, payload) {
 // to carry an `Allow` header naming the methods the target supports. Every
 // known route shape funnels through here so OPTIONS/PUT/DELETE behave the
 // same on every route; unknown paths stay 404 (no resource, no `Allow`).
-// Always an error, so always `Cache-Control: no-store` (TOG-6367).
+// Always an error, so always `Cache-Control: no-store` (TOG-6367) plus the
+// request id (TOG-6717) via the shared writer.
 function sendMethodNotAllowed(res, allow) {
-  res.writeHead(405, {
-    "content-type": "application/json; charset=utf-8",
-    ...SECURITY_HEADERS,
-    "cache-control": "no-store",
-    allow,
-  });
-  res.end(JSON.stringify({ error: "method_not_allowed" }));
+  sendJsonError(res, 405, { error: "method_not_allowed" }, { allow });
 }
 
 // Bucket requests by route shape for the rate limiter: exact path for the
@@ -367,14 +391,14 @@ export function createApp(env = process.env, options = {}) {
       // TOG-5732 audit: the 429 path previously bypassed sendJson and so
       // missed SECURITY_HEADERS — every response carries them now.
       // TOG-6367: the refusal body is dynamic, so `no-store` like every
-      // other JSON error.
-      res.writeHead(429, {
-        "content-type": "application/json; charset=utf-8",
-        ...SECURITY_HEADERS,
-        "cache-control": "no-store",
-        "retry-after": String(verdict.retryAfterSec),
-      });
-      res.end(JSON.stringify({ error: "rate_limited", retryAfterSec: verdict.retryAfterSec }));
+      // other JSON error. TOG-6717: request id via the shared writer so the
+      // refusal is triageable like every other JSON error.
+      sendJsonError(
+        res,
+        429,
+        { error: "rate_limited", retryAfterSec: verdict.retryAfterSec },
+        { "retry-after": String(verdict.retryAfterSec) },
+      );
       return;
     }
 
