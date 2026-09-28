@@ -1,5 +1,6 @@
 {
   "command": "catalog import",
+  "schemaVersion": "v1",
   "dryRun": true,
   "networkUsed": false,
   "source": "https://models.dev/api.json",

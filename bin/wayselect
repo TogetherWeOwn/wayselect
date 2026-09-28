@@ -203,6 +203,9 @@ async function runCatalogImport(options) {
 
   const summary = {
     command: "catalog import",
+    // TOG-8326: in-band machine-schema version, same marker as the
+    // select/explain shape (const: v1 in schema/cli-json/v1.json).
+    schemaVersion: "v1",
     dryRun: true,
     networkUsed: options.fetch,
     source: ingested.provenance.source,
@@ -773,6 +776,11 @@ function formatMachineJson({ command, result, ranked, provenance, evaluationTime
   return JSON.stringify(
     {
       command,
+      // TOG-8326: in-band machine-schema version. Mirrors SCHEMA_VERSION in
+      // src/validate-cli-json.js and schema/cli-json/v1.json (`const: v1`);
+      // consumers pin on this marker. A shape change bumps the version per
+      // docs/cli-json-contract.md, never silently.
+      schemaVersion: "v1",
       dryRun: true,
       dryRunLabel: DRY_RUN_LABEL,
       status: result.status,
