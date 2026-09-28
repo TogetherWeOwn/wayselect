@@ -38,6 +38,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`test/listing-overlong-q.test.js`, test-only, no source change:
   `web/filter.js` already truncates at 64 and `web/listing-detail.js`
   already renders the single-error paragraph).
+- #195 (2026-09-28) TOG-6728: large-fixture generator determinism pin — test-only run-twice
+  byte-identical assertion on `generateLargeCatalog()` CLI write bytes plus explicit
+  seed/time default pin and seed-divergence guard; documents the seed knob
+  (`test/large-fixture-determinism.test.js`).
 - #180 (2026-09-28) TOG-7307: gateway intake-limits enforcement matrix pin — `src/intakeLimits.js`
   gains `MAX_GATEWAY_MESSAGES` (32), `MAX_GATEWAY_MESSAGE_CHARS` (16k), and
   `MAX_GATEWAY_TOTAL_CHARS` (64k), enforced fail-closed in `src/gateway.js`
