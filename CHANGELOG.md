@@ -18,6 +18,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #171 (2026-09-28) TOG-7278: unbreak `main` — the uppercase-path JSON 404
+  test accepts the TOG-6717 `requestId` (32 hex) and pins the rest of the
+  body. Files: test/listing-uppercase-path.test.js.
 - #166 (2026-09-28) TOG-6717: request id on JSON errors — every JSON error
   carries a crypto-random `x-request-id` header echoed as `requestId` in the
   body (128-bit hex, distinct per response, header/body agree; success JSON
