@@ -18,6 +18,55 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #172 (2026-09-28) TOG-7278: staging smoke probes the gateway — 401 on
+  missing/wrong key (byte-identical, WWW-Authenticate, no transport call)
+  and auto-route dry run (200, dryRun+synthetic, one FakeTransport call),
+  in-process with a per-run throwaway key. Files:
+  bin/smoke-wayselect-staging-preview, support/gateway-smoke-probes.js,
+  test/smoke-gateway-probes.test.js, test/smoke-staging-preview.test.js.
+- #201 (2026-09-28) TOG-6050: cache headers on cacheable GETs — fixture-
+  deterministic success JSON (`GET /healthz`, flag-on index 200 JSON, detail
+  200 JSON fragment) carries `ETag` (strong sha256 content hash) +
+  `Cache-Control: public, max-age=60` with 304 on matching `If-None-Match`;
+  HTML, error JSON (`no-store`), and seller-transactional JSON unchanged
+  (`web/server.js`, `test/cacheable-get-etag.test.js`,
+  `test/json-error-no-store.test.js`, `docs/preview-server.openapi.json`).
+- #190 (2026-09-28) TOG-6733: sticky filter inputs on the index page — the
+  filter form echoes submitted `q`/`limit`/`offset` (escaped, from validated
+  `pageInfo`) so re-submits keep the current page window; 3-test guard
+  (`web/listing-detail.js`, `test/listing-filter.test.js`,
+  `test/listing-filter-labels.test.js`).
+- #167 (2026-09-28) TOG-7283: POST intake rate-limit coverage audit pin — every POST
+  intake route (`/listings/:provider/:model/purchase`,
+  `/sellers/submissions`,
+  `/sellers/submissions/:provider/:model/confirm`) asserts its own
+  per-IP budget (max passes, then 429 + matching Retry-After with the
+  `rate_limited` body), plus POST-bucket independence
+  (`test/post-rate-limit-coverage.test.js`, test-only, no source
+  change: the limiter already gates every route shape).
+- #197 (2026-09-28) TOG-6726: atomic snapshot writes — `bin/wayselect-snapshot`
+  publishes snapshots and diff reports via temp-file + fsync + rename
+  (`src/atomicWrite.js`), so a mid-write crash leaves the previous file
+  byte-identical instead of a corrupt half-written file; 5-test partial-write
+  pin (`test/snapshot-atomic-write.test.js`).
+- #183 (2026-09-28) TOG-7296: overlong-q fail-closed exact-bytes pin — `q`
+  beyond `LISTINGS_MAX_QUERY_LENGTH` (200) fails closed with kind `q`, the
+  echo exactly the first 64 input chars, `valid: ["at most 200 characters"]`,
+  and the 400 paragraph renders those bytes verbatim without the full input
+  (`test/listing-overlong-q.test.js`, test-only, no source change:
+  `web/filter.js` already truncates at 64 and `web/listing-detail.js`
+  already renders the single-error paragraph).
+- #180 (2026-09-28) TOG-7307: gateway intake-limits enforcement matrix pin — `src/intakeLimits.js`
+  gains `MAX_GATEWAY_MESSAGES` (32), `MAX_GATEWAY_MESSAGE_CHARS` (16k), and
+  `MAX_GATEWAY_TOTAL_CHARS` (64k), enforced fail-closed in `src/gateway.js`
+  with 400 `too_many_messages` / `message_too_large` / `messages_too_large`,
+  pinned by a pass/reject boundary matrix plus a joined-parts normalization
+  row (`src/gateway.js`, `src/index.js`, `src/intakeLimits.js`,
+  `test/gateway-intake-limits.test.js`).
+- #186 (2026-09-28) TOG-7274: seller skip-link parity — served `/sellers` confirm, receipt,
+  missing-intent, and rejection pages carry the same focusable skip link +
+  `#main-content` target as the listing pages; 4-test served-route guard
+  (`test/seller-skiplink.test.js`).
 - #182 (2026-09-28) TOG-7661: flag-on index honors `Accept:
   application/json` — 200 paged result `{listings, total, limit, offset}`
   (incl. empty state and offset-past-end with intact total), 400
@@ -228,6 +277,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   for socket reuse) instead of hanging on a short/stalling body
   (`web/jsonBody.js`, `web/server.js`, `src/index.js`, `src/intakeLimits.js`,
   `test/json-body-read-timeout.test.js`).
+- #144 (2026-09-27) TOG-5859: capability-aware select output contract —
+  typed-requirement JSON validation, selected/no-eligible human output,
+  fail-closed missing limits, and executable README example; document the
+  v1 `--json` shape and guard it against drift (`test/select-output-contract.test.js`,
+  `test/cli-docs-examples.test.js`, `README.md`, `docs/cli.md`, docs/test-only).
 - #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
 - #140 (2026-09-27) TOG-5739: structured request logging + 405 Allow
   consistency — one JSON line per request `{method,path,status,latencyMs}`
@@ -287,6 +341,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   removes its own listener and skips the send on a dead socket; abort
   leaves zero pending timers (fail-to-pass pin) (`web/server.js`,
   `test/detail-fragment-abort.test.js`).
+- #134 (2026-09-27) TOG-6392: index heading hierarchy audit — `h1
+  Listings` + visible `h2 Filter listings` / `h2 Results` labelledby
+  sections on every index state (populated, empty, past-the-end,
+  windowed), pinned by a new audit test plus served-route coverage
+  (`web/listing-detail.js`, `test/listing-index-headings.test.js`,
+  `test/listing-a11y.test.js`, `test/listing-empty-error-states.test.js`).
 - #130 (2026-09-27) TOG-6721: over-offset empty-page contract — far-over-offset
   windows return an empty page with the total intact (pure-function level) and
   200, never 400, with the full/filtered match count over HTTP

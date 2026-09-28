@@ -75,6 +75,36 @@ subcommand UX with human output, machine-readable shape, and exit codes
 (0 selected, 1 invalid input, 2 usage error, 3 no eligible route).
 See `docs/cli.md` for copy-pasteable examples.
 
+End-to-end example (capability-aware select, exit 0 — typed requirements
+from flags, exclusions named per candidate):
+
+```sh
+node bin/wayselect select --operation chat --allow northstar,orbit \
+  --input-modalities text --output-modalities text --require-tools \
+  --evaluation-time 2026-09-26T16:00:00.000Z
+```
+
+```text
+dry-run select — dry-run / synthetic estimate — no live model calls, credentials, or network use
+Selected route: northstar/alpha-chat
+Policy: lowest-synthetic-estimated-rate-then-lexicographic-route-id
+Rates are synthetic/list-price estimates only; not actual cost or savings.
+
+Ranked candidates (2 eligible, 4 excluded):
+  1. northstar/alpha-chat — eligible, est. 3 / million tokens
+  2. orbit/orbit-chat — eligible, est. 3 / million tokens
+  3. legacy/old-chat — excluded (provider-not-allowed, stale-evidence)
+  4. northstar/image-lite — excluded (operation-not-catalogued, operation-not-configured, missing-modality:input:text, unsupported-capability:toolUse)
+  5. northstar/unknown-tools — excluded (missing-capability:toolUse)
+  6. orbit/retired-chat — excluded (support-state:unsupported, operation-not-configured)
+
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+```
+
+(Pin `--evaluation-time`: without it the CLI evaluates at the wall clock,
+which the catalog freshness gate correctly refuses as stale once the
+fixtures age past 24h — see `docs/cli.md`.)
+
 Use alternate fixture files without adding code or network access:
 
 ```sh
@@ -344,4 +374,4 @@ merge): [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
 - Node 20+ ESM; keep `bin/wayselect` thin and `src/` boundaries intact. Run `npm run accept:fixture-refresh` + `npm run check:drift` after each refresh. No new runtime dependencies without a CTO note.
 - Keep README claims accurate to merged behavior only — no compatibility, cost, or savings language.
 
-License: not yet chosen.
+License: MIT — see [LICENSE](LICENSE).

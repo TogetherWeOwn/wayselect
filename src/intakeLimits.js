@@ -29,6 +29,18 @@ export const MAX_JSON_BODY_BYTES = 64 * 1024;
 // `body_timeout` (408 at the route) instead of hanging the socket.
 export const MAX_JSON_BODY_READ_MS = 10_000;
 
+// TOG-7307 gateway intake caps: the in-process chat-completions handler
+// (src/gateway.js) is not behind the HTTP JSON body gate, so it enforces
+// its own message count/size bounds fail-closed with 400
+// (`invalid_request_error`). Per-message text is measured after content-part
+// normalization (joined text parts); the total is the sum over messages.
+// Budgets mirror the ~64KB body cap: 32 messages × 16k chars each, with a
+// 64k combined ceiling so a single request cannot balloon word-count,
+// prompt assembly, or the fake-transport payload.
+export const MAX_GATEWAY_MESSAGES = 32;
+export const MAX_GATEWAY_MESSAGE_CHARS = 16_000;
+export const MAX_GATEWAY_TOTAL_CHARS = 64_000;
+
 export function isRouteId(value) {
   return typeof value === "string" && ROUTE_ID_PATTERN.test(value);
 }

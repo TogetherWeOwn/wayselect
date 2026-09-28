@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
+import { writeFileAtomic } from "../src/atomicWrite.js";
 import { buildSnapshot } from "../src/snapshot.js";
 import { diffSnapshots, formatDiffReport } from "../src/catalogDiff.js";
 import {
@@ -92,7 +93,7 @@ async function main() {
   const shortHash = snapshot.contentHash.slice("sha256:".length, "sha256:".length + 8);
   const snapshotName = `snapshot-${compactTimestamp(snapshot.collectedAt)}-${shortHash}.json`;
   const snapshotPath = join(resolve(args.out), snapshotName);
-  await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+  await writeFileAtomic(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
 
   let diff = null;
   let reportPath = null;
@@ -104,7 +105,7 @@ async function main() {
     reportPath = args.report
       ? resolve(args.report)
       : join(resolve(args.out), `diff-report-${previousShort}-vs-${shortHash}.md`);
-    await writeFile(reportPath, report);
+    await writeFileAtomic(reportPath, report);
   }
 
   if (args.failOnGaps && snapshot.gaps.length > 0) {

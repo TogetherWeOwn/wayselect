@@ -13,6 +13,14 @@
 //                today: stub order, Granted/Blocked/Unknown badges,
 //                index<->detail badge consistency, verbatim exclusion
 //                reasons, disabled purchase CTA, flag-off gating.
+//   3. gateway (TOG-7278) — the Phase-1 chat-completions handler answers
+//                401 on missing/wrong keys (byte-identical, WWW-Authenticate:
+//                Bearer, no transport call) and auto-routes a dry run to a
+//                synthetic 200 via the FakeTransport. The gateway has no
+//                HTTP binding yet, so these run in-process against the
+//                checked-out code with a per-run throwaway key (no
+//                credentials) in both local and --base-url modes; see
+//                support/gateway-smoke-probes.js.
 //
 // Target: a deployed staging preview via --base-url (or WAYSELECT_STAGING_URL).
 // No staging URL is declared anywhere in repo history yet (TOG-4873
@@ -40,6 +48,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createApp } from "../web/server.js";
 import { checkCatalogFreshness } from "../src/index.js";
+import { runGatewayProbes } from "../support/gateway-smoke-probes.js";
 import {
   invalidMaxCatalogAgeMessage,
   missingValueMessage,
@@ -390,6 +399,16 @@ async function main() {
       freshnessDetail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     }
     check(freshnessOk, "F1", "catalog index is fresh (stale/future alerts)", freshnessDetail);
+
+    // ---- 4. gateway: 401 + auto-route dry run (in-process, synthetic) ----
+    try {
+      for (const probe of await runGatewayProbes()) {
+        check(probe.ok, probe.id, probe.label, probe.detail);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      check(false, "G0", "gateway probes ran", message);
+    }
   } finally {
     if (server !== null) {
       await close(server);
