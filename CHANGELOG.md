@@ -18,10 +18,17 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #227 (2026-09-28) TOG-8639: open-source front-door slice — CI + MIT
+  badges at the top of `README.md` (badge URLs verified 200), new
+  `docs/export-control.md` (public-availability basis, SHA-256/nonce-only
+  crypto inventory, no controlled technology) linked from the README docs
+  index, and `CONTRIBUTING.md` license line corrected from "not yet chosen"
+  to MIT; header audit finds all 212 code files without per-file headers,
+  recorded in the card comment rather than added (`README.md`,
+  `docs/export-control.md`, `CONTRIBUTING.md`).
 - #220 (2026-09-28) TOG-8637: library API reference — `docs/api.md`
   documents the public names re-exported by `src/index.js` with one
   runnable example per export (`docs/api.md`).
-
 - #214 (2026-09-28) TOG-8429: deep-nesting DoS fix — `assertNoLocationFields` in
   `src/sellerSubmission.js` and `src/purchase.js` recursed one frame per
   nesting level, so a single 6000-deep `provenance.nested` body (~36KB, under

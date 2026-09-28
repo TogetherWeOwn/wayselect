@@ -1,5 +1,8 @@
 # Wayselect
 
+[![CI](https://github.com/TogetherWeOwn/wayselect/actions/workflows/ci.yml/badge.svg)](https://github.com/TogetherWeOwn/wayselect/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > **Early development — fixture-only, dry-run only.** No live routing, no live model calls, no live provider credentials, no endpoint discovery. Makes no compatibility, cost, or savings claims. Catalog presence (`catalogued`) is not support, permission, configuration, conformance, or availability. (The Phase-1 gateway handler verifies an operator-held bearer key supplied at call time; see Library boundaries.)
 
 Wayselect is a small Node 20+ ES module library with a local CLI. It turns a newly authored synthetic, models.dev-shaped catalog fixture into an explicit support configuration, applies fail-closed eligibility rules, and returns an inspectable selection explanation. The selection transport in this slice is an in-memory fake adapter only (`FakeTransport`); the only outbound network paths anywhere are the explicit opt-in `--fetch` flags for catalog ingestion and the models.dev freshness probe.
@@ -388,6 +391,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
 - [`bin/` operator catalog](docs/bin-operator-catalog.md) — one line per script: purpose, when to run, key flags.
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
+- [Export-control note](docs/export-control.md) — public-availability basis, no encryption functionality, no controlled technology.
 - [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
 - [models.dev freshness-probe offline contract](docs/models-dev-freshness-probe-offline-contract.md) — what `bin/check-models-dev-freshness` reads, never touches, and how to verify zero network use.
