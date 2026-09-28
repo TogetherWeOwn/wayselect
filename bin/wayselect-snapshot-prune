@@ -25,7 +25,7 @@
 // runtime failures (unreadable directory, failed deletion), 2 on usage
 // errors. Success prints the JSON plan to stdout with empty stderr.
 
-import { readdir, stat, unlink } from "node:fs/promises";
+import { readdir, readFile, stat, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   DEFAULT_KEEP_LAST,
@@ -50,10 +50,15 @@ function parseArguments(argv) {
     now: null,
     apply: false,
     help: false,
+    version: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
+    if (flag === "--version") {
+      values.version = true;
+      continue;
+    }
     if (flag === "--help" || flag === "-h") {
       values.help = true;
       continue;
@@ -122,8 +127,23 @@ async function listDirectory(dir) {
   return entries;
 }
 
+async function readVersion() {
+  try {
+    const pkg = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 async function main() {
   const args = parseArguments(process.argv.slice(2));
+  if (args.version) {
+    process.stdout.write(`wayselect-snapshot-prune ${await readVersion()}\n`);
+    return;
+  }
   if (args.help) {
     process.stdout.write(usage());
     return;
