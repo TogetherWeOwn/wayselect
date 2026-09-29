@@ -96,6 +96,9 @@ function parseCatalogImportArgs(tokens) {
     "--snapshot-hash",
     "--out",
   ]);
+  // TOG-8455: track an explicit --fetch-url so a file-mode import carrying
+  // one fails closed instead of silently ignoring the URL override.
+  let fetchUrlProvided = false;
   for (let index = 1; index < tokens.length; index += 1) {
     const token = tokens[index];
     if (token === "--fetch") {
@@ -117,6 +120,7 @@ function parseCatalogImportArgs(tokens) {
       }
       if (token === "--fetch-url") {
         options.fetchUrl = value;
+        fetchUrlProvided = true;
       } else if (token === "--source") {
         options.source = value;
       } else if (token === "--snapshot-timestamp") {
@@ -136,6 +140,12 @@ function parseCatalogImportArgs(tokens) {
       throw new Error("catalog import takes a single input file");
     }
     options.file = token;
+  }
+  // TOG-8455: fail closed when --fetch-url is given without --fetch so a
+  // typo'd fetch URL can never look like it took effect. --help still
+  // short-circuits to usage.
+  if (fetchUrlProvided && !options.fetch && !options.help) {
+    throw new Error("--fetch-url requires --fetch");
   }
   if (options.file !== null && options.fetch) {
     throw new Error("catalog import takes either a file or --fetch, not both");

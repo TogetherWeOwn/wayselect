@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-8455: catalog import fails closed on `--fetch-url` without `--fetch`
+  (exit 1, `Error: --fetch-url requires --fetch`, empty stdout) instead of
+  silently ignoring the URL; `--fetch --fetch-url` still works
+  (`bin/wayselect`, `test/cli.test.js`).
 - TOG-8327: snapshot backup/restore + catalog rollback procedure —
   `docs/snapshot-backup-restore.md` (backup, scratch-copy restore, bad-ingestion
   diff detection, byte-restore rollback, reviewer walk) with one-command drill
