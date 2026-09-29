@@ -31,13 +31,13 @@ Repo rules still apply: red CI first — no review on a red PR, and if
 Run in order. All probes are stdlib-only, fixture-only, no credentials.
 
 1. Liveness — `GET /healthz` answers before rate limiting and regardless
-   of `WAYSELECT_PREVIEW` (`web/server.js:442`):
+   of `WAYSELECT_PREVIEW` (`web/server.js:584`):
 
    ```sh
    curl -fsS <base-url>/healthz
    ```
 
-   Expected: `200 {"status":"ok","version":"…"}` (`web/server.js:445`).
+   Expected: `200 {"status":"ok","version":"…"}` (`web/server.js:587`).
    Anything else (connection refused, non-200, 404 from a wrong path —
    note the path is exactly `/healthz`, no trailing slash) means the
    process or container is down, not that preview is off.
@@ -164,7 +164,7 @@ dangling references:
 1. §1 table — `CODEOWNERS` absent (`ls CODEOWNERS` fails);
    `CONTRIBUTING.md` "Review and merge" carries the one-review,
    reviewer-merges, red-CI-first rules cited.
-2. §2.1 — `GET /healthz` at `web/server.js:442`, body at `:445`.
+2. §2.1 — `GET /healthz` at `web/server.js:584`, body at `:587`.
 3. §2.2–§2.3 — `bin/check-preview-health` (`npm run preview:health`)
    and `bin/smoke-wayselect-staging-preview`
    (`npm run smoke:staging-preview`, `WAYSELECT_STAGING_URL`
