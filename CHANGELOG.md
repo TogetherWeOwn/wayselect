@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #230 (2026-09-29) TOG-8456: quarantine models with unknown `limit`
+  subfields — unknown keys inside a model's `limit` object quarantine the
+  model with a named reason (`limit contains unknown field: <key>`) instead
+  of being silently dropped; known `context`/`output` mapping unchanged, plus
+  a pin test (`src/ingest.js`, `test/ingest.test.js`).
 - #229 (2026-09-28) TOG-8346: open-source community pack — new `CODE_OF_CONDUCT.md`
   (Contributor Covenant v2.1, private-first reporting, no-retaliation rule),
   new `.github/ISSUE_TEMPLATE/` (bug + feature forms, blank issues disabled,
