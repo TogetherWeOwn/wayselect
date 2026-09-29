@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import http from "node:http";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
@@ -645,6 +646,71 @@ test("catalog import fails closed on bad JSON, unreadable files, unknown flags",
     assert.match(unknownFlag.stderr, /Unknown argument: --nope/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// TOG-8455: a file-mode import carrying --fetch-url must fail closed at the
+// CLI boundary (exit 1, named error, empty stdout) instead of silently
+// ignoring the URL override. The --fetch --fetch-url pair still works,
+// pinned via a loopback server (the only network the no-network guard
+// allows); --fetch itself stays unexercised against the live URL.
+test("catalog import rejects --fetch-url without --fetch", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wayselect-import-"));
+  try {
+    const input = await writeImportInput(dir);
+
+    const rejected = await runCli(
+      [
+        "catalog",
+        "import",
+        input,
+        "--fetch-url",
+        "http://127.0.0.1:9/x",
+        "--source",
+        "t",
+        "--snapshot-timestamp",
+        "2026-09-24T10:00:00.000Z",
+        "--json",
+      ],
+      { expectFailure: true },
+    );
+    assert.equal(rejected.code, 1);
+    assert.equal(rejected.stdout, "");
+    assert.equal(rejected.stderr, "Error: --fetch-url requires --fetch\n");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("catalog import --fetch honors --fetch-url", async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(importInput()));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const { code, stdout, stderr } = await runCli([
+      "catalog",
+      "import",
+      "--fetch",
+      "--fetch-url",
+      `${base}/api.json`,
+      "--source",
+      "t",
+      "--snapshot-timestamp",
+      "2026-09-24T10:00:00.000Z",
+      "--json",
+    ]);
+    const result = JSON.parse(stdout);
+
+    assert.equal(code, 0);
+    assert.equal(stderr, "");
+    assert.equal(result.networkUsed, true);
+    assert.equal(result.source, "t");
+    assert.equal(result.entryCount, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 
