@@ -27,7 +27,7 @@ export {
 export { selectRoute } from "./selection.js";
 export { validateCliJson } from "./validate-cli-json.js";
 export { compareRouteIds } from "./routeIds.js";
-export { handleChatCompletionsRequest } from "./gateway.js";
+export { handleChatCompletionsRequest, handleMessagesRequest } from "./gateway.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
 export { SellerSubmissionError, validateSellerSubmission } from "./sellerSubmission.js";
 export {
