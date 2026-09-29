@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { normalizeCatalog } from "./catalog.js";
+import { computeCatalogSnapshotHash, normalizeCatalog } from "./catalog.js";
 import { CatalogFreshnessError, checkCatalogFreshness } from "./freshness.js";
 
 export const DEFAULT_STAGING_SOURCE_PREFIX = "synthetic://";
@@ -155,7 +155,14 @@ export function buildSnapshot(catalogInput, provenanceInput, options = {}) {
     catalog.entries.map((entry) => Object.freeze(canonicalEntry(entry))),
   );
   const contentHash = computeContentHash(catalog.entries);
-  const declaredHashVerified = catalog.provenance.snapshotHash === contentHash;
+  // TOG-7660: provenance.snapshotHash covers the raw catalog body
+  // (computeCatalogSnapshotHash), never the canonical-entry content hash, so
+  // comparing the declared hash against contentHash could never verify.
+  // Compare like with like: the declared hash against a recomputed body hash.
+  // (normalizeCatalog already fail-closed on a mismatch via
+  // verifyCatalogSnapshotHash, so this holds for every built snapshot.)
+  const declaredHashVerified =
+    computeCatalogSnapshotHash(catalogInput) === catalog.provenance.snapshotHash;
 
   let freshness = null;
   if (options.maxCatalogAgeMs !== undefined) {
@@ -171,8 +178,8 @@ export function buildSnapshot(catalogInput, provenanceInput, options = {}) {
       routeId: null,
       gap: "declared-hash-unverified",
       detail:
-        "declared provenance.snapshotHash does not match the recomputed content hash; " +
-        "treat the declared hash as a placeholder until it is regenerated from this snapshot",
+        "declared provenance.snapshotHash does not match the recomputed catalog body hash; " +
+        "treat the declared hash as a placeholder until it is regenerated from this catalog",
     });
   }
   if (freshness !== null && !freshness.fresh) {

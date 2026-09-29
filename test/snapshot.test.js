@@ -44,7 +44,7 @@ async function fixtureSnapshot(overrides = {}) {
   });
 }
 
-test("fixture snapshot records a content hash and real provenance gaps", async () => {
+test("fixture snapshot verifies the declared hash and records real provenance gaps", async () => {
   const snapshot = await fixtureSnapshot();
 
   assert.equal(snapshot.tool, "wayselect-snapshot");
@@ -54,8 +54,12 @@ test("fixture snapshot records a content hash and real provenance gaps", async (
   assert.ok(Object.isFrozen(snapshot));
   assert.ok(Object.isFrozen(snapshot.entries));
 
+  // TOG-7660: provenance.snapshotHash covers the raw catalog body, so a
+  // pristine fixture verifies like-with-like instead of pinning a permanent
+  // declared-hash-unverified gap.
+  assert.equal(snapshot.declaredHashVerified, true);
   const gaps = new Set(snapshot.gaps.map((gap) => `${gap.routeId}:${gap.gap}`));
-  assert.ok(gaps.has("null:declared-hash-unverified"));
+  assert.ok(!gaps.has("null:declared-hash-unverified"));
   assert.ok(gaps.has("northstar/unknown-tools:missing-capability:toolUse"));
   assert.ok(gaps.has("northstar/unknown-tools:missing-capability:attachment"));
 });
@@ -163,7 +167,7 @@ test("identical snapshots produce an empty readable diff report", async () => {
   const emptyReport = formatDiffReport(diff);
   assert.match(emptyReport, /No route changes between snapshots/);
   assert.match(emptyReport, /unchanged; content hash unchanged/);
-  assert.match(emptyReport, /Open gaps on current snapshot: 5 \(no change since previous\)/);
+  assert.match(emptyReport, /Open gaps on current snapshot: 4 \(no change since previous\)/);
 });
 
 test("diff refuses snapshots from different source prefixes", async () => {
