@@ -353,6 +353,75 @@ test("TOG-7302: checked-in import snapshot validates against the v1 schema", asy
   );
 });
 
+// Tests for TOG-8625: invalid --evaluation-time failure contract under --json.
+//
+// parseEvaluationTime (bin/wayselect) throws InputError for non-ISO input
+// before any catalog/config IO; runSelectCommand's catch renders
+// `error: <message>` on stderr with exit 1. There is no JSON error envelope:
+// stdout stays byte-empty so --json consumers never parse a half-written
+// payload. These pins fail if the exit code, the exact stderr bytes, or
+// stdout-emptiness drifts. No clock pinning needed: the time parse rejects
+// before the catalog freshness gate, so no fixture files are read.
+
+const INVALID_TIME_ARGS = ["--operation", "chat", "--allow", "northstar"];
+
+async function runInvalidTime(command, raw, json = true) {
+  const args = [
+    "bin/wayselect",
+    command,
+    ...INVALID_TIME_ARGS,
+    "--evaluation-time",
+    raw,
+  ];
+  if (json) {
+    args.push("--json");
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      args,
+      { cwd: repoRoot },
+    );
+    return { code: 0, stdout, stderr };
+  } catch (error) {
+    return {
+      code: error.code,
+      stdout: String(error.stdout ?? ""),
+      stderr: String(error.stderr ?? ""),
+    };
+  }
+}
+
+test("TOG-8625: select --json with garbage --evaluation-time exits 1 with empty stdout", async () => {
+  const { code, stdout, stderr } = await runInvalidTime("select", "not-a-time");
+  assert.equal(code, 1);
+  assert.equal(stdout, "");
+  assert.equal(stderr, "error: evaluation time must be an ISO timestamp, got: not-a-time\n");
+});
+
+test("TOG-8625: explain --json renders identical failure bytes", async () => {
+  const { code, stdout, stderr } = await runInvalidTime("explain", "not-a-time");
+  assert.equal(code, 1);
+  assert.equal(stdout, "");
+  assert.equal(stderr, "error: evaluation time must be an ISO timestamp, got: not-a-time\n");
+});
+
+test("TOG-8625: out-of-range timestamp echoes the raw value", async () => {
+  const raw = "2026-13-99T99:99:99Z";
+  const { code, stdout, stderr } = await runInvalidTime("select", raw);
+  assert.equal(code, 1);
+  assert.equal(stdout, "");
+  assert.equal(stderr, `error: evaluation time must be an ISO timestamp, got: ${raw}\n`);
+});
+
+test("TOG-8625: human output matches the --json failure bytes (no envelope either way)", async () => {
+  const withJson = await runInvalidTime("select", "not-a-time", true);
+  const human = await runInvalidTime("select", "not-a-time", false);
+  assert.equal(human.code, withJson.code);
+  assert.equal(human.stdout, withJson.stdout);
+  assert.equal(human.stderr, withJson.stderr);
+});
+
 test("TOG-7302: validator rejects import drift", async () => {
   const payload = await runImportJson();
   // Undeclared fields fail closed at both levels.

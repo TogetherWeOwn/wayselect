@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-29) TOG-8625: pin invalid --evaluation-time --json failure
+  contract — four tests in `test/cli-json-contract.test.js` assert exit 1,
+  byte-empty stdout, and the exact `error: evaluation time must be an ISO
+  timestamp, got: <raw>` stderr for garbage/out-of-range values on
+  select/explain, plus human/--json byte equality (no JSON error envelope:
+  stdout stays empty); reviewer verified one invalid value manually
+  (`CHANGELOG.md`, `test/cli-json-contract.test.js`).
 - #TBD (2026-09-28) TOG-8639: open-source front-door slice — CI + MIT
   badges at the top of `README.md` (badge URLs verified 200), new
   `docs/export-control.md` (public-availability basis, SHA-256/nonce-only
