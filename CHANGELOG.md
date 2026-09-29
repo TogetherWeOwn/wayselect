@@ -18,6 +18,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #TBD (2026-09-29) TOG-8624: pin zero/negative maxEvidenceAgeHours
+  fail-closed — six tests in new `test/evidence-zero-budget.test.js` assert
+  a zero budget narrows freshness to exact-now evidence only (all aged
+  observations `stale-evidence`, zero eligible, never "everything fresh"),
+  exact-now evidence still passes, negative/NaN/Infinity budgets throw
+  `EligibilityRequestError` at the library boundary, and the CLI maps zero to
+  exit 3 no-eligible-route vs negative to exit 1 with exact bytes on
+  select/select --json (`CHANGELOG.md`,
+  `test/evidence-zero-budget.test.js`).
 - #TBD (2026-09-29) TOG-8625: pin invalid --evaluation-time --json failure
   contract — four tests in `test/cli-json-contract.test.js` assert exit 1,
   byte-empty stdout, and the exact `error: evaluation time must be an ISO
