@@ -60,9 +60,14 @@
 //                                            (no live publish, ever)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
 //
-// Security headers (TOG-5731, nonce CSP TOG-6049):
-//   - Every response carries `X-Content-Type-Options: nosniff` (HTML and
-//     JSON alike, including the 429 rate-limit refusal below).
+// Security headers (TOG-5731, nonce CSP TOG-6049, Permissions-Policy TOG-8332):
+//   - Every response carries `X-Content-Type-Options: nosniff`,
+//     `Referrer-Policy: no-referrer`, and a deny-by-default
+//     `Permissions-Policy` (camera/mic/geolocation/payment/usb — none used
+//     anywhere in web/; HTML and JSON alike, including the 429 rate-limit
+//     refusal below). HSTS is deliberately absent: plain-HTTP server, so
+//     browsers would ignore it per RFC 6797 §8.1 (see the HSTS note on
+//     SECURITY_HEADERS).
 //   - HTML responses additionally deny framing (`X-Frame-Options: DENY`
 //     plus `frame-ancestors 'none'`) and carry a per-response nonce CSP.
 //     Feasibility verdict (TOG-6049): nonces work — every page carries
@@ -138,7 +143,19 @@ const SELLER_CONFIRM_ROUTE = /^\/sellers\/submissions\/([^/]+)\/([^/]+)\/confirm
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
+  // TOG-8332: deny powerful browser features the preview never uses (no
+  // media/geolocation/payment APIs anywhere in web/ — grep-verified). Sent
+  // on every response, HTML and JSON alike, so a compromised fragment or
+  // error page cannot reach for camera/mic/location either.
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 };
+
+// HSTS note (TOG-8332 audit): deliberately NOT sent. This server binds
+// plain HTTP only (no TLS listener anywhere in the tree); per RFC 6797 §8.1
+// browsers ignore Strict-Transport-Security received over an insecure
+// transport, so emitting it here would be a dead header implying a TLS
+// guarantee the server does not provide. If a TLS-terminating reverse
+// proxy is ever placed in front, HSTS belongs on the proxy, not here.
 
 // HTML-only hardening (TOG-5731, nonces TOG-6049): deny framing both the
 // legacy (`X-Frame-Options`) and the standard (`frame-ancestors`) way, and
