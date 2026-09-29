@@ -399,6 +399,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Deployment runbook](docs/deployment-runbook.md) — preview-server image build, staging/preview-only run, env contract, rollback; no production activation.
 - [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
 - [Nightly ingestion-smoke triage runbook](docs/ingestion-smoke-triage-runbook.md) — where the `17 6 * * *` cron surfaces, who triages, first 5 commands, bug-card vs re-run rule.
+- [Production incident runbook](docs/incident-runbook.md) — staging/prod rollback steps, health-check commands, owner/approver per step; staging executable, production dormant.
 - [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
 - [Buyer listing spec](docs/wayselect-buyer-listing.md) — listing fields + purchase acceptance (v2).
 - [Eligibility-explain acceptance](docs/wayselect-eligibility-acceptance.md) — fail-closed eligibility paths on the CLI.
