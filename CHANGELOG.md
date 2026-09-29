@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-8455: catalog import fails closed on `--fetch-url` without `--fetch`
+  (exit 1, `Error: --fetch-url requires --fetch`, empty stdout) instead of
+  silently ignoring the URL; `--fetch --fetch-url` still works
+  (`bin/wayselect`, `test/cli.test.js`).
 - TOG-5956: Anthropic surface + streaming SSE (fake-backed, $0) —
   `handleMessagesRequest` plus SSE on both surfaces from one normalized
   delta stream with retry only before the first byte, `tools`+`stream` 400s,
