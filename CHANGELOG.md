@@ -300,6 +300,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `#main-content` target as the listing pages; 4-test served-route guard
   (`test/seller-skiplink.test.js`).
 
+- #189 (2026-09-28) TOG-6366: server-side Origin/Referer CSRF guard on
+  `POST …/purchase` — cross-origin requests refuse 403 `forbidden_origin`
+  before the listing lookup (headerless/API clients still reach the
+  `preview_only` stub refusal); OpenAPI `ForbiddenOrigin` schema + route
+  doc (`web/server.js`, `test/purchase-origin-check.test.js`,
+  `docs/preview-server.openapi.json`,
+  `test/preview-route-table.test.js`).
 - #182 (2026-09-28) TOG-7661: flag-on index honors `Accept:
   application/json` — 200 paged result `{listings, total, limit, offset}`
   (incl. empty state and offset-past-end with intact total), 400

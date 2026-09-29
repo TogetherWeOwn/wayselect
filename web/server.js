@@ -40,7 +40,11 @@
 //                                            refusal/echo without recording
 //                                            a second effect; same key +
 //                                            different effect is 422
-//                                            `idempotency_key_reused`
+//                                            `idempotency_key_reused`.
+//                                            Cross-origin requests (Origin/
+//                                            Referer mismatch, TOG-6366)
+//                                            refuse 403 forbidden_origin
+//                                            before the listing lookup
 //   POST /sellers/submissions                — seller intake (TOG-4969):
 //                                            validates the JSON body with
 //                                            validateSellerSubmission and
@@ -273,6 +277,80 @@ function sendCacheableJson(req, res, status, payload) {
 // request id (TOG-6717) via the shared writer.
 function sendMethodNotAllowed(res, allow) {
   sendJsonError(res, 405, { error: "method_not_allowed" }, { allow });
+}
+
+// Server-side CSRF guard for the purchase POST (TOG-6366, gap G5/S1).
+//
+// Threat model: CSP `form-action 'self'` is enforced by the victim's
+// browser only when that browser honors the CSP header. A hostile page on
+// another origin can still submit a cross-origin POST to the purchase route
+// (hidden auto-submitting form, no-cors fetch) and the request rides the
+// victim's ambient credentials (cookies/session) once this route performs
+// a write. Today the stub refuses every POST with 403, so the impact is
+// nil — this check is defense-in-depth that survives the day the route
+// writes. It compares the request's own `Origin` (else `Referer`) authority
+// against its `Host` authority and refuses mismatches with 403
+// `forbidden_origin`.
+//
+// Why Host as the baseline is safe here (cf. the TOG-7304 audit): Host is
+// never trusted for *output* — no link, redirect, or bucket derives from
+// it. It is only a consistency baseline for *input* the attacker cannot
+// forge in the threat scenario: in a browser-driven CSRF the browser sets
+// Host from the target URL and Origin from the hostile page, and page
+// script cannot override either. A non-browser client (curl) can forge
+// both, but it is not a confused deputy — there is no victim session to
+// ride. Scheme is deliberately ignored (authority-only comparison): the
+// preview server does not know its public scheme behind a proxy, and the
+// browser threat is covered by the authority mismatch alone.
+//
+// Fail-open only for truly headerless requests (curl/API clients send
+// neither header): a victim browser cannot be made to withhold Origin on
+// a cross-origin POST, so the missing-headers path is not a bypass.
+// Present-but-unparseable values fail closed. Error responses carry
+// `Cache-Control: no-store` via sendJsonError, so no `Vary: Origin` is
+// needed for shared caches.
+export function isSameOriginRequest(req) {
+  const headers = req?.headers ?? {};
+  const origin = headerString(headers.origin);
+  // `referer` is the standard spelling; accept the `referrer` variant too.
+  const referer = headerString(headers.referer ?? headers.referrer);
+  if (origin === null && referer === null) {
+    return true;
+  }
+  const host = headerString(headers.host);
+  if (host === null) {
+    return false;
+  }
+  let hostAuthority;
+  try {
+    hostAuthority = new URL(`http://${host}`).host;
+  } catch {
+    return false;
+  }
+  if (origin !== null) {
+    let originAuthority;
+    try {
+      originAuthority = new URL(origin).host;
+    } catch {
+      return false;
+    }
+    return originAuthority === hostAuthority;
+  }
+  try {
+    return new URL(referer).host === hostAuthority;
+  } catch {
+    return false;
+  }
+}
+
+// Single header value or null when absent. A duplicated header (array)
+// fails closed downstream as unparseable — browsers never send duplicate
+// Origin/Referer, so ambiguity is never legitimate here.
+function headerString(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  return value === undefined ? null : "";
 }
 
 // Bucket requests by route shape for the rate limiter: exact path for the
@@ -704,6 +782,16 @@ export function createApp(env = process.env, options = {}) {
     if (purchaseMatch) {
       if (req.method !== "POST") {
         sendMethodNotAllowed(res, "POST");
+        return;
+      }
+      // TOG-6366 (gap G5/S1): server-side CSRF guard. Runs before the
+      // listing lookup so a cross-origin probe cannot distinguish 404
+      // (unknown listing) from 403 (real listing) — every cross-origin
+      // POST gets the same 403 `forbidden_origin` regardless of whether
+      // the listing exists. Only 403 `preview_only` (same-origin or
+      // headerless) means "listing exists, writes disabled" (TOG-5710).
+      if (!isSameOriginRequest(req)) {
+        sendJson(res, 403, { error: "forbidden_origin" });
         return;
       }
       // TOG-5710: a nonexistent resource must 404 first; 403 is only
