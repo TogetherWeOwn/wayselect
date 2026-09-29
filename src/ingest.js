@@ -201,6 +201,16 @@ function mapModelFields(source) {
         error: "limit must be an object with optional context/output when present",
       };
     }
+    // Unknown limit subfields quarantine: an upstream schema addition inside
+    // `limit` (e.g. a new bound) must surface for review, never be silently
+    // discarded. Mirrors the top-level unknown-field contract.
+    for (const key of Object.keys(source.limit).sort()) {
+      if (key !== "context" && key !== "output") {
+        return {
+          error: `limit contains unknown field: ${key}`,
+        };
+      }
+    }
     if (source.limit.context !== undefined) {
       mapped.context_window = source.limit.context;
     }
