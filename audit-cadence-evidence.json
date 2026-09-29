@@ -1,0 +1,73 @@
+{
+  "issue": "TOG-8349",
+  "ranAt": "2026-09-29T15:06:59.000Z",
+  "repoHead": "93acadcaa002810917faf50a229903fdb3ab0722",
+  "repoHeadDate": "2026-09-29T12:17:59.000Z",
+  "repoHeadSubject": "fix(catalog): fail closed on --fetch-url without --fetch (#231)",
+  "method": "npm audit at gate level (--audit-level=high) plus full --audit-level=low --json on the worktree tree; worktree package.json/package-lock.json verified byte-identical to origin/main (lockfile sha256 match), so the result applies to origin/main @ 2026-09-29",
+  "cadence": {
+    "perPushCI": ".github/workflows/ci.yml `audit` job runs `npm ci` then `npm audit --audit-level=high` on every push/PR — fails red on any new high/critical advisory (no continue-on-error). CI-only by design: it needs the npm registry.",
+    "monthlyPolicyReview": "docs/dependency-update-policy.md — owner reviews outstanding updates first week of each month (one policy-conformant PR or recorded no-op); advisories out of band (24h critical/RCE, 7d otherwise).",
+    "gatePin": "test/npm-audit-gate.test.js pins the CI job shape and the local-gate exclusion offline (parity set + docs), so cadence drift reds the suite.",
+    "evidenceRecords": "This file (TOG-8349, week of 2026-09-29) continues audit-delta-evidence.json (TOG-6387, 2026-09-27)."
+  },
+  "pins": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "escape-html": "1.0.3"
+  },
+  "lockfileSha256": "sha256:a40e56653740c12d0da44defe700305b2dddf0bb058b7d9ba5d57df2c8dd6be4",
+  "audit": {
+    "gateLevel": {
+      "command": "npm audit --audit-level=high",
+      "exit": 0,
+      "output": "found 0 vulnerabilities"
+    },
+    "fullLevel": {
+      "command": "npm audit --audit-level=low --json",
+      "exit": 0,
+      "output": "found 0 vulnerabilities",
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      }
+    }
+  },
+  "gateTest": {
+    "command": "node --test test/npm-audit-gate.test.js",
+    "tests": 4,
+    "pass": 4,
+    "fail": 0
+  },
+  "delta": "No dependency changes since the TOG-6387 record (2026-09-27): package-lock.json is byte-identical (sha256:a40e5665...dd6be4, same as TOG-6037 baseline); package.json diff origin/main touches only bin/scripts entries (no deps, versions, or ranges). Pins remain exact, policy-conformant, no ranges.",
+  "policyDisposition": "No-op assessment per docs/dependency-update-policy.md Security-advisory handling step 3: no advisory affects the pinned tree, so no code or fix churn. This evidence file is the recorded delta.",
+  "checks": [
+    {
+      "name": "audit: 0 vulnerabilities at gate level (--audit-level=high), exit 0",
+      "status": "pass",
+      "detail": "ran 2026-09-29T15:06:59Z against tree matching origin/main 93acadc; found 0 vulnerabilities"
+    },
+    {
+      "name": "audit: 0 vulnerabilities at full level (--audit-level=low --json)",
+      "status": "pass",
+      "detail": "0 info / 0 low / 0 moderate / 0 high / 0 critical, exit 0"
+    },
+    {
+      "name": "gate: npm-audit-gate test green",
+      "status": "pass",
+      "detail": "4 pass, 0 fail — audit job shape, fail-red, parity exclusion, and docs all pinned"
+    },
+    {
+      "name": "audit: lockfile byte-identical to TOG-6037 baseline",
+      "status": "pass",
+      "detail": "sha256:a40e5665...dd6be4 in worktree and origin/main"
+    }
+  ],
+  "reviewerRerun": "npm audit --audit-level=high (expect: found 0 vulnerabilities, exit 0) && node --test test/npm-audit-gate.test.js (expect: 4 pass, 0 fail)",
+  "notVerified": "Registry-side advisories published after this run; CI `audit` job result on the merge PR.",
+  "verdict": "PASS"
+}

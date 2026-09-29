@@ -54,6 +54,35 @@ policy-conformant PR (exact npm pins + lockfile; action refs converted to
 Dependabot cannot schedule day-of-month, so the "first week" review stays a
 human step on the tracking card.
 
+## Audit cadence (TOG-8349)
+
+Three layers, fastest first:
+
+1. **Per-push CI gate (TOG-7280).** `.github/workflows/ci.yml` runs an
+   `audit` job on every push/PR: `npm ci` then
+   `npm audit --audit-level=high`. Any new high/critical advisory fails CI
+   red (no `continue-on-error`). Registry access makes it CI-only by
+   design; the offline local gate documents the exclusion
+   (`bin/pre-push-check`, `docs/pre-push-check.md`, `CONTRIBUTING.md`).
+2. **Monthly policy review** (Cadence section above): first week of each
+   month, one policy-conformant PR or a recorded "no updates due".
+3. **Gate pin.** `test/npm-audit-gate.test.js` pins the CI job shape
+   (command, fail-red, parity exclusion, docs) offline, so cadence drift
+   reds the suite.
+
+**Evidence records (dated, reviewer-rerunnable):**
+
+- `audit-delta-evidence.json` (TOG-6387, 2026-09-27): pristine
+  `origin/main` tree, `found 0 vulnerabilities` at `--audit-level=low`,
+  lockfile byte-identical to the TOG-6037 baseline.
+- `audit-cadence-evidence.json` (TOG-8349, week of 2026-09-29): 0
+  vulnerabilities at both `--audit-level=high` (gate level) and
+  `--audit-level=low`, gate test 4 pass / 0 fail.
+
+Rerun any record with `npm audit --audit-level=high` (expect `found 0
+vulnerabilities`, exit 0) plus `node --test
+test/npm-audit-gate.test.js` (expect 4 pass, 0 fail).
+
 ## First policy-conformant update (TOG-5057, 2026-09-26)
 
 - Pinned `ajv` at `8.20.0`, `ajv-formats` at `3.0.1`, and `escape-html` at
