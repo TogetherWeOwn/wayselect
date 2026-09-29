@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-8336: listing-detail render budget under the slow-network knob —
+  shell first paint + 300ms control < 500ms at knob 600, fragment settles
+  < 2000ms with content intact, pure shell+fragment builds (x100) + 300ms
+  control < 500ms (measured 2026-09-29: pure 0.02ms/op, shell 1–11ms,
+  fragment knob+~1ms), pinned by `test/slow-network-render-budget.test.js`.
 - TOG-8455: catalog import fails closed on `--fetch-url` without `--fetch`
   (exit 1, `Error: --fetch-url requires --fetch`, empty stdout) instead of
   silently ignoring the URL; `--fetch --fetch-url` still works
