@@ -296,7 +296,10 @@ node bin/wayselect-search-index-refresh --max-catalog-age-hours 24 --out search-
 The probe (`--check`, five checks R1–R5) builds, rebuilds, and reloads: done
 criteria for TOG-5460 is the CLI probe passing twice consecutively with the same
 content hash. Same-input refreshes over `--previous` report
-`changedVsPrevious:false`. The evaluation clock follows the same
+`changedVsPrevious:false`. `--previous` is only supported when writing a
+refresh: combining it with `--check` fails with exit 1 and a usage error on
+stderr, without running the probe or writing an index. Omit `--check` to
+validate and compare a previous index. The evaluation clock follows the same
 snapshot-derived pattern as the suite (`support/helpers.js`
 `evaluationNow()`): when no `--now` is given, the CLI evaluates two hours
 after the live fixture `snapshotTimestamp`, so the probe stays green across
