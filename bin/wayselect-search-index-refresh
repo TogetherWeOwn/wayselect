@@ -94,6 +94,12 @@ async function main() {
     return;
   }
 
+  if (args.check && args.previous !== null) {
+    throw new Error(
+      "--previous cannot be used with --check; omit --check to compare a previous index",
+    );
+  }
+
   let maxCatalogAgeMs;
   if (args.maxCatalogAgeHours !== null) {
     maxCatalogAgeMs = Number(args.maxCatalogAgeHours);
