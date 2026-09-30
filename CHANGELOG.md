@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- #232 (2026-09-30) TOG-10599: restore synthetic staging fixture freshness through the supported refresh script; keep fixture-dependent test clocks and golden expectations aligned across refreshes without relaxing the 24h gate (`fixtures/catalog.synthetic.json`, `fixtures/configuration.synthetic.json`, `fixtures/request.synthetic.json`, `test/capability-requirements.test.js`, `test/edge-fixtures.test.js`, `test/golden-output.test.js`, `test/ranking.test.js`, `test/route-id-tie-break.test.js`).
+- #232 (2026-09-30) TOG-10599: restore synthetic staging fixture freshness through the supported refresh script; keep fixture-dependent test clocks and golden expectations aligned across refreshes without relaxing the 24h gate (`fixtures/catalog.synthetic.json`, `fixtures/configuration.synthetic.json`, `fixtures/request.synthetic.json`, `test/capability-requirements.test.js`, `test/edge-fixtures.test.js`, `test/golden-output.test.js`, `test/ranking.test.js`, `test/route-id-tie-break.test.js`, `scripts/acceptance.sh`).
 
 - TOG-8455: catalog import fails closed on `--fetch-url` without `--fetch`
   (exit 1, `Error: --fetch-url requires --fetch`, empty stdout) instead of
