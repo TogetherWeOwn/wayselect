@@ -29,7 +29,9 @@ test("scheduler workflow is registered on a daily off-peak cron", async () => {
 test("scheduler workflow runs the read-only freshness probe", async () => {
   const text = await readWorkflow();
   assert.match(text, /npm run refresh:check/);
-  assert.match(text, /uses:\s*actions\/checkout@v4/);
+  // Pinned to the checkout major in .github/workflows/fixture-refresh-check.yml
+  // (v7 since TOG-8344 / PR #173).
+  assert.match(text, /uses:\s*actions\/checkout@v7/);
   assert.match(text, /uses:\s*actions\/setup-node@v4/);
   assert.match(text, /node-version:\s*20/);
   // No run step refreshes (--timestamp appears only in human-remediation
