@@ -39,7 +39,7 @@ function inlineCandidate(routeId, rates) {
     catalogOperations: ["chat"],
     configuredOperations: ["chat"],
     capabilities: { toolUse: true },
-    evidence: { observedAt: SNAPSHOT_ISO },
+    evidence: { observedAt: new Date(evaluationOptions.now.getTime() - 2 * 60 * 60 * 1000).toISOString() },
     ...(rates === undefined ? {} : { rates }),
   };
 }
