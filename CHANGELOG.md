@@ -18,6 +18,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #173 (2026-09-30) TOG-8344: actions/checkout 4→7 with the fixture-refresh
+  scheduler golden re-pinned to v7 (test-only follow-up;
+  `test/fixture-refresh-scheduler.test.js`).
 - #192 (2026-09-28) TOG-7281: warn-only large-catalog benchmark CI job — the `large-catalog-bench`
   job runs `node bin/benchmark-large-catalog` and uploads the timings JSON as
   the `large-catalog-timings` artifact; a budget miss annotates `::warning::`
