@@ -6,7 +6,7 @@ import {
   normalizeCatalog,
   selectRoute,
 } from "../src/index.js";
-import { loadConfiguredCandidates } from "../support/helpers.js";
+import { evaluationNow, loadConfiguredCandidates } from "../support/helpers.js";
 
 // TOG-4800: drives the synthetic edge corpus in fixtures/edges/ through the
 // real normalize -> configure -> select pipeline. Fixtures with
@@ -25,9 +25,22 @@ import { loadConfiguredCandidates } from "../support/helpers.js";
 //   instead of the documented CatalogValidationError.
 
 async function readEdge(name) {
-  return JSON.parse(
+  const edge = JSON.parse(
     await readFile(new URL(`../fixtures/edges/${name}`, import.meta.url), "utf8"),
   );
+  // The edge corpus was authored at this evaluation clock. Rebase its clocks
+  // with the demo snapshot, preserving every stale/fresh evidence distance.
+  if (edge.evaluationTime) {
+    const deltaMs = evaluationNow().getTime() - Date.parse("2026-09-26T16:00:00.000Z");
+    const shift = (value) => new Date(Date.parse(value) + deltaMs).toISOString();
+    edge.evaluationTime = shift(edge.evaluationTime);
+    for (const candidate of edge.configuration?.candidates ?? []) {
+      if (candidate.evidence?.observedAt) {
+        candidate.evidence.observedAt = shift(candidate.evidence.observedAt);
+      }
+    }
+  }
+  return edge;
 }
 
 async function runSelectionEdge(name) {

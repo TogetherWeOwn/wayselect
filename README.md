@@ -84,7 +84,7 @@ from flags, exclusions named per candidate):
 ```sh
 node bin/wayselect select --operation chat --allow northstar,orbit \
   --input-modalities text --output-modalities text --require-tools \
-  --evaluation-time 2026-09-26T16:00:00.000Z
+  --evaluation-time 2026-09-30T12:28:11.003Z
 ```
 
 ```text
@@ -101,7 +101,7 @@ Ranked candidates (2 eligible, 4 excluded):
   5. northstar/unknown-tools — excluded (missing-capability:toolUse)
   6. orbit/retired-chat — excluded (support-state:unsupported, operation-not-configured)
 
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 ```
 
 (Pin `--evaluation-time`: without it the CLI evaluates at the wall clock,
@@ -195,8 +195,8 @@ The catalog fixture carries provenance (`source`, `snapshotTimestamp`,
 Refresh through the script, never by hand-editing:
 
 ```sh
-node bin/refresh-catalog-fixtures --timestamp 2026-09-26T14:00:00.000Z
-node bin/refresh-catalog-fixtures --check --now 2026-09-26T15:00:00.000Z
+node bin/refresh-catalog-fixtures --timestamp 2026-09-30T10:28:11.003Z
+node bin/refresh-catalog-fixtures --check --now 2026-09-30T12:28:11.003Z
 npm run refresh:check
 ```
 
@@ -240,7 +240,7 @@ exit non-zero on any drift (an alert):
 
 ```sh
 npm run check:drift
-node bin/check-provenance-drift --now 2026-09-26T16:00:00.000Z --out drift-report.json
+node bin/check-provenance-drift --now 2026-09-30T12:28:11.003Z --out drift-report.json
 ```
 
 - **D1 self-hash:** the live catalog body recomputes to its own recorded
