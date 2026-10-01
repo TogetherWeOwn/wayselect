@@ -44,6 +44,16 @@ async function fixtureSnapshot(overrides = {}) {
   });
 }
 
+test("snapshot cleanliness distinguishes empty and nonempty gaps", () => {
+  assert.equal(snapshotIsClean({ gaps: [] }), true);
+  assert.equal(
+    snapshotIsClean({
+      gaps: [{ routeId: "northstar/unknown-tools", gap: "missing-capability:toolUse" }],
+    }),
+    false,
+  );
+});
+
 test("fixture snapshot records a content hash and real provenance gaps", async () => {
   const snapshot = await fixtureSnapshot();
 

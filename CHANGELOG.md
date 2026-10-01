@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #108 (2026-10-01) TOG-6372: CLI-vs-modules audit doc (gap G11) —
+  all 21 exports of `searchIndex.js`/`snapshot.js`/`provenanceAudit.js`
+  mapped to CLI callers, plus coverage guard and snapshot cleanliness pins
+  (`docs/cli-module-coverage.md`, `test/cli-module-coverage.test.js`,
+  `test/snapshot.test.js`, `README.md`).
 - #233 TOG-9947: search-index `--check` rejects `--previous` with exit 1 and a usage error on stderr (probe never runs, no index written) instead of silently ignoring the flag (`bin/wayselect-search-index-refresh`, `test/search-index-corrupt-previous.test.js`, `README.md`).
 
 - #232 (2026-09-30) TOG-10599: restore synthetic staging fixture freshness through the supported refresh script; keep fixture-dependent test clocks and golden expectations aligned across refreshes without relaxing the 24h gate (`fixtures/catalog.synthetic.json`, `fixtures/configuration.synthetic.json`, `fixtures/request.synthetic.json`, `test/capability-requirements.test.js`, `test/edge-fixtures.test.js`, `test/golden-output.test.js`, `test/ranking.test.js`, `test/route-id-tie-break.test.js`, `scripts/acceptance.sh`).

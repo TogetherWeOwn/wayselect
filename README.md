@@ -391,6 +391,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Acceptance spec — capability-aware dry-run select](docs/acceptance-spec-capability-select.md) — next-feature acceptance for capability-aware selection (v1).
 - [CLI `--json` machine contract](docs/cli-json-contract.md) — versioned machine interface for `select --json` / `explain --json`.
 - [Preview server route table](docs/preview-server.openapi.json) — machine-readable OpenAPI route table for `web/server.js` (every route, method, params, status codes).
+- [CLI surface vs modules audit](docs/cli-module-coverage.md) — which CLI binary exercises every export of `searchIndex.js` / `snapshot.js` / `provenanceAudit.js`.
 - [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
 - [`bin/` operator catalog](docs/bin-operator-catalog.md) — one line per script: purpose, when to run, key flags.
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
