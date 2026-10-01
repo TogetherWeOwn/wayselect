@@ -18,6 +18,8 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #196 TOG-6393: filter submits, clear/recovery links and pagination land on the focusable `#results` section; retain visible headings, polite live-region announcements, sticky filters and pagination semantics (`web/listing-detail.js`, listing focus/filter/pagination tests).
+
 - #108 (2026-10-01) TOG-6372: CLI-vs-modules audit doc (gap G11) —
   all 21 exports of `searchIndex.js`/`snapshot.js`/`provenanceAudit.js`
   mapped to CLI callers, plus coverage guard and snapshot cleanliness pins
