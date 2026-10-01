@@ -2,6 +2,7 @@
   "name": "wayselect",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Explainable model selection with models.dev catalog discovery and explicit capability checks.",
   "type": "module",
   "engines": {
@@ -29,6 +30,7 @@
     "accept:dryrun-explain": "node bin/accept-wayselect-dryrun-explain",
     "accept:checkout": "node bin/accept-wayselect-checkout",
     "accept:gateway-phase1": "node bin/accept-wayselect-gateway-phase1",
+    "accept:trust": "node bin/accept-wayselect-trust",
     "snapshot": "node bin/wayselect-snapshot",
     "prune:snapshots": "node bin/wayselect-snapshot-prune",
     "check:provenance": "node bin/check-ingestion-provenance",

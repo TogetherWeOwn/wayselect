@@ -5,19 +5,46 @@
 //   GET /healthz                            — liveness probe (TOG-5726):
 //                                            `{status:"ok",version}` JSON,
 //                                            ungated by WAYSELECT_PREVIEW
-//                                            and exempt from rate limiting
+//                                            and exempt from rate limiting;
+//                                            cacheable (TOG-6050): ETag +
+//                                            `Cache-Control: public,
+//                                            max-age=60` with 304 on
+//                                            matching `If-None-Match`
 //   GET /favicon.ico                         — 204 No Content (TOG-6369):
 //                                            ungated by WAYSELECT_PREVIEW;
 //                                            pins the browser-requested icon
 //                                            path so page loads stop emitting
 //                                            404 log noise
-//   GET /listings                          — stub listing index (flag-gated)
+//   GET /listings                          — stub listing index (flag-gated;
+//                                            flag-on honors `Accept:
+//                                            application/json` with the paged
+//                                            result / invalid-filter error;
+//                                            flag-off stays HTML-only; the
+//                                            flag-on 200 JSON result is
+//                                            cacheable (TOG-6050): ETag +
+//                                            `Cache-Control: public,
+//                                            max-age=60` with 304 on
+//                                            matching `If-None-Match`)
 //   GET /listings/:provider/:model         — listing-detail shell (flag-gated;
 //                                            `Accept: application/json` returns
-//                                            the `{ html }` content fragment)
+//                                            the `{ html }` content fragment,
+//                                            cacheable like the index 200
+//                                            JSON (TOG-6050))
 //   POST /listings/:provider/:model/purchase — stub CTA target: 404 for
 //                                            unknown listings, 403 for known
-//                                            listings (no backend writes)
+//                                            listings (no backend writes).
+//                                            Honors the optional
+//                                            `Idempotency-Key` header
+//                                            (TOG-6030): same key + same
+//                                            effect replays the stored
+//                                            refusal/echo without recording
+//                                            a second effect; same key +
+//                                            different effect is 422
+//                                            `idempotency_key_reused`.
+//                                            Cross-origin requests (Origin/
+//                                            Referer mismatch, TOG-6366)
+//                                            refuse 403 forbidden_origin
+//                                            before the listing lookup
 //   POST /sellers/submissions                — seller intake (TOG-4969):
 //                                            validates the JSON body with
 //                                            validateSellerSubmission and
@@ -33,9 +60,14 @@
 //                                            (no live publish, ever)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
 //
-// Security headers (TOG-5731, nonce CSP TOG-6049):
-//   - Every response carries `X-Content-Type-Options: nosniff` (HTML and
-//     JSON alike, including the 429 rate-limit refusal below).
+// Security headers (TOG-5731, nonce CSP TOG-6049, Permissions-Policy TOG-8332):
+//   - Every response carries `X-Content-Type-Options: nosniff`,
+//     `Referrer-Policy: no-referrer`, and a deny-by-default
+//     `Permissions-Policy` (camera/mic/geolocation/payment/usb — none used
+//     anywhere in web/; HTML and JSON alike, including the 429 rate-limit
+//     refusal below). HSTS is deliberately absent: plain-HTTP server, so
+//     browsers would ignore it per RFC 6797 §8.1 (see the HSTS note on
+//     SECURITY_HEADERS).
 //   - HTML responses additionally deny framing (`X-Frame-Options: DENY`
 //     plus `frame-ancestors 'none'`) and carry a per-response nonce CSP.
 //     Feasibility verdict (TOG-6049): nonces work — every page carries
@@ -47,12 +79,17 @@
 //     Effort was trivial: one `randomBytes` nonce per HTML response,
 //     stamped on the inline tags and allowlisted in the header.
 //
-// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375):
+// 404 content-type contract (TOG-5714, flag-off JSON TOG-6375, index JSON TOG-7661):
 //   - Browser routes (index, detail incl. listing misses, flag-off pages):
 //     HTML by default; JSON only when the client explicitly negotiates
-//     `Accept: application/json` (the shell's fragment fetch). Flag-off
-//     JSON is `{error: "preview_disabled"}` so the shell renders its
-//     alert panel instead of choking on an HTML page.
+//     `Accept: application/json` (the shell's fragment fetch; index JSON
+//     callers likewise). Flag-off JSON is `{error: "preview_disabled"}`
+//     so the shell renders its alert panel instead of choking on an HTML
+//     page. Flag-on index JSON is the paged result
+//     `{listings, total, limit, offset}` (200, incl. empty states) or
+//     `{error: "invalid_filter", kind, value, valid, errors}` (400, plus the
+//     TOG-6717 request id like every JSON error).
+//     The flag-off index stays HTML-only — it has no fragment shape.
 //   - API-shaped routes (purchase stub incl. 405s) and unparseable targets:
 //     always JSON.
 //   - Unknown paths (fallback below): JSON `{error: "not_found"}` by
@@ -60,7 +97,7 @@
 //     `Accept: text/html` without `application/json` (a browser address-bar
 //     navigation). `*/*` (fetch/curl defaults) gets JSON.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { isPreviewEnabled } from "./preview.js";
@@ -83,6 +120,9 @@ import {
   sortListings,
 } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
+import { createDisputeStore, validateDisputeBody } from "./disputes.js";
+import { stableStringify } from "../src/canonical.js";
+import { MAX_IDEMPOTENCY_KEY_LENGTH } from "../src/index.js";
 import { readJsonBody } from "./jsonBody.js";
 import {
   confirmModel,
@@ -96,13 +136,26 @@ import { SellerSubmissionError, validateSellerSubmission } from "../src/sellerSu
 
 const LISTING_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/?$/;
 const PURCHASE_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/purchase\/?$/;
+const DISPUTES_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/disputes\/?$/;
 const SELLER_INTAKE_ROUTE = /^\/sellers\/submissions\/?$/;
 const SELLER_CONFIRM_ROUTE = /^\/sellers\/submissions\/([^/]+)\/([^/]+)\/confirm\/?$/;
 
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
+  // TOG-8332: deny powerful browser features the preview never uses (no
+  // media/geolocation/payment APIs anywhere in web/ — grep-verified). Sent
+  // on every response, HTML and JSON alike, so a compromised fragment or
+  // error page cannot reach for camera/mic/location either.
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 };
+
+// HSTS note (TOG-8332 audit): deliberately NOT sent. This server binds
+// plain HTTP only (no TLS listener anywhere in the tree); per RFC 6797 §8.1
+// browsers ignore Strict-Transport-Security received over an insecure
+// transport, so emitting it here would be a dead header implying a TLS
+// guarantee the server does not provide. If a TLS-terminating reverse
+// proxy is ever placed in front, HSTS belongs on the proxy, not here.
 
 // HTML-only hardening (TOG-5731, nonces TOG-6049): deny framing both the
 // legacy (`X-Frame-Options`) and the standard (`frame-ancestors`) way, and
@@ -112,9 +165,13 @@ const SECURITY_HEADERS = {
 // carry the request nonce (`newCspNonce`), so `style-src`/`script-src`
 // allowlist exactly that nonce and there is no `'unsafe-inline'` anywhere.
 // `form-action 'self'` covers the filter GET form and the purchase POST
-// form.
+// form. TOG-6368: `X-Robots-Tag: noindex, nofollow` keeps stub preview
+// pages out of search indexes — defense in depth alongside the
+// `<meta name="robots">` tag in both HTML layouts (web/listing-detail.js,
+// web/seller.js), covering crawlers that ignore the meta tag.
 const HTML_SECURITY_HEADERS = {
   "x-frame-options": "DENY",
+  "x-robots-tag": "noindex, nofollow",
 };
 
 // TOG-6049: 128-bit nonce per HTML response (base64, CSP grammar-safe).
@@ -179,10 +236,54 @@ function sendJson(res, status, payload) {
     sendJsonError(res, status, payload);
     return;
   }
-  // Success JSON keeps default cache semantics: cacheable GETs (ETag,
-  // validators, 304) belong to TOG-6050, which decides per route there.
+  // Success JSON keeps default cache semantics unless the route opts into
+  // the TOG-6050 cacheable contract below (sendCacheableJson).
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS });
   res.end(JSON.stringify(payload));
+}
+
+// Cacheable success-JSON contract (TOG-6050): fixture-deterministic GET
+// bodies get a strong content-hash ETag plus a short shared-cache window,
+// with `If-None-Match` revalidation answering 304. Only routes whose 200
+// body is a pure function of fixture data + request target may use this —
+// HTML pages (per-response nonce CSP), error JSON (no-store, TOG-6367),
+// and transactional bodies (seller intents, recordedAt timestamps) stay out.
+// `Vary` is the caller's job (routes that negotiate on Accept already set
+// `Vary: Accept` before calling); this helper only adds the validators.
+export const CACHEABLE_JSON_CACHE_CONTROL = "public, max-age=60";
+
+export function etagForJsonBody(body) {
+  return `"sha256-${createHash("sha256").update(body, "utf8").digest("base64url")}"`;
+}
+
+// Weak comparison per RFC 9110 §13.1.2 (If-None-Match): `*` matches, and a
+// `W/`-prefixed tag matches its strong counterpart by opaque value.
+export function etagMatches(ifNoneMatch, etag) {
+  if (typeof ifNoneMatch !== "string") {
+    return false;
+  }
+  return ifNoneMatch.split(",").some((candidate) => {
+    const tag = candidate.trim().replace(/^W\//, "");
+    return tag === "*" || tag === etag;
+  });
+}
+
+function sendCacheableJson(req, res, status, payload) {
+  const body = JSON.stringify(payload);
+  const etag = etagForJsonBody(body);
+  const headers = {
+    "content-type": "application/json; charset=utf-8",
+    ...SECURITY_HEADERS,
+    "cache-control": CACHEABLE_JSON_CACHE_CONTROL,
+    etag,
+  };
+  if (etagMatches(req.headers?.["if-none-match"], etag)) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(status, headers);
+  res.end(body);
 }
 
 // Wrong-method refusal (TOG-6364): RFC 9110 §15.5.6 requires a 405 response
@@ -193,6 +294,80 @@ function sendJson(res, status, payload) {
 // request id (TOG-6717) via the shared writer.
 function sendMethodNotAllowed(res, allow) {
   sendJsonError(res, 405, { error: "method_not_allowed" }, { allow });
+}
+
+// Server-side CSRF guard for the purchase POST (TOG-6366, gap G5/S1).
+//
+// Threat model: CSP `form-action 'self'` is enforced by the victim's
+// browser only when that browser honors the CSP header. A hostile page on
+// another origin can still submit a cross-origin POST to the purchase route
+// (hidden auto-submitting form, no-cors fetch) and the request rides the
+// victim's ambient credentials (cookies/session) once this route performs
+// a write. Today the stub refuses every POST with 403, so the impact is
+// nil — this check is defense-in-depth that survives the day the route
+// writes. It compares the request's own `Origin` (else `Referer`) authority
+// against its `Host` authority and refuses mismatches with 403
+// `forbidden_origin`.
+//
+// Why Host as the baseline is safe here (cf. the TOG-7304 audit): Host is
+// never trusted for *output* — no link, redirect, or bucket derives from
+// it. It is only a consistency baseline for *input* the attacker cannot
+// forge in the threat scenario: in a browser-driven CSRF the browser sets
+// Host from the target URL and Origin from the hostile page, and page
+// script cannot override either. A non-browser client (curl) can forge
+// both, but it is not a confused deputy — there is no victim session to
+// ride. Scheme is deliberately ignored (authority-only comparison): the
+// preview server does not know its public scheme behind a proxy, and the
+// browser threat is covered by the authority mismatch alone.
+//
+// Fail-open only for truly headerless requests (curl/API clients send
+// neither header): a victim browser cannot be made to withhold Origin on
+// a cross-origin POST, so the missing-headers path is not a bypass.
+// Present-but-unparseable values fail closed. Error responses carry
+// `Cache-Control: no-store` via sendJsonError, so no `Vary: Origin` is
+// needed for shared caches.
+export function isSameOriginRequest(req) {
+  const headers = req?.headers ?? {};
+  const origin = headerString(headers.origin);
+  // `referer` is the standard spelling; accept the `referrer` variant too.
+  const referer = headerString(headers.referer ?? headers.referrer);
+  if (origin === null && referer === null) {
+    return true;
+  }
+  const host = headerString(headers.host);
+  if (host === null) {
+    return false;
+  }
+  let hostAuthority;
+  try {
+    hostAuthority = new URL(`http://${host}`).host;
+  } catch {
+    return false;
+  }
+  if (origin !== null) {
+    let originAuthority;
+    try {
+      originAuthority = new URL(origin).host;
+    } catch {
+      return false;
+    }
+    return originAuthority === hostAuthority;
+  }
+  try {
+    return new URL(referer).host === hostAuthority;
+  } catch {
+    return false;
+  }
+}
+
+// Single header value or null when absent. A duplicated header (array)
+// fails closed downstream as unparseable — browsers never send duplicate
+// Origin/Referer, so ambiguity is never legitimate here.
+function headerString(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  return value === undefined ? null : "";
 }
 
 // Bucket requests by route shape for the rate limiter: exact path for the
@@ -206,6 +381,9 @@ function routeBucket(method, pathname) {
   }
   if (PURCHASE_ROUTE.test(pathname)) {
     return `${method} /listings/:provider/:model/purchase`;
+  }
+  if (DISPUTES_ROUTE.test(pathname)) {
+    return `${method} /listings/:provider/:model/disputes`;
   }
   if (SELLER_CONFIRM_ROUTE.test(pathname)) {
     return `${method} /sellers/submissions/:provider/:model/confirm`;
@@ -286,17 +464,73 @@ export function configureHttpTimeouts(server, overrides = {}) {
 // the map. One named constant so the value lives in a single place.
 export const SELLER_INTENT_TTL_MS = 15 * 60 * 1000;
 
+// Purchase idempotency-key header (TOG-6030, gap G2): the conventional
+// `Idempotency-Key` name (Stripe-style) so future clients and proxies pass
+// it through untouched.
+export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
+
+// Cap on recorded idempotency records per app instance (TOG-6030): bounds
+// the dedup map the same way the rate limiter bounds buckets — an unbounded
+// map is a slow memory leak under key rotation.
+export const MAX_IDEMPOTENCY_RECORDS = 1000;
+
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
   // Clock for intent expiry (TOG-6716): injectable via `options.now` so
   // tests can pin the expiry boundary; production uses wall-clock time.
   const now = options.now ?? Date.now;
+  // Structured request logging (TOG-5739): one JSON line per request —
+  // `{method, path, status, latencyMs}` — emitted on `res` finish so delayed
+  // paths (the detail-fragment `setTimeout`) report honest end-to-end
+  // latency. Injectable sink for tests (default console.log); unparseable
+  // targets log the raw target verbatim.
+  // eslint-disable-next-line no-console
+  const logger = options.logger ?? ((line) => console.log(line));
   // Pending seller intents (TOG-4969) with expiry (TOG-6716):
   // routeId -> { model, storedAt }. In-memory only — restart clears.
   // Confirm records intent; nothing here publishes, charges, or persists.
   // Expired entries 404 as missing on read and are swept on intake, so
   // unread stale intents cannot grow the map.
   const sellerIntents = new Map();
+  // Buyer trust-signal disputes (TOG-8061): routeId -> filed stub reports.
+  // In-memory only — restart clears, ids restart at `dispute-1` per
+  // listing. Filing never charges, refunds, or writes beyond this map.
+  const disputes = createDisputeStore();
+  // Purchase idempotency records (TOG-6030): the preview stub records no
+  // durable effect, and the stub takes no body variance (POST purchase
+  // carries no payload — routing is path-only), so the "effect" is just
+  // the route the key was first seen on: idempotencyKey -> { routeId,
+  // fingerprint }. Same key + same route replays the stored refusal
+  // without a new record; same key + different route is 422
+  // `idempotency_key_reused` (the client must mint a fresh key for a
+  // different attempt). In-memory only — restart clears, no backend, no
+  // secrets, no PII at rest: only the route and a canonical fingerprint,
+  // never a raw body or key echo into logs. No TTL: records live for the
+  // process lifetime, bounded by the eviction cap below.
+  const purchaseIdempotency = new Map();
+  // Route fingerprint: the (routeId, idempotencyKey) pair the server
+  // derives itself — never client-supplied — canonicalized so equal
+  // pairs match and unequal pairs mismatch. Named for what it hashes
+  // (route + key, not a payload): a future backend with request bodies
+  // must hash the body too, never copy this as real dedup.
+  function purchaseRouteFingerprint(routeId, idempotencyKey) {
+    return stableStringify({ idempotencyKey, routeId });
+  }
+  // Records one idempotent effect, evicting the oldest entries past the cap
+  // so key rotation cannot grow the map without bound.
+  function recordIdempotentEffect(routeId, idempotencyKey) {
+    while (purchaseIdempotency.size >= MAX_IDEMPOTENCY_RECORDS) {
+      const oldest = purchaseIdempotency.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      purchaseIdempotency.delete(oldest.value);
+    }
+    purchaseIdempotency.set(idempotencyKey, {
+      routeId,
+      fingerprint: purchaseRouteFingerprint(routeId, idempotencyKey),
+    });
+  }
   // Reads the live intent for a route: null when never staged or expired.
   // Expired entries are deleted on read so a stale confirm never revives.
   function getLiveIntent(routeId) {
@@ -332,6 +566,26 @@ export function createApp(env = process.env, options = {}) {
   // `httpTimeouts: { headersTimeout, requestTimeout }` (see
   // configureHttpTimeouts for the bounds).
   const server = createServer(async (req, res) => {
+    // Structured logging preamble (TOG-5739): capture start + path now, emit
+    // one JSON line on `res` finish so delayed paths report honest latency.
+    // Async handler: the seller intake route awaits the strict JSON body gate.
+    const startMs = Date.now();
+    let logPath;
+    try {
+      logPath = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      logPath = req.url ?? "/";
+    }
+    res.on("finish", () => {
+      logger(
+        JSON.stringify({
+          method: req.method,
+          path: logPath,
+          status: res.statusCode,
+          latencyMs: Date.now() - startMs,
+        }),
+      );
+    });
     // TOG-5726: /healthz is the orchestrator liveness probe. It answers
     // before rate limiting (a saturated limiter must not look like a dead
     // server) and regardless of WAYSELECT_PREVIEW (the flag gates content
@@ -345,7 +599,9 @@ export function createApp(env = process.env, options = {}) {
       probePathname = null;
     }
     if (req.method === "GET" && probePathname === "/healthz") {
-      sendJson(res, 200, { status: "ok", version: SERVER_VERSION });
+      // TOG-6050: the probe body is constant per process (version read once
+      // at module load), so it carries the cacheable contract with ETag/304.
+      sendCacheableJson(req, res, 200, { status: "ok", version: SERVER_VERSION });
       return;
     }
     if (probePathname === "/healthz") {
@@ -420,9 +676,20 @@ export function createApp(env = process.env, options = {}) {
       const sendPage = (status, html) => sendHtml(res, status, html, nonce);
       const pageOpts = { cspNonce: nonce };
       if (!isPreviewEnabled(env)) {
+        // TOG-6375: the flag-off index stays HTML-only even under JSON
+        // negotiation — it has no fragment shape, flag-on or flag-off.
         sendPage(404, renderPreviewDisabled(pageOpts));
         return;
       }
+      // TOG-7661: the flag-on index negotiates like the detail route —
+      // `Accept: application/json` gets the machine-readable result/error
+      // payload instead of the HTML page, so `fetch(...).json()` never
+      // parses HTML (the TOG-5499 failure mode on the detail side).
+      // `Vary: Accept` on every variant so a shared cache keys on it. The
+      // 400 error JSON carries the TOG-6717 request id via sendJson's error
+      // branch like every other JSON error.
+      res.setHeader("vary", "Accept");
+      const wantsIndexJson = String(req.headers?.accept ?? "").includes("application/json");
       let params;
       try {
         params = new URL(req.url ?? "/", "http://localhost").searchParams;
@@ -432,6 +699,16 @@ export function createApp(env = process.env, options = {}) {
       }
       const parsed = parseListingsQuery(params);
       if (!parsed.ok) {
+        if (wantsIndexJson) {
+          sendJson(res, 400, {
+            error: "invalid_filter",
+            kind: parsed.kind,
+            value: parsed.value,
+            valid: parsed.valid,
+            errors: parsed.errors,
+          });
+          return;
+        }
         sendPage(400, renderInvalidFilter(parsed, pageOpts));
         return;
       }
@@ -442,6 +719,13 @@ export function createApp(env = process.env, options = {}) {
       const ordered = sortListings(filtered, parsed.filters.sort);
       // TOG-6028: bound the HTML render with limit/offset (fail-closed above).
       const { page, total, limit, offset } = paginateListings(ordered, parsed.paging);
+      if (wantsIndexJson) {
+        // TOG-6050: the 200 result is a pure function of fixture data +
+        // query, so it carries the cacheable contract with ETag/304. The
+        // 400 invalid_filter error stays on plain sendJson (no-store).
+        sendCacheableJson(req, res, 200, { listings: page, total, limit, offset });
+        return;
+      }
       sendPage(
         200,
         renderListingIndex(page, undefined, parsed.filters, { total, limit, offset }, pageOpts),
@@ -449,10 +733,82 @@ export function createApp(env = process.env, options = {}) {
       return;
     }
 
+    // Buyer trust-signal disputes (TOG-8061, spec §5 D2–D9 + shape §6):
+    // JSON-only stub routes, flag-gated (flag off → 404). GET lists the
+    // filed reports for one real stub listing; POST files one after the
+    // strict body gate. Unknown listings 404 as misses; only real stubs
+    // take reports. Filing never touches purchase (D10).
+    const disputesMatch = pathname.match(DISPUTES_ROUTE);
+    if (disputesMatch) {
+      if (req.method !== "GET" && req.method !== "POST") {
+        sendMethodNotAllowed(res, "GET, POST");
+        return;
+      }
+      if (!isPreviewEnabled(env)) {
+        sendJson(res, 404, { error: "preview_disabled" });
+        return;
+      }
+      const [, rawDisputeProvider, rawDisputeModel] = disputesMatch;
+      let disputeProviderId;
+      let disputeModelId;
+      try {
+        disputeProviderId = decodeURIComponent(rawDisputeProvider);
+        disputeModelId = decodeURIComponent(rawDisputeModel);
+      } catch {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      const disputeListing = getStubListing(disputeProviderId, disputeModelId);
+      if (!disputeListing) {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      const routeId = `${disputeProviderId}/${disputeModelId}`;
+      if (req.method === "GET") {
+        sendJson(res, 200, { listing: routeId, disputes: disputes.list(routeId) });
+        return;
+      }
+      const disputeBody = await readJsonBody(req);
+      if (!disputeBody.ok) {
+        const status = disputeBody.code === "body_too_large" ? 413
+          : disputeBody.code === "body_timeout" ? 408
+          : 400;
+        sendJson(res, status, {
+          error: "invalid_dispute",
+          message: `Stub dispute rejected: ${disputeBody.code}.`,
+          validReasons: ["not_as_described", "never_delivered", "billing_issue", "other"],
+        });
+        return;
+      }
+      const validated = validateDisputeBody(disputeBody.value);
+      if (!validated.ok) {
+        sendJson(res, 400, {
+          error: "invalid_dispute",
+          message: validated.message,
+          validReasons: ["not_as_described", "never_delivered", "billing_issue", "other"],
+        });
+        return;
+      }
+      // Evil buyer input (D8) is accepted as data: it rides JSON-encoded and
+      // any future HTML view must escape it like every other dynamic value.
+      sendJson(res, 201, disputes.file(routeId, validated.value));
+      return;
+    }
+
     const purchaseMatch = pathname.match(PURCHASE_ROUTE);
     if (purchaseMatch) {
       if (req.method !== "POST") {
         sendMethodNotAllowed(res, "POST");
+        return;
+      }
+      // TOG-6366 (gap G5/S1): server-side CSRF guard. Runs before the
+      // listing lookup so a cross-origin probe cannot distinguish 404
+      // (unknown listing) from 403 (real listing) — every cross-origin
+      // POST gets the same 403 `forbidden_origin` regardless of whether
+      // the listing exists. Only 403 `preview_only` (same-origin or
+      // headerless) means "listing exists, writes disabled" (TOG-5710).
+      if (!isSameOriginRequest(req)) {
+        sendJson(res, 403, { error: "forbidden_origin" });
         return;
       }
       // TOG-5710: a nonexistent resource must 404 first; 403 is only
@@ -471,10 +827,70 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 404, { error: "listing_not_found" });
         return;
       }
+      // Stub CTA target: never writes, always refuses — with
+      // idempotency-key support (TOG-6030, gap G2). Ordering after the
+      // 404/405 gates: a replayed key on an unknown listing still 404s,
+      // and a wrong-method replay still 405s, so the key never masks a
+      // routing verdict. A blank key fails closed 400 (same vocab as
+      // the purchase validator: missing-field on `idempotencyKey`); an
+      // overlong key fails closed 400 (invalid-value); a reused key on
+      // a different route is 422 `idempotency_key_reused` (mint a fresh
+      // key for a different attempt). Same key + same route replays the
+      // stored refusal without recording a second effect. Without a key
+      // the stub refuses exactly as before (no echo field).
+      const rawKey = req.headers?.[IDEMPOTENCY_KEY_HEADER];
+      const idempotencyKey =
+        rawKey === undefined || rawKey === null ? null : String(rawKey);
+      if (idempotencyKey !== null && idempotencyKey.trim() === "") {
+        sendJson(res, 400, {
+          error: "invalid_idempotency_key",
+          code: "missing-field",
+          key: "idempotencyKey",
+          source: null,
+          message: "idempotencyKey must be a non-empty string",
+        });
+        return;
+      }
+      if (idempotencyKey !== null && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+        sendJson(res, 400, {
+          error: "invalid_idempotency_key",
+          code: "invalid-value",
+          key: "idempotencyKey",
+          source: null,
+          message: `idempotencyKey must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters`,
+        });
+        return;
+      }
+      const routeId = `${providerId}/${modelId}`;
+      if (idempotencyKey !== null) {
+        const fingerprint = purchaseRouteFingerprint(routeId, idempotencyKey);
+        const record = purchaseIdempotency.get(idempotencyKey);
+        if (record !== undefined) {
+          if (record.fingerprint !== fingerprint) {
+            sendJson(res, 422, {
+              error: "idempotency_key_reused",
+              key: "idempotencyKey",
+              message:
+                "Idempotency-Key was already used for a different purchase attempt. " +
+                "Mint a fresh key for a different attempt; retry the same attempt with the same key.",
+            });
+            return;
+          }
+          sendJson(res, 403, {
+            error: "preview_only",
+            message: "Purchases are disabled in preview. No backend writes.",
+            idempotencyKey,
+            replayed: true,
+          });
+          return;
+        }
+        recordIdempotentEffect(routeId, idempotencyKey);
+      }
       // Stub CTA target: never writes, always refuses.
       sendJson(res, 403, {
         error: "preview_only",
         message: "Purchases are disabled in preview. No backend writes.",
+        ...(idempotencyKey === null ? {} : { idempotencyKey }),
       });
       return;
     }
@@ -620,7 +1036,10 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 200, receipt);
         return;
       }
-      sendJson(res, 405, { error: "method_not_allowed" });
+      // TOG-5739: wrong-method refusals funnel through the shared 405
+      // helper so every known route carries `Allow` (RFC 9110). The confirm
+      // route supports GET (restate) and POST (record).
+      sendMethodNotAllowed(res, "GET, POST");
       return;
     }
 
@@ -644,8 +1063,9 @@ export function createApp(env = process.env, options = {}) {
         // flag-off fragment request degrades to a JSON error the shell
         // renders as its alert panel — never an HTML page that breaks
         // `res.json()`. Flag check precedes listing lookup, so unknown
-        // listings gate identically. Index stays HTML-only: it has no
-        // fragment shape, flag-on or flag-off.
+        // listings gate identically. The flag-off index stays HTML-only
+        // (TOG-6375): it has no fragment shape — only the flag-on index
+        // negotiates JSON (TOG-7661).
         if (String(req.headers?.accept ?? "").includes("application/json")) {
           sendJson(res, 404, { error: "preview_disabled" });
           return;
@@ -690,7 +1110,9 @@ export function createApp(env = process.env, options = {}) {
       if (String(req.headers?.accept ?? "").includes("application/json")) {
         const sendFragment = () => {
           try {
-            sendJson(res, 200, listingDetailFragment(listing));
+            // TOG-6050: the fragment is a pure function of the stub fixture,
+            // so it carries the cacheable contract with ETag/304.
+            sendCacheableJson(req, res, 200, listingDetailFragment(listing));
           } catch {
             const errNonce = newCspNonce();
             sendHtml(
@@ -710,9 +1132,10 @@ export function createApp(env = process.env, options = {}) {
           const fragmentTimer = setTimeout(() => {
             req.removeListener("close", onFragmentAbort);
             // The abort may win the race after the delay elapses: writing
-            // to a destroyed socket throws, and the throw inside sendJson
-            // would escape through the timer (the inner catch's sendHtml
-            // throws again). A dropped fragment sends nothing — skip it.
+            // to a destroyed socket throws, and the throw inside
+            // sendCacheableJson would escape through the timer (the inner
+            // catch's sendHtml throws again). A dropped fragment sends
+            // nothing — skip it.
             if (!res.destroyed && !res.writableEnded) {
               sendFragment();
             }

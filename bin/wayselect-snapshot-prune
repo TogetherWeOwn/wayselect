@@ -36,6 +36,7 @@ import {
 import {
   formatCliFailure,
   invalidKeepLastMessage,
+  invalidPruneDirMessage,
   invalidPruneMaxAgeDaysMessage,
   invalidPruneNowMessage,
   missingValueMessage,
@@ -141,6 +142,13 @@ async function main() {
   if (!Number.isFinite(Date.parse(now))) {
     throw new Error(invalidPruneNowMessage());
   }
+  // TOG-6727: directory confinement — refuse raw `..` segments in --dir so a
+  // traversal attempt (e.g. `--dir ../outside --apply`) fails closed before
+  // any listing or deletion. Resolved absolute scratch dirs (mkdtemp) stay
+  // legal; only the literal traversal spelling is refused.
+  if (args.dir.split(/[\\/]/).includes("..")) {
+    throw new Error(invalidPruneDirMessage());
+  }
 
   const dir = resolve(args.dir);
   const listed = await listDirectory(dir);
@@ -191,6 +199,7 @@ main().catch((error) => {
     (/^Missing value for /.test(message) ||
       /^Unknown argument: /.test(message) ||
       message === invalidKeepLastMessage() ||
+      message === invalidPruneDirMessage() ||
       message === invalidPruneMaxAgeDaysMessage() ||
       message === invalidPruneNowMessage());
   if (isUsage) {

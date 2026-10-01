@@ -9,22 +9,22 @@ every knob below is local preview, test, or dev tooling.
 
 | Variable | Default | Scope | Who sets |
 | --- | --- | --- | --- |
-| `WAYSELECT_PREVIEW` | Unset → **off** (content routes 404) | Preview web server: gates `GET /listings`, `GET /listings/:provider/:model` (shell + JSON fragment), `POST /sellers/submissions`, `GET`/`POST /sellers/submissions/:provider/:model/confirm`. `/healthz` and `/favicon.ico` stay ungated | Operator running `npm run preview` (`node web/server.js`) |
+| `WAYSELECT_PREVIEW` | Unset → **off** (content routes 404) | Preview web server: gates `GET /listings`, `GET /listings/:provider/:model` (shell + JSON fragment), `POST /sellers/submissions`, `GET`/`POST /sellers/submissions/:provider/:model/confirm`, `GET`/`POST /listings/:provider/:model/disputes` (TOG-8061). `/healthz` and `/favicon.ico` stay ungated | Operator running `npm run preview` (`node web/server.js`) |
 | `WAYSELECT_TRUSTED_PROXY_IP` | Unset (or blank) → **direct-remote only**, `X-Forwarded-For` ignored | `createApp` rate-limit identity (`web/server.js`, `resolveClientIp` in `web/rate-limit.js`): only when the direct TCP peer normalizes to this IP is the leftmost XFF entry used as the client key | Operator whose preview sits behind exactly one reverse proxy; otherwise leave unset |
 | `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` | Unset → `"0"` → **no delay** | `GET /listings/:provider/:model` with `Accept: application/json` and preview on — the `{ html }` fragment only; shell first paint, flag-off path, index, purchase stub, and `/healthz` never delayed | Developer exercising the skeleton loading state; never set in shared, staging, or production |
 | `WAYSELECT_ALLOW_NETWORK` | Unset → **no-network guard active** | Test runs preloading `support/no-network-guard.js` (`npm test`, `bin/accept-fixture-refresh`): non-loopback `fetch`/socket calls reject; loopback (`localhost`, `127.0.0.1`, `::1`) and unix-socket paths still pass | Developer running something that genuinely needs the network; never set in CI |
 
 ## Row-by-row verification notes
 
-### `WAYSELECT_PREVIEW` — `web/preview.js:8-14`, gates at `web/server.js:422,498,559,642`
+### `WAYSELECT_PREVIEW` — `web/preview.js:8-14`, gates at `web/server.js:528,597,694,755,841`
 
 `isPreviewEnabled` returns false for unset/null and true only for the
 trimmed, case-insensitive truthy set `1`, `true`, `yes`, `on`. Flag-off
 content routes answer 404: HTML `Preview unavailable` pages for browsers,
 `{error: "preview_disabled"}` JSON where the client negotiates
-`application/json` (the detail shell's fragment fetch). Four gate sites in
-`web/server.js`: listing index (422), seller intake (498), seller confirm
-(559), listing detail (642). Ungated by design: `GET /healthz` (liveness
+`application/json` (the detail shell's fragment fetch). Five gate sites in
+`web/server.js`: listing index (528), disputes stub (597, TOG-8061), seller
+intake (694), seller confirm (755), listing detail (841). Ungated by design: `GET /healthz` (liveness
 must not look dead) and `GET /favicon.ico` (204, keeps page loads out of
 the 404 logs).
 

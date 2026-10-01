@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a small, reviewable slice for Wayselect.
+title: "[feat]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Wayselect lands work as one reviewable slice per PR ([CONTRIBUTING.md](https://github.com/TogetherWeOwn/wayselect/blob/main/CONTRIBUTING.md)): offline, fixture-based, fail-closed. Frame the request so a reviewer can accept it in that shape. Out of scope by policy: live routing, live model calls, credentials, endpoint discovery, paid inference, production activation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Who hits it, and what happens today (with reason codes or commands if you have them).
+      placeholder: "Operators cannot tell why…"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed slice
+      description: The smallest change that helps — files or surface it touches, and how it stays offline and fail-closed.
+      placeholder: "Add … to `src/…`, pinned by a test in `test/…`."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: How would we verify it?
+      description: Commands a reviewer can run, and the expected pass/fail signal (`npm run pre-push`, `npm test`, accept script…).
+      placeholder: "`npm test` — new cases pass; `npm run pre-push` — 9 pass, 0 fail."
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else could solve it, and why this slice is better.
+    validations:
+      required: false

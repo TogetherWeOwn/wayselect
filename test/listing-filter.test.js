@@ -2,8 +2,10 @@
 // matching, and index rendering (node:test, zero dependencies).
 
 import { deepStrictEqual, ok, strictEqual } from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import {
+  LISTINGS_DEFAULT_LIMIT,
+  LISTINGS_DEFAULT_OFFSET,
   LISTINGS_DEFAULT_SORT,
   LISTINGS_MAX_QUERY_LENGTH,
   VALID_CAPABILITIES,
@@ -16,6 +18,7 @@ import {
   sortListings,
 } from "../web/filter.js";
 import { renderInvalidFilter, renderListingIndex } from "../web/listing-detail.js";
+import { createApp } from "../web/server.js";
 import { STUB_LISTINGS } from "../web/stub-listing.js";
 
 function params(query) {
@@ -392,5 +395,51 @@ describe("filter-bar rendering", () => {
       sort: `"><script>alert(1)</script>`,
     });
     ok(!evil.includes("<script>alert(1)</script>"));
+  });
+});
+
+describe("sticky filter inputs (TOG-6733, gap R4-27)", () => {
+  const servers = [];
+  async function start(env) {
+    const server = createApp(env);
+    servers.push(server);
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return `http://127.0.0.1:${server.address().port}`;
+  }
+  after(() => Promise.all(servers.map((s) => new Promise((r) => s.close(r)))));
+
+  it("echoes submitted q/limit/offset into the form inputs", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await fetch(`${base}/listings?q=alpha&limit=5&offset=0`);
+    strictEqual(res.status, 200);
+    const html = await res.text();
+    ok(html.includes('name="q" value="alpha"'), "submitted q re-rendered");
+    ok(html.includes('name="limit" value="5"'), "submitted limit re-rendered");
+    ok(html.includes('name="offset" value="0"'), "submitted offset re-rendered");
+  });
+
+  it("renders the paging defaults when limit/offset are absent", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await fetch(`${base}/listings?q=alpha`);
+    strictEqual(res.status, 200);
+    const html = await res.text();
+    ok(html.includes('name="q" value="alpha"'), "submitted q re-rendered");
+    ok(
+      html.includes(`name="limit" value="${LISTINGS_DEFAULT_LIMIT}"`),
+      "default limit re-rendered",
+    );
+    ok(
+      html.includes(`name="offset" value="${LISTINGS_DEFAULT_OFFSET}"`),
+      "default offset re-rendered",
+    );
+  });
+
+  it("escapes the echoed q so reflected input cannot break out (TOG-6733)", async () => {
+    const base = await start({ WAYSELECT_PREVIEW: "1" });
+    const res = await fetch(`${base}/listings?q=${encodeURIComponent('a"b<>')}`);
+    strictEqual(res.status, 200);
+    const html = await res.text();
+    ok(!html.includes('value="a"b<>"'), "raw quotes/angles not reflected");
+    ok(html.includes("a&quot;b&lt;&gt;"), "echoed q escaped");
   });
 });

@@ -49,6 +49,7 @@ async function runSmoke(extraArgs = [], env = {}) {
 }
 
 const HEALTH_IDS = ["H0", "H1", "H1b", "H1c", "H2", "H2b", "H3", "H4", "H5", "H5b", "F1"];
+const GATEWAY_IDS = ["G1", "G1b", "G1c", "G2", "G2b", "G2c"];
 const BUYER_IDS = [
   "B2",
   "B3a",
@@ -67,7 +68,7 @@ const BUYER_IDS = [
 test("fresh local run passes health + buyer gates and exits 0", async () => {
   const { exit, stdout } = await runSmoke(["--now", await freshNow()]);
   assert.equal(exit, 0, stdout);
-  for (const id of [...HEALTH_IDS, ...BUYER_IDS]) {
+  for (const id of [...HEALTH_IDS, ...BUYER_IDS, ...GATEWAY_IDS]) {
     assert.match(stdout, new RegExp(`PASS ${id} `), `expected PASS ${id}`);
   }
   assert.match(stdout, /0 fail/, "expected zero failures");

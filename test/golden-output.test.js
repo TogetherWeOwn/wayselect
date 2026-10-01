@@ -5,6 +5,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { evaluationNow, readFixture } from "../support/helpers.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = new URL("..", import.meta.url);
@@ -12,9 +13,9 @@ const repoRoot = new URL("..", import.meta.url);
 // TOG-4800 golden-output tests, ported to the single-command CLI (TOG-5265).
 // The CLI takes no subcommand: selection inputs travel in a --request JSON
 // file (defaults: fixtures/request.synthetic.json). Stdout is machine JSON;
-// the only volatile field is provenance.fetchedAt (a live timestamp), which
-// the test normalizes to FETCHED_AT_NORMALIZED_FOR_TEST before comparing
-// byte-identical against test/golden/default.json. Any change to the output
+// provenance.fetchedAt is normalized to FETCHED_AT_NORMALIZED_FOR_TEST.
+// The expected snapshot clock follows the refreshed fixture; every other
+// byte stays pinned to test/golden/default.json. Any change to the output
 // shape (or the fixture snapshot hash) is a deliberate, reviewed act:
 // regenerate the golden and say why in the commit.
 //
@@ -23,7 +24,6 @@ const repoRoot = new URL("..", import.meta.url);
 // still picks northstar/alpha-chat.
 
 const FETCHED_AT_PLACEHOLDER = "FETCHED_AT_NORMALIZED_FOR_TEST";
-const EVALUATION_TIME = "2026-09-26T16:00:00.000Z";
 const MAX_EVIDENCE_AGE_HOURS = 72;
 
 async function runCli(requestSelection) {
@@ -35,7 +35,7 @@ async function runCli(requestSelection) {
       requestPath,
       JSON.stringify(
         {
-          evaluationTime: EVALUATION_TIME,
+          evaluationTime: evaluationNow().toISOString(),
           maxEvidenceAgeHours: MAX_EVIDENCE_AGE_HOURS,
           selection: requestSelection,
         },
@@ -60,7 +60,10 @@ function normalizeForGolden(stdout) {
 }
 
 async function golden(name) {
-  return readFile(new URL(`./golden/${name}`, import.meta.url), "utf8");
+  const expected = JSON.parse(await readFile(new URL(`./golden/${name}`, import.meta.url), "utf8"));
+  const fixture = await readFixture("catalog.synthetic.json");
+  expected.provenance.snapshotTimestamp = fixture.provenance.snapshotTimestamp;
+  return `${JSON.stringify(expected, null, 2)}\n`;
 }
 
 test("default CLI output is byte-identical to the golden file (fetchedAt normalized)", async () => {

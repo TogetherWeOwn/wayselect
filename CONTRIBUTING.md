@@ -51,6 +51,10 @@ Full CLI reference: `docs/cli.md`. Acceptance specs and contracts: `docs/`
   after each commit so work is never local-only.
 - **PR body:** what changed, how it was verified (commands + pass/fail
   counts), and `Closes TOG-<id>.` One PR per card — one reviewable slice.
+  The PR template (`.github/pull_request_template.md`) reminds you to use a
+  Conventional Commits title (`type(scope): summary`, enforced by `pr-lint`).
+- **Issues:** use the bug-report / feature-request templates
+  (`.github/ISSUE_TEMPLATE/`); blank issues are disabled.
 - **CHANGELOG:** every merged PR gets one entry under `## Unreleased`,
   written by the author in the same PR (PR number, TOG id, what changed,
   files touched; docs-only and test-only PRs get entries too). The reviewer
@@ -63,11 +67,12 @@ Full CLI reference: `docs/cli.md`. Acceptance specs and contracts: `docs/`
 Run the same gates CI runs, locally, before pushing:
 
 ```sh
-npm run pre-push   # expect: SUMMARY: 8 pass, 0 fail — pre-push READY
+npm run pre-push   # expect: SUMMARY: 9 pass, 0 fail — pre-push READY
 ```
 
 This runs the engine gate, JS-parse, JSON-parse, workflow-parse,
-`npm test`, marker gate, smoke + search-index probe, and e2e + demo gates —
+`npm test`, marker gate, smoke + search-index probe, e2e + demo, and
+large-catalog bench-measurement gates —
 one local gate per CI job, so green pre-push predicts green CI. Optional per-clone hook (never committed):
 `cp docs/pre-push-hook.sample .git/hooks/pre-push`. Details:
 `docs/pre-push-check.md`. CI itself (`.github/workflows/ci.yml` plus
@@ -106,4 +111,4 @@ No paid services, no credentials, no model pins, no production activation,
 no live transport. Future live-conformance work needs separate provenance,
 security, access, and review decisions.
 
-License: not yet chosen.
+License: MIT — see [LICENSE](LICENSE).

@@ -15,18 +15,30 @@
 //   buyerId     — buyer identity (non-empty string)
 //   confirm     — explicit purchase confirmation; must be boolean true
 //                 (the click-path confirm step; absent/false never proceeds)
+//   idempotencyKey — optional client-generated opaque token (UUID
+//                 recommended, ≤256 chars); echoed back verbatim so a
+//                 retried submission can prove it is the same attempt.
+//                 Absent means no dedup claim (normalized to null).
 //   provenance  — { source, fetchedAt } + optional etag; required, always
 //
 // Executable location fields (url, endpoint, baseUrl, apiUrl) are never
 // accepted anywhere in a submission.
 
-const SUBMISSION_KEYS = new Set(["providerId", "modelId", "buyerId", "confirm", "provenance"]);
+const SUBMISSION_KEYS = new Set([
+  "providerId",
+  "modelId",
+  "buyerId",
+  "confirm",
+  "idempotencyKey",
+  "provenance",
+]);
 const PROVENANCE_KEYS = new Set(["source", "fetchedAt", "etag"]);
 const FORBIDDEN_LOCATION_KEYS = new Set(["url", "endpoint", "baseUrl", "apiUrl"]);
 
 import {
   MAX_BUYER_ID_LENGTH,
   MAX_ETAG_LENGTH,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
   MAX_MODEL_ID_LENGTH,
   MAX_PROVIDER_ID_LENGTH,
   ROUTE_ID_PATTERN,
@@ -106,13 +118,33 @@ function assertKnownKeys(value, allowedKeys, label, key, source) {
   }
 }
 
+// TOG-8429: explicit-stack scan. Same fix as src/sellerSubmission.js — the
+// old recursion spent one call frame per nesting level, so deeply-nested
+// input exhausted the stack with a RangeError that escapes the typed-error
+// catch (here callers catch `instanceof PurchaseSubmissionError`). Not
+// HTTP-reachable today (the purchase route ignores bodies), but the buyer
+// acceptance scripts run this validator, so the same crash applied there.
+// The frame stack below replays the old recursion's depth-first pre-order
+// exactly, so the first forbidden field reported is byte-identical.
 function assertNoLocationFields(value, path, source) {
-  if (value === null || typeof value !== "object") {
-    return;
-  }
-  for (const [field, nested] of Object.entries(value)) {
+  const frames = [{ value, path, entries: null, index: 0 }];
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1];
+    if (frame.value === null || typeof frame.value !== "object") {
+      frames.pop();
+      continue;
+    }
+    if (frame.entries === null) {
+      frame.entries = Object.entries(frame.value);
+    }
+    if (frame.index >= frame.entries.length) {
+      frames.pop();
+      continue;
+    }
+    const [field, nested] = frame.entries[frame.index];
+    frame.index += 1;
+    const key = `${frame.path}.${field}`;
     if (FORBIDDEN_LOCATION_KEYS.has(field)) {
-      const key = `${path}.${field}`;
       fail(
         "forbidden-field",
         key,
@@ -120,7 +152,7 @@ function assertNoLocationFields(value, path, source) {
         `submission must not contain executable location field: ${key}`,
       );
     }
-    assertNoLocationFields(nested, `${path}.${field}`, source);
+    frames.push({ value: nested, path: key, entries: null, index: 0 });
   }
 }
 
@@ -130,6 +162,30 @@ function extractSource(submission) {
     return provenance.source;
   }
   return null;
+}
+
+// TOG-6030: optional idempotency-key normalizer. Absent means the client
+// makes no dedup claim (normalized to null); present must be a non-empty
+// opaque string ≤ MAX_IDEMPOTENCY_KEY_LENGTH (UUID recommended, never
+// echoed into logs, only back to the client that sent it). Non-strings and
+// overlong values fail closed with the validator's stable vocab so a retry
+// bug surfaces as a rejection, never a silent duplicate.
+function normalizeIdempotencyKey(value, source) {
+  if (value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    fail("missing-field", "idempotencyKey", source, "idempotencyKey must be a non-empty string");
+  }
+  if (value.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    fail(
+      "invalid-value",
+      "idempotencyKey",
+      source,
+      `idempotencyKey must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters`,
+    );
+  }
+  return value;
 }
 
 function normalizeConfirm(value, source) {
@@ -265,12 +321,14 @@ export function validatePurchaseSubmission(submission, options = {}) {
     MAX_BUYER_ID_LENGTH,
   );
   normalizeConfirm(input.confirm, provenanceSource);
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey, provenanceSource);
 
   return Object.freeze({
     routeId: `${providerId}/${modelId}`,
     providerId,
     modelId,
     buyerId,
+    idempotencyKey,
     provenance,
   });
 }

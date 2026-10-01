@@ -6,6 +6,17 @@ on:
   schedule:
     # Nightly ingestion smoke (TOG-5246): fixture-only, no network/credentials.
     - cron: "17 6 * * *"
+  # Production deploys are operator-initiated only (TOG-6910): the
+  # deploy-production job below runs on workflow_dispatch, gated behind the
+  # production GitHub environment with a required reviewer. It stays gated
+  # until TOG-6905 says Wayselect may go live.
+  workflow_dispatch:
+
+# Least privilege (CodeQL js/missing-workflow-permissions): read-only by
+# default; each deploy job adds the deployments:write it needs so its
+# environment: key can record Deployment statuses.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -49,6 +60,40 @@ jobs:
       - run: npm ci
       - run: npm run check:search-index
 
+  large-catalog-bench:
+    # TOG-7281: warn-only large-catalog benchmark measurement, fixture-only,
+    # no network/credentials. Budgets stay enforced by
+    # test/large-catalog-benchmark.test.js (the `test` job); this job only
+    # publishes the timings JSON as an artifact. A budget miss warns, never
+    # reds: the run step uses continue-on-error, the upload runs always with
+    # if-no-files-found:warn, so even a crashing bench keeps this job green.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # NOTE: `run:` leads each step below so the pre-push parity extractor
+      # (test/pre-push-parity.test.js, `-\s*run:`) sees both steps — key
+      # order is irrelevant to YAML/Actions. `shell: bash` selects
+      # `bash -eo pipefail` so a bench exit 1 survives the `| tee` pipe;
+      # the default `bash -e` would report tee's exit 0 and the warning
+      # step below would never fire on a budget miss.
+      - run: node bin/benchmark-large-catalog | tee ${{ runner.temp }}/large-catalog-timings.json
+        id: bench
+        continue-on-error: true
+        shell: bash
+      - run: echo "::warning::large-catalog benchmark over budget (warn-only; budgets enforced by test/large-catalog-benchmark.test.js)"
+        if: steps.bench.outcome == 'failure'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: large-catalog-timings
+          path: ${{ runner.temp }}/large-catalog-timings.json
+          if-no-files-found: warn
+
   marker-gate:
     # TOG-7315: debt-marker introduction gate. Stdlib only, so no `npm ci`:
     # any newly added tracked marker word (see the word list in the script)
@@ -91,3 +136,124 @@ jobs:
           node-version: 20
           cache: npm
       - run: node scripts/e2e-staging-acceptance.mjs --out ${{ runner.temp }}/e2e-evidence.json
+
+  deploy-staging:
+    name: Deploy to staging (Coolify)
+    # TOG-6910: merge to main auto-deploys staging, only after the blocking
+    # checks above pass. Pull requests and scheduled runs never deploy.
+    needs: [test, ingestion-smoke]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Public runners (TOG-7131): this repo is PUBLIC, so the org's
+    # self-hosted groups (allows_public_repositories=false) can never pick
+    # the job up — self-hosted labels queue forever. The trigger is
+    # host-mediated instead: Coolify rebuilds from the host mirror
+    # (/srv/git/wayselect.git) via mirror autodeploy, and the panel bearer
+    # lives host-side under operator control (TOG-7094). GitHub holds no
+    # panel credential and sends no bearer, so nothing secret crosses the
+    # public internet. This job owns the Deployment record, the
+    # mirror-settle delay, the /healthz settle poll, and the post-deploy
+    # smoke — green still means "it is live".
+    runs-on: ubuntu-latest
+    # The environment key creates the GitHub Deployment record (with status
+    # updates) that the Shipping KPI reads. Verified query after merge:
+    #   gh api repos/TogetherWeOwn/wayselect/deployments
+    environment: staging
+    # Least privilege for this job's Deployment-status writes.
+    permissions:
+      contents: read
+      deployments: write
+    # Serialize staging deploys so overlapping merges can't race; never
+    # cancel an in-flight deploy.
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Deploy-target gate
+        # Fail-closed: a missing staging URL FAILS the job (TOG-913 — never
+        # skip-and-pass). Prints secret NAMES only, never values. No panel
+        # credential is checked because GitHub holds none (TOG-7131: the
+        # bearer lives host-side under operator control, TOG-7094).
+        run: >-
+          node scripts/check-deploy-target.mjs --env-name staging
+          --url-env WAYSELECT_STAGING_URL
+        env:
+          WAYSELECT_STAGING_URL: ${{ secrets.WAYSELECT_STAGING_URL }}
+      - name: Wait for the host mirror
+        # Coolify clones the host mirror (git@<host>:/srv/git/wayselect.git),
+        # not github.com, and the mirror re-syncs every ~2 minutes. The
+        # mirror's autodeploy owns the rebuild trigger, so probing sooner
+        # serves the previous commit and looks like the merge did nothing
+        # (fleet precedent: two-bot DEPLOY.md §6.1). No migrate step:
+        # wayselect has no database; the catalog is baked into the image.
+        env:
+          MERGE_SHA: ${{ github.sha }}
+          MIRROR_POLL_SECONDS: "150"
+        run: node scripts/wait-for-host-mirror.mjs
+      - name: Wait for staging to answer
+        # A 200 from the deploy call only queued the deploy. Poll /healthz
+        # until the new release answers, so green means "it is live".
+        run: node scripts/wait-for-staging-health.mjs --base-url "$STAGING_URL"
+        env:
+          STAGING_URL: ${{ secrets.WAYSELECT_STAGING_URL }}
+      - name: Post-deploy smoke against staging
+        run: node bin/smoke-wayselect-staging-preview --base-url "$STAGING_URL"
+        env:
+          STAGING_URL: ${{ secrets.WAYSELECT_STAGING_URL }}
+
+  deploy-production:
+    name: Deploy to production (Coolify, reviewer-gated)
+    # TOG-6910: operator-initiated only, after deploy-staging succeeded on
+    # main. The production environment carries the required reviewer; the job
+    # stays gated until TOG-6905 says Wayselect may go live. The result check
+    # matters: on a dispatch event deploy-staging is skipped, and a skipped
+    # need would otherwise skip this job too — dispatch from main only.
+    needs: [deploy-staging]
+    if: github.event_name == 'workflow_dispatch' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    # Public runners (TOG-7131): same host-mediated shape as deploy-staging —
+    # the mirror autodeploy owns the trigger, GitHub holds no panel
+    # credential, and this job owns the Deployment record plus settle, poll,
+    # and smoke. Stays operator-gated until TOG-6905 says go live.
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      deployments: write
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Deploy-target gate
+        # Fail-closed (TOG-913): a missing production URL FAILS the job.
+        # No panel credential: GitHub holds none (TOG-7131, TOG-7094).
+        run: >-
+          node scripts/check-deploy-target.mjs --env-name production
+          --url-env WAYSELECT_PRODUCTION_URL
+        env:
+          WAYSELECT_PRODUCTION_URL: ${{ secrets.WAYSELECT_PRODUCTION_URL }}
+      - name: Wait for the host mirror
+        # The mirror's autodeploy owns the rebuild trigger; this delay gives
+        # it time to absorb the merge SHA before the settle poll starts.
+        env:
+          MERGE_SHA: ${{ github.sha }}
+          MIRROR_POLL_SECONDS: "150"
+        run: node scripts/wait-for-host-mirror.mjs
+      - name: Wait for production to answer
+        run: node scripts/wait-for-staging-health.mjs --base-url "$PRODUCTION_URL"
+        env:
+          PRODUCTION_URL: ${{ secrets.WAYSELECT_PRODUCTION_URL }}
+      - name: Post-deploy smoke against production
+        run: node bin/smoke-wayselect-staging-preview --base-url "$PRODUCTION_URL"
+        env:
+          PRODUCTION_URL: ${{ secrets.WAYSELECT_PRODUCTION_URL }}

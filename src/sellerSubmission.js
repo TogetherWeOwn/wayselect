@@ -145,13 +145,35 @@ function assertKnownKeys(value, allowedKeys, label, key, source) {
   }
 }
 
+// TOG-8429: explicit-stack scan. This used to recurse one frame per nesting
+// level, so a single unauthenticated POST with a few thousand levels of
+// `{"n": ...}` nesting (well under the 64KB body gate) exhausted the call
+// stack: the RangeError escaped the route's `instanceof
+// SellerSubmissionError` catch in web/server.js and killed the whole preview
+// process (one request = remote DoS). The frame stack below replays the old
+// recursion's depth-first pre-order exactly — check each field name, then
+// descend into its value before the next sibling — so the first forbidden
+// field reported is byte-identical to the old code. Only the call-stack
+// growth is gone, and any depth fails closed with a typed error.
 function assertNoLocationFields(value, path, source) {
-  if (value === null || typeof value !== "object") {
-    return;
-  }
-  for (const [field, nested] of Object.entries(value)) {
+  const frames = [{ value, path, entries: null, index: 0 }];
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1];
+    if (frame.value === null || typeof frame.value !== "object") {
+      frames.pop();
+      continue;
+    }
+    if (frame.entries === null) {
+      frame.entries = Object.entries(frame.value);
+    }
+    if (frame.index >= frame.entries.length) {
+      frames.pop();
+      continue;
+    }
+    const [field, nested] = frame.entries[frame.index];
+    frame.index += 1;
+    const key = `${frame.path}.${field}`;
     if (FORBIDDEN_LOCATION_KEYS.has(field)) {
-      const key = `${path}.${field}`;
       fail(
         "forbidden-field",
         key,
@@ -159,7 +181,7 @@ function assertNoLocationFields(value, path, source) {
         `submission must not contain executable location field: ${key}`,
       );
     }
-    assertNoLocationFields(nested, `${path}.${field}`, source);
+    frames.push({ value: nested, path: key, entries: null, index: 0 });
   }
 }
 

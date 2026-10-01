@@ -2,7 +2,7 @@
 
 Gap G11 (round-3 gap list, [TOG-6346](/TOG/issues/TOG-6346)): the three
 staging/provenance modules existed but module-to-CLI coverage was unrecorded.
-This doc records it. Verified against `main` at TOG-6372 branch time by
+This doc records it. Reverified against `main` at `3814fbd` on 2026-10-01 by
 grepping every export name against `bin/` (caller map), `src/index.js`
 (re-exports), `test/` (pins), `package.json` (scripts), and
 `.github/workflows/ci.yml` (gates).
@@ -103,8 +103,10 @@ Source constants: `DEFAULT_BACKFILL_MAX_AGE_MS` is 24h;
 - CI (`.github/workflows/ci.yml`) runs `npm test` (whole suite, including
   the CLI-exec tests listed above) plus `npm run smoke`, plus a dedicated
   `search-index-probe` job (`npm run check:search-index` — the R1–R5
-  fixture-only refresh probe). No other per-helper-CLI CI job exists;
-  remaining helper coverage rides the suite.
+  fixture-only refresh probe). The `large-catalog-bench` job also runs
+  `bin/benchmark-large-catalog` directly and uploads timing JSON; its
+  benchmark step is non-blocking (`continue-on-error: true`). Remaining
+  helper coverage rides the suite.
 
 ## Maintenance
 

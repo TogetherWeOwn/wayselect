@@ -31,7 +31,12 @@ import { PurchaseSubmissionError, validatePurchaseSubmission } from "../src/purc
 const execFileAsync = promisify(execFile);
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const EVAL_TIME = "2026-09-26T16:00:00.000Z"; // pinned: matches docs/cli.md examples
+const readJson = (rel) => JSON.parse(readFileSync(join(REPO_ROOT, rel), "utf8"));
+// Derived from the coordinated request fixture so this runner tracks the
+// supported refresh (bin/refresh-catalog-fixtures), mirroring
+// scripts/acceptance.sh. B5 below still derives its stale negative case from
+// the live snapshot, so fail-closed coverage is retained.
+const EVAL_TIME = readJson("fixtures/request.synthetic.json").evaluationTime;
 const EXPLAIN_ARGS = ["explain", "--operation", "chat", "--require", "toolUse", "--allow", "northstar,orbit", "--evaluation-time", EVAL_TIME];
 const STAGING_ENDPOINT = process.env.WAYSELECT_STAGING_ENDPOINT ?? null;
 
@@ -49,8 +54,6 @@ function check(cond, id, label, detail = "") {
   record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
   return cond;
 }
-
-const readJson = (rel) => JSON.parse(readFileSync(join(REPO_ROOT, rel), "utf8"));
 
 async function runCli(args) {
   try {

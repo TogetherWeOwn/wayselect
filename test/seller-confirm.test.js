@@ -240,10 +240,13 @@ describe("seller intake + confirm routes (TOG-4969)", () => {
     });
     const intakeGet = await fetch(`${base}/sellers/submissions`);
     strictEqual(intakeGet.status, 405);
+    // TOG-5739: seller 405s carry `Allow` via sendMethodNotAllowed.
+    strictEqual(intakeGet.headers.get("allow"), "POST");
     const confirmPut = await fetch(`${base}/sellers/submissions/northstar/nope/confirm`, {
       method: "PUT",
     });
     strictEqual(confirmPut.status, 405);
+    strictEqual(confirmPut.headers.get("allow"), "GET, POST");
   });
 
   it("maps body-gate failures to 400/413 before any validation runs", async () => {

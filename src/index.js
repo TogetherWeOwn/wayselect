@@ -27,13 +27,17 @@ export {
 export { selectRoute } from "./selection.js";
 export { validateCliJson } from "./validate-cli-json.js";
 export { compareRouteIds } from "./routeIds.js";
-export { handleChatCompletionsRequest } from "./gateway.js";
+export { handleChatCompletionsRequest, handleMessagesRequest } from "./gateway.js";
 export { PurchaseSubmissionError, validatePurchaseSubmission } from "./purchase.js";
 export { SellerSubmissionError, validateSellerSubmission } from "./sellerSubmission.js";
 export {
   MAX_BUYER_ID_LENGTH,
   MAX_DESCRIPTION_LENGTH,
   MAX_ETAG_LENGTH,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
+  MAX_GATEWAY_MESSAGE_CHARS,
+  MAX_GATEWAY_MESSAGES,
+  MAX_GATEWAY_TOTAL_CHARS,
   MAX_JSON_BODY_BYTES,
   MAX_JSON_BODY_READ_MS,
   MAX_MODEL_ID_LENGTH,
@@ -87,6 +91,7 @@ export {
   futureSnapshotMessage,
   invalidKeepLastMessage,
   invalidMaxCatalogAgeMessage,
+  invalidPruneDirMessage,
   invalidPruneMaxAgeDaysMessage,
   invalidPruneNowMessage,
   missingValueMessage,

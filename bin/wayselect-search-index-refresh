@@ -24,10 +24,15 @@ function parseArguments(argv) {
     now: null,
     maxCatalogAgeHours: null,
     check: false,
+    help: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
+    if (flag === "--help" || flag === "-h") {
+      values.help = true;
+      continue;
+    }
     if (flag === "--check") {
       values.check = true;
       continue;
@@ -59,6 +64,14 @@ function compactTimestamp(iso) {
   return iso.replace(/[-:.]/g, "");
 }
 
+function usage() {
+  return (
+    "Usage: node bin/wayselect-search-index-refresh [--catalog <path>]\n" +
+    "    [--out <dir>] [--previous <index>] [--now <ISO>]\n" +
+    "    [--max-catalog-age-hours <n>] [--check]\n"
+  );
+}
+
 // Default evaluation clock derived from the loaded catalog snapshot so the
 // probe stays green across provenance refreshes without edits: evaluation
 // sits two hours after the snapshot, mirroring evaluationNow() in
@@ -76,6 +89,16 @@ function defaultNowFor(fixture) {
 
 async function main() {
   const args = parseArguments(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(usage());
+    return;
+  }
+
+  if (args.check && args.previous !== null) {
+    throw new Error(
+      "--previous cannot be used with --check; omit --check to compare a previous index",
+    );
+  }
 
   let maxCatalogAgeMs;
   if (args.maxCatalogAgeHours !== null) {

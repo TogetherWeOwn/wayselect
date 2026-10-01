@@ -1,14 +1,13 @@
 // TOG-6708 (gap R4-02): `Vary: Accept` on content-negotiated routes.
 //
-// Seller-intake/confirm, the listing-detail shell/fragment, and the 404
-// fallback all branch the response body on the request `Accept` header, but
-// sent no `Vary: Accept` — a shared cache could store one variant and serve
-// it for the other. Contract pinned here:
-//   - Every response from those four route shapes carries
-//     `Vary: Accept`, on both the HTML and the JSON variant (success and
-//     error statuses alike).
-//   - Routes that never negotiate stay without it: `/healthz`, the purchase
-//     stub, and the index page.
+// Seller-intake/confirm, the listing index/detail shell/fragment, and the
+// 404 fallback all branch the response body on the request `Accept` header,
+// so every response from those shapes carries `Vary: Accept` — a shared cache
+// must key on it. Contract pinned here:
+//   - Every response from those shapes carries `Vary: Accept`, on both the
+//     HTML and the JSON variant (success and error statuses alike).
+//   - Routes that never negotiate stay without it: `/healthz` and the
+//     purchase stub.
 //
 // node:test, zero dependencies.
 
@@ -157,9 +156,17 @@ describe("Vary: Accept on content-negotiated routes (TOG-6708)", () => {
     });
     strictEqual(purchase.status, 403);
     strictEqual(purchase.vary, null, "purchase 403: no Vary");
-    // Index page: HTML only, no JSON shape.
+    // Flag-on index negotiates HTML vs JSON on Accept (TOG-7661): both
+    // variants carry Vary: Accept. Pinned in detail in
+    // listing-index-json.test.js; asserted here so the shape inventory stays
+    // complete.
     const index = await vary(base, "/listings");
     strictEqual(index.status, 200);
-    strictEqual(index.vary, null, "index: no Vary");
+    strictEqual(index.vary, VARY_ACCEPT, "index HTML: Vary: Accept");
+    const indexJson = await vary(base, "/listings", {
+      headers: { accept: "application/json" },
+    });
+    strictEqual(indexJson.status, 200);
+    strictEqual(indexJson.vary, VARY_ACCEPT, "index JSON: Vary: Accept");
   });
 });

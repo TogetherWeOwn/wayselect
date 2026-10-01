@@ -30,7 +30,9 @@ describe("empty-state rendering (index)", () => {
     ok(html.includes("Clear filters"), "clear link label");
     ok(!html.includes("<ul>"), "no result list");
     ok(html.includes('role="status"'), "empty state announced");
-    ok(html.includes('aria-label="Results"'), "results section kept");
+    // TOG-6392: results section is labelledby + visible h2 (name "Results").
+    ok(html.includes('aria-labelledby="results-heading"'), "results section kept");
+    ok(html.includes('<h2 id="results-heading">Results</h2>'), "visible results heading kept");
   });
 
   it("keeps the filter form with the active filters reflected", () => {

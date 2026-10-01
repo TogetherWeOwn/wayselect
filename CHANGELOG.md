@@ -18,11 +18,368 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- #108 (2026-09-28) TOG-6372: CLI-vs-modules audit doc (gap G11) —
+- #108 (2026-10-01) TOG-6372: CLI-vs-modules audit doc (gap G11) —
   all 21 exports of `searchIndex.js`/`snapshot.js`/`provenanceAudit.js`
   mapped to CLI callers, plus guard test
   (`docs/cli-module-coverage.md`, `test/cli-module-coverage.test.js`,
   `README.md`).
+- #233 TOG-9947: search-index `--check` rejects `--previous` with exit 1 and a usage error on stderr (probe never runs, no index written) instead of silently ignoring the flag (`bin/wayselect-search-index-refresh`, `test/search-index-corrupt-previous.test.js`, `README.md`).
+
+- #232 (2026-09-30) TOG-10599: restore synthetic staging fixture freshness through the supported refresh script; keep fixture-dependent test clocks and golden expectations aligned across refreshes without relaxing the 24h gate (`fixtures/catalog.synthetic.json`, `fixtures/configuration.synthetic.json`, `fixtures/request.synthetic.json`, `test/capability-requirements.test.js`, `test/edge-fixtures.test.js`, `test/golden-output.test.js`, `test/ranking.test.js`, `test/route-id-tie-break.test.js`, `scripts/acceptance.sh`).
+
+- TOG-8455: catalog import fails closed on `--fetch-url` without `--fetch`
+  (exit 1, `Error: --fetch-url requires --fetch`, empty stdout) instead of
+  silently ignoring the URL; `--fetch --fetch-url` still works
+  (`bin/wayselect`, `test/cli.test.js`).
+- TOG-5956: Anthropic surface + streaming SSE (fake-backed, $0) —
+  `handleMessagesRequest` plus SSE on both surfaces from one normalized
+  delta stream with retry only before the first byte, `tools`+`stream` 400s,
+  Phase-2 conformance suite, stranded Phase-1 stream pins updated
+  (`src/gateway.js`, `src/index.js`, `test/gateway-phase2.test.js`,
+  `test/gateway.test.js`, `test/operator-key-audit.test.js`,
+  `bin/accept-wayselect-gateway-phase1`, `README.md`,
+  `docs/bin-operator-catalog.md`).
+- #215 (2026-09-28) TOG-8334: production incident runbook — new `docs/incident-runbook.md`
+  with executable staging rollback (mirrors `docs/deployment-runbook.md` §5),
+  dormant production steps with CEO/CISO gates, health-check commands (§2),
+  owner/approver per step (§1), and a §7 reviewer walk with no dangling
+  references; README docs-index link (docs only, no source change).
+- #230 (2026-09-29) TOG-8456: quarantine models with unknown `limit`
+  subfields — unknown keys inside a model's `limit` object quarantine the
+  model with a named reason (`limit contains unknown field: <key>`) instead
+  of being silently dropped; known `context`/`output` mapping unchanged, plus
+  a pin test (`src/ingest.js`, `test/ingest.test.js`).
+- #228 (2026-09-29) TOG-8332: response-header hardening audit — deny-by-default
+  `Permissions-Policy` (`camera=(), microphone=(), geolocation=(), payment=(),
+  usb=()`) on every preview response (HTML/JSON, 200/304/204/4xx/5xx incl. 429);
+  HSTS deliberately absent (plain-HTTP server; RFC 6797 §8.1). Pinned by
+  `test/response-header-hardening.test.js` (`web/server.js`,
+  `test/response-header-hardening.test.js`).
+- #229 (2026-09-28) TOG-8346: open-source community pack — new `CODE_OF_CONDUCT.md`
+  (Contributor Covenant v2.1, private-first reporting, no-retaliation rule),
+  new `.github/ISSUE_TEMPLATE/` (bug + feature forms, blank issues disabled,
+  security/conduct contact links), PR template gains a Conventional Commits
+  title section (enforced by `pr-lint`), and one-line `CODE_OF_CONDUCT.md` /
+  template pointers in `README.md` / `CONTRIBUTING.md` (`CODE_OF_CONDUCT.md`,
+  `.github/ISSUE_TEMPLATE/bug_report.yml`,
+  `.github/ISSUE_TEMPLATE/feature_request.yml`,
+  `.github/ISSUE_TEMPLATE/config.yml`,
+  `.github/pull_request_template.md`, `README.md`, `CONTRIBUTING.md`).
+- #223 (2026-09-28) TOG-8612: oversized JSON body 413 contract pin — new
+  test hits the live preview server's seller-intake route with >64KB bodies
+  over both oversize paths (lying `Content-Length`, chunked stream) and
+  asserts the full refusal contract (413, `{error,key,source,message}` +
+  agreeing `x-request-id`, `no-store`/`nosniff`), plus socket reuse and a
+  still-200 valid intake afterward; audit found the cap
+  (`MAX_JSON_BODY_BYTES`) and mapping already landed, so test-only, no
+  source change (`test/oversized-body-413-contract.test.js`).
+- #213 (2026-09-28) TOG-8061: buyer trust-signals slice — stub ratings (T1 index
+  line, T2 detail section), guarantee copy (T3), dispute entry link (T4, no
+  second form per F8), single-builder fragment parity (T5), JSON-only
+  disputes stub routes (D2–D10, `invalid_dispute` fail-closed, in-memory
+  per-listing ids), `bin/accept-wayselect-trust` + `npm run accept:trust`
+  (22 pass, zero skips). Files: web/stub-listing.js,
+  web/listing-detail.js, web/disputes.js, web/server.js,
+  bin/accept-wayselect-trust, test/buyer-trust-signals.test.js,
+  test/preview-route-table.test.js, test/env-var-matrix.test.js,
+  docs/preview-server.openapi.json, docs/wayselect-env-var-matrix.md,
+  docs/bin-operator-catalog.md, package.json.
+- #210 (2026-09-28) TOG-8331: reduced-motion audit pin on preview pages — audit
+  found no offenders (both preview layouts already disable the skip-link
+  slide and skeleton pulse under `prefers-reduced-motion`); extends the
+  TOG-5744 pin to all twelve preview renderers (eight listing + four
+  seller) so a new transition or page cannot regress silently
+  (`test/listing-focus-motion.test.js`, test-only, no source change).
+- #227 (2026-09-28) TOG-8639: open-source front-door slice — CI + MIT
+  badges at the top of `README.md` (badge URLs verified 200), new
+  `docs/export-control.md` (public-availability basis, SHA-256/nonce-only
+  crypto inventory, no controlled technology) linked from the README docs
+  index, and `CONTRIBUTING.md` license line corrected from "not yet chosen"
+  to MIT; header audit finds all 212 code files without per-file headers,
+  recorded in the card comment rather than added (`README.md`,
+  `docs/export-control.md`, `CONTRIBUTING.md`).
+- #220 (2026-09-28) TOG-8637: library API reference — `docs/api.md`
+  documents the public names re-exported by `src/index.js` with one
+  runnable example per export (`docs/api.md`).
+- #214 (2026-09-28) TOG-8429: deep-nesting DoS fix — `assertNoLocationFields` in
+  `src/sellerSubmission.js` and `src/purchase.js` recursed one frame per
+  nesting level, so a single 6000-deep `provenance.nested` body (~36KB, under
+  the 64KB gate) escaped the typed-error catch as an uncaught RangeError and
+  killed the preview process; both scanners are now explicit frame-stack loops
+  that replay the old recursion's depth-first pre-order exactly
+  (byte-identical first-forbidden key, proven differentially) and fail closed
+  with the same typed errors, pinned by `test/intake-deep-nesting.test.js`
+  (unit at 6000/10000 depth, pre-order ordering cases, plus live 400 +
+  `/healthz` + valid-intake survival).
+- #165 (2026-09-28) TOG-6719: gateway rejects unknown top-level body keys —
+  400 `invalid_request_error`/`unknown_field` naming the key (R4-13);
+  G15 pins the rejection, G16 pins §1.1 pass-through keys still route
+  (`src/gateway.js`, `test/gateway.test.js`).
+- #206 (2026-09-28) TOG-7300: catalog-import quarantine human-output golden — the
+  `Quarantined N:` block of `wayselect catalog import` (count, `  - route:
+  reason` lines, exact placement around the ingested/not-written lines) is
+  pinned byte-identical for a one-quarantine fixture
+  (`test/catalog-import-quarantine-golden.test.js`, test-only, no source
+  change: `bin/wayselect` already renders the block).
+- #211 (2026-09-28) TOG-8333: unified `--help` golden across all four bins —
+  `test/cli-help-all-bins.test.js` pins exit-0/empty-stderr plus exact usage
+  bytes for `wayselect`, `wayselect-snapshot`, `wayselect-snapshot-prune`
+  (not covered elsewhere) and `wayselect-search-index-refresh`; test-only, no
+  source change (the snapshot/refresh `--help` fix itself landed via #216,
+  pinned in `test/cli-errors.test.js`).
+- #224 (2026-09-28) TOG-8326: in-band `schemaVersion: "v1"` marker on every
+  `--json` payload — `select`/`explain`/`catalog import` outputs carry a
+  top-level version marker (`const: "v1"` in `schema/cli-json/v1.json`,
+  mirroring `SCHEMA_VERSION`), so consumers pin on the marker and a breaking
+  change must bump the version per `docs/cli-json-contract.md` instead of
+  shifting silently; pinned by `test/cli-json-schema-version.test.js`
+  (live-output marker + validation, reject dropped/wrong marker,
+  `SCHEMA_VERSION` pinned to `"v1"`) (`bin/wayselect`,
+  `schema/cli-json/v1.json`, `docs/cli.md`, `docs/cli-json-contract.md`,
+  `test/cli-json-schema-version.test.js`,
+  `test/fixtures/cli-json-*.v1.json`, `test/cli-empty-inputs.test.js`).
+- #221 (2026-09-28) TOG-8613: hand-edited snapshot tamper-reason pin — new
+  test asserts the stable `contentHash: recomputed hash does not match the
+  recorded hash` + `backfill may be tampered or edited by hand` reason for a
+  tampered snapshot entry (library audit + `bin/check-ingestion-provenance`
+  CLI), independent of the TOG-7660 declared-hash bug (test-only, no source
+  change: `src/provenanceAudit.js` already emits the reason)
+  (`test/snapshot-tamper-reason.test.js`).
+- #218 (2026-09-28) TOG-8619: Dockerfile non-root USER + healthcheck pin — new
+  contract test pins the effective runtime user as `node` (no `USER root`/`0`),
+  pins `HEALTHCHECK` on `/wayselect-healthz` expecting its 404, and proves the
+  target working with a live-server 404 check with preview on and off
+  (`test/dockerfile-user-healthcheck.test.js`, test-only, no source change).
+- #222 (2026-09-28) TOG-6030: purchase idempotency-key support (gap G2) — optional opaque
+  `idempotencyKey` on the purchase validator (absent normalizes to null,
+  blank/mistyped/overlong >256 fail closed) and optional `Idempotency-Key`
+  header on POST purchase (same key replays the 403 refusal with
+  `replayed: true`, no duplicate effect; same key on a different route is
+  422 `idempotency_key_reused`; blank/overlong is 400; never masks the
+  404/405 gates), with OpenAPI + route-table pins (`src/purchase.js`,
+  `src/intakeLimits.js`, `src/index.js`, `web/server.js`,
+  `test/purchase-idempotency-key.test.js`, `test/preview-route-table.test.js`,
+  `docs/preview-server.openapi.json`).
+- #205 (2026-09-28) TOG-7309: forced-colors badge treatment audit — the eligibility/
+  capability badges (`.badge-*`) were the one author-colored surface with
+  no `forced-colors: active` rule (focus rings got theirs in #137), so
+  High Contrast flattened every variant to identical boxes; one new rule
+  per layout (`.badge { border: 1px solid CanvasText; }`, buttons need
+  nothing — native controls draw their own borders), pinned by a 5-test
+  guard over every listing + seller page (`web/listing-detail.js`,
+  `web/seller.js`, `test/forced-colors-badges.test.js`).
+
+- #202 (2026-09-28) TOG-7314: /listings pagination filter-persist audit pin — `pageHref`
+  keeps q, capability, modality and limit on Prev/Next, numbered pages,
+  and the past-end recovery link, with a served round-trip following Next
+  under q; test-only, no source change (audit: filters already preserved)
+  (`test/listing-pagination-filter-persist.test.js`).
+- #216 (2026-09-28) TOG-7659: snapshot and search-index-refresh `--help` —
+  both staging CLIs treated `--help`/`-h` as a value flag and failed with
+  `Missing value for --help` (exit 1); now print usage to stdout with exit 0
+  before value-flag parsing, mirroring `bin/check-provenance-drift`, with
+  regression tests pinning exact usage bytes (`bin/wayselect-snapshot`,
+  `bin/wayselect-search-index-refresh`, `test/cli-errors.test.js`).
+- #200 (2026-09-28) TOG-6727: snapshot-prune directory confinement —
+  `bin/wayselect-snapshot-prune` refuses a `--dir` containing `..`
+  segments (exit 2, `--dir must not contain .. segments`, zero files
+  deleted) before any listing or deletion; resolved absolute scratch dirs
+  stay legal (`bin/wayselect-snapshot-prune`, `src/cliErrors.js`,
+  `src/index.js`, `docs/snapshot-retention.md`,
+  `test/snapshot-prune.test.js`).
+- TOG-7311: aborted detail-fragment user-visible copy pin — an aborted
+  delayed fragment shows the `role="alert"` error panel and `role="status"`
+  announcement ("Couldn't load listing details. Check your connection and
+  retry."), clears `aria-busy`, and focuses Retry (which re-issues the same
+  JSON fragment request); no `AbortError` special-case in the shell script,
+  pinned offline by `test/detail-fragment-abort-copy.test.js` via `node:vm`
+  execution of the real inline script (test-only, no source change: server
+  timer cleanup landed in #126).
+- #194 (2026-09-28) TOG-6061: route-table drift pin — contract test
+  extracts exact-path and regex dispatch operands from `web/server.js` and
+  set-compares them against `docs/preview-server.openapi.json` paths (plus
+  `routeBucket` lockstep), failing with the stale side named
+  (`test/preview-route-table.test.js`).
+
+- #54 (2026-09-28) TOG-5747: provenance-drift JSON report pinned to v1 schema —
+  `bin/check-provenance-drift --out` shape is now fail-closed
+  (`schema/drift-report/v1.json`: exact D1/D2/D3 check table, written on
+  green and red runs alike) with green + three red runs asserted
+  (`test/drift-report-schema.test.js`, test-only, no source change).
+- #191 (2026-09-28) TOG-6043: README deploy section matches landed runbook — new
+  "Deploying the preview server (staging only)" section (Docker build/run,
+  health-probe verify, three-variable env contract, merge-to-main staging
+  deploy, reviewer-gated production, rollback pointer) plus the runbook link
+  in the docs index (`README.md`).
+- #199 (2026-09-28) TOG-7294: purchase-route 405 `Allow` header pin — every non-POST method
+  on `/listings/:provider/:model/purchase` 405s with `Allow: POST`
+  (status + Allow + content-type + nosniff + exact
+  `{error:"method_not_allowed"}` body), trailing-slash parity, 405
+  precedes the listing check on unknown listings, and the method gate
+  precedes the preview flag (`test/purchase-405.test.js`, test-only, no
+  source change: `web/server.js` already routes through
+  `sendMethodNotAllowed`).
+- #209 (2026-09-28) TOG-8345: security policy for open-sourcing — new `SECURITY.md`
+  with private GitHub-Advisory reporting, 72h-ack / 7d-assess / 30d-fix SLA,
+  fixture-only scope with explicit out-of-scope list, and a no-bounty statement;
+  README gains a Security section pointer (`SECURITY.md`, `README.md`).
+- #204 (2026-09-28) TOG-7290: empty-input `select` CLI UX pin — empty catalog (empty body +
+  empty configuration) prints the zero-candidate `no-eligible-route` page
+  (human + `--json`, exit 3), empty configuration excludes every fixture
+  candidate with its reason on both outputs (exit 3, `--json` validates
+  against the v1 schema), and empty catalog with the default configuration
+  fails closed on the first dangling route (exit 1); the empty-catalog
+  `--json` shape (`rankedCandidates: []`) is documented as not validating
+  under the current v1 `minItems: 1` bound (`test/cli-empty-inputs.test.js`,
+  test-only, no source change).
+- #208 (2026-09-28) TOG-7131: host-mediated deploy trigger — both deploy jobs move to
+  `ubuntu-latest` (the PUBLIC repo can never match the org's
+  `allows_public_repositories=false` self-hosted groups, so those labels
+  queued forever); Coolify rebuilds from the host mirror via autodeploy with
+  the panel bearer held host-side (TOG-7094), and GitHub owns the Deployment
+  record plus target gate (URL-only), mirror settle, /healthz poll, and
+  post-deploy smoke. No panel credential in the workflow
+  (`.github/workflows/ci.yml`, `scripts/check-deploy-target.mjs`,
+  `test/check-deploy-target.test.js`).
+- #203 (2026-09-28) TOG-7287: no-JS fallback audit for listing-detail — `docs/wayselect-no-js-fallback.md`
+  states what renders with JS disabled (full `<noscript>` body N1–N8, byte-identical
+  to the fragment; skeleton/fetch/retry inert), README docs-index link, pinned
+  offline by `test/listing-detail-no-js.test.js` (docs + test only, no source
+  change: the noscript branch already renders `listingDetailBody`).
+- TOG-7275: /listings pagination nav semantics — Previous/Next links carry
+  `rel="prev"`/`rel="next"`, numbered page links name each page with
+  `aria-current="page"` on the current one (first/last/first±2 windowed),
+  pinned offline by `test/listing-pagination-semantics.test.js`
+  (`web/listing-detail.js`, `test/listing-pagination-semantics.test.js`).
+- #192 (2026-09-28) TOG-7281: warn-only large-catalog benchmark CI job — the `large-catalog-bench`
+  job runs `node bin/benchmark-large-catalog` and uploads the timings JSON as
+  the `large-catalog-timings` artifact; a budget miss annotates `::warning::`
+  and never reds (budgets stay enforced by
+  `test/large-catalog-benchmark.test.js`), with a P9 local mirror in
+  `bin/pre-push-check` pinned by `test/pre-push-parity.test.js`
+  (`.github/workflows/ci.yml`, `bin/pre-push-check`,
+  `test/pre-push-parity.test.js`, `docs/pre-push-check.md`,
+  `docs/large-catalog-benchmark.md`, `CONTRIBUTING.md`,
+  `.github/pull_request_template.md`).
+- #198 (2026-09-28) TOG-6725: drift-check CLI exit-code contract pin —
+  `bin/check-provenance-drift` asserts 0 clean, 1 on drift, 2 on usage
+  error in one place (`test/drift-exit-code-contract.test.js`, test-only,
+  no source change).
+- #187 (2026-09-28) TOG-7302: catalog import --json pinned to the v1 machine
+  schema — the schema is now a `command`-dispatched union (`select`/`explain`
+  plus the `catalog import` shape), enforced fail-closed via
+  `src/validate-cli-json.js`, with live output pinned byte-for-byte to
+  `test/fixtures/cli-json-catalog-import.v1.json` so any machine-shape drift
+  fails (`schema/cli-json/v1.json`, `src/validate-cli-json.js`,
+  `test/cli-json-contract.test.js`,
+  `test/fixtures/cli-json-catalog-import.v1.json`,
+  `docs/cli-json-contract.md`).
+- #172 (2026-09-28) TOG-7278: staging smoke probes the gateway — 401 on
+  missing/wrong key (byte-identical, WWW-Authenticate, no transport call)
+  and auto-route dry run (200, dryRun+synthetic, one FakeTransport call),
+  in-process with a per-run throwaway key. Files:
+  bin/smoke-wayselect-staging-preview, support/gateway-smoke-probes.js,
+  test/smoke-gateway-probes.test.js, test/smoke-staging-preview.test.js.
+- #201 (2026-09-28) TOG-6050: cache headers on cacheable GETs — fixture-
+  deterministic success JSON (`GET /healthz`, flag-on index 200 JSON, detail
+  200 JSON fragment) carries `ETag` (strong sha256 content hash) +
+  `Cache-Control: public, max-age=60` with 304 on matching `If-None-Match`;
+  HTML, error JSON (`no-store`), and seller-transactional JSON unchanged
+  (`web/server.js`, `test/cacheable-get-etag.test.js`,
+  `test/json-error-no-store.test.js`, `docs/preview-server.openapi.json`).
+- #190 (2026-09-28) TOG-6733: sticky filter inputs on the index page — the
+  filter form echoes submitted `q`/`limit`/`offset` (escaped, from validated
+  `pageInfo`) so re-submits keep the current page window; 3-test guard
+  (`web/listing-detail.js`, `test/listing-filter.test.js`,
+  `test/listing-filter-labels.test.js`).
+- #167 (2026-09-28) TOG-7283: POST intake rate-limit coverage audit pin — every POST
+  intake route (`/listings/:provider/:model/purchase`,
+  `/sellers/submissions`,
+  `/sellers/submissions/:provider/:model/confirm`) asserts its own
+  per-IP budget (max passes, then 429 + matching Retry-After with the
+  `rate_limited` body), plus POST-bucket independence
+  (`test/post-rate-limit-coverage.test.js`, test-only, no source
+  change: the limiter already gates every route shape).
+- #197 (2026-09-28) TOG-6726: atomic snapshot writes — `bin/wayselect-snapshot`
+  publishes snapshots and diff reports via temp-file + fsync + rename
+  (`src/atomicWrite.js`), so a mid-write crash leaves the previous file
+  byte-identical instead of a corrupt half-written file; 5-test partial-write
+  pin (`test/snapshot-atomic-write.test.js`).
+- #183 (2026-09-28) TOG-7296: overlong-q fail-closed exact-bytes pin — `q`
+  beyond `LISTINGS_MAX_QUERY_LENGTH` (200) fails closed with kind `q`, the
+  echo exactly the first 64 input chars, `valid: ["at most 200 characters"]`,
+  and the 400 paragraph renders those bytes verbatim without the full input
+  (`test/listing-overlong-q.test.js`, test-only, no source change:
+  `web/filter.js` already truncates at 64 and `web/listing-detail.js`
+  already renders the single-error paragraph).
+- #195 (2026-09-28) TOG-6728: large-fixture generator determinism pin — test-only run-twice
+  byte-identical assertion on `generateLargeCatalog()` CLI write bytes plus explicit
+  seed/time default pin and seed-divergence guard; documents the seed knob
+  (`test/large-fixture-determinism.test.js`).
+- #180 (2026-09-28) TOG-7307: gateway intake-limits enforcement matrix pin — `src/intakeLimits.js`
+  gains `MAX_GATEWAY_MESSAGES` (32), `MAX_GATEWAY_MESSAGE_CHARS` (16k), and
+  `MAX_GATEWAY_TOTAL_CHARS` (64k), enforced fail-closed in `src/gateway.js`
+  with 400 `too_many_messages` / `message_too_large` / `messages_too_large`,
+  pinned by a pass/reject boundary matrix plus a joined-parts normalization
+  row (`src/gateway.js`, `src/index.js`, `src/intakeLimits.js`,
+  `test/gateway-intake-limits.test.js`).
+- #184 (2026-09-28) TOG-7317: CHANGELOG Unreleased-entry CI gate — new
+  `changelog-gate` workflow runs `node bin/check-changelog-entry` on
+  `pull_request` (fetch-depth 0): a PR touching `src/`, `web/`, `bin/`, or
+  `test/` without a new `- ` bullet under `## Unreleased` naming a TOG id
+  reds; docs-only, fixture-only, and CHANGELOG-only PRs skip green, pinned
+  offline by `test/changelog-entry-gate.test.js` against scratch git repos
+  (`.github/workflows/changelog-gate.yml`, `bin/check-changelog-entry`,
+  `test/changelog-entry-gate.test.js`).
+
+- #186 (2026-09-28) TOG-7274: seller skip-link parity — served `/sellers` confirm, receipt,
+  missing-intent, and rejection pages carry the same focusable skip link +
+  `#main-content` target as the listing pages; 4-test served-route guard
+  (`test/seller-skiplink.test.js`).
+
+- #189 (2026-09-28) TOG-6366: server-side Origin/Referer CSRF guard on
+  `POST …/purchase` — cross-origin requests refuse 403 `forbidden_origin`
+  before the listing lookup (headerless/API clients still reach the
+  `preview_only` stub refusal); OpenAPI `ForbiddenOrigin` schema + route
+  doc (`web/server.js`, `test/purchase-origin-check.test.js`,
+  `docs/preview-server.openapi.json`,
+  `test/preview-route-table.test.js`).
+- #182 (2026-09-28) TOG-7661: flag-on index honors `Accept:
+  application/json` — 200 paged result `{listings, total, limit, offset}`
+  (incl. empty state and offset-past-end with intact total), 400
+  `{error: invalid_filter, kind, value, valid, errors}` for every filter
+  kind incl. sort (with the TOG-6717 request id), HTML default for
+  browsers, `Vary: Accept` on every flag-on variant; flag-off index stays
+  HTML-only (`web/server.js`, `test/listing-index-json.test.js`,
+  `test/vary-accept.test.js`, `test/preview-disabled-json.test.js`,
+  `test/preview-route-table.test.js`, `docs/preview-server.openapi.json`).
+- #175 (2026-09-28) TOG-7292: empty-q vs missing-q filter contract pin —
+  absent `q`, `?q=`, and bare `?q` all parse `ok:true` to identical `q: ""`
+  filters, match the full stub catalog in stub order, and serve identical
+  200 index bodies (nonce-normalized)
+  (`test/empty-q-filter-contract.test.js`, test-only, no source change:
+  empty q already folds to no text filtering).
+- #131 (2026-09-27) TOG-6910: deploy-on-merge to Coolify staging +
+  reviewer-gated production — `deploy-staging`/`deploy-production` jobs in
+  `.github/workflows/ci.yml` (self-hosted runners, bearer-header transport
+  per the fleet's two-bot DEPLOY.md §6.1, `environment:` Deployment records,
+  serialized concurrency, fail-closed `check-deploy-target` gate, mirror
+  settle, `/healthz` settle, post-deploy `smoke-wayselect-staging-preview`);
+  reconciled with main's `search-index-probe`/`e2e-staging-acceptance` jobs
+  (`scripts/check-deploy-target.mjs`, `scripts/wait-for-host-mirror.mjs`,
+  `scripts/wait-for-staging-health.mjs`, `test/check-deploy-target.test.js`,
+  `test/deploy-helpers.test.js`).
+- #181 (2026-09-28) TOG-6368: noindex on preview pages — every HTML page
+  carries `<meta name="robots" content="noindex, nofollow">` (both layouts)
+  and every HTML response carries `X-Robots-Tag: noindex, nofollow`;
+  JSON responses carry neither. 6-test guard
+  (`web/listing-detail.js`, `web/seller.js`, `web/server.js`,
+  `test/preview-noindex.test.js`).
+- #60 (2026-09-28) TOG-5738: deployment runbook with Dockerfile and rollback —
+  `node:20-slim` prod image (`npm ci --omit=dev`, non-root, `HOST=0.0.0.0`,
+  HEALTHCHECK on the 404 `not_found` contract), `.dockerignore`, plus
+  build/run/verify/rollback runbook (`Dockerfile`, `.dockerignore`,
+  `docs/deployment-runbook.md`).
 - #177 (2026-09-28) TOG-6040: preview-server route table — OpenAPI 3.1 doc
   covering every route/method/params/status in `web/server.js` (incl.
   `sort` vocabulary, `x-request-id` triage envelope, case-sensitive
@@ -48,11 +405,27 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   script (purpose, when to run, key flags) covering all 29 executables,
   plus a README docs-index link
   (`docs/bin-operator-catalog.md`, `README.md`).
+- #174 (2026-09-28) TOG-7842: no-network guard preload in the
+  fixture-refresh suite step — the `suite`-step spawn gains
+  `--import ./support/no-network-guard.js` to match `npm test`
+  (`bin/accept-fixture-refresh`, `test/listing-uppercase-path.test.js`).
+- #156 (2026-09-28) TOG-5745: daily fixture-freshness check — scheduled CI
+  job runs the read-only `npm run refresh:check` daily at 07:23 UTC and
+  opens a deduplicated `fixture-staleness` issue on failure
+  (`.github/workflows/fixture-refresh-check.yml`,
+  `test/fixture-refresh-scheduler.test.js`, `README.md`).
+- #153 (2026-09-28) TOG-7541: dependabot github-actions prefix
+  `chore(deps)` → `ci(deps)` per the org GitHub standard
+  (`.github/dependabot.yml`, CI-only, no prod change).
 - #170 (2026-09-28) TOG-6044: trailing-slash canonical pin — `/listings` vs `/listings/`
   (and detail `.../p/m` vs `.../p/m/`) both stay 200 with identical bodies
   and carry `<link rel="canonical">` to the slashless path (index, detail
   shell, legacy full render); no redirects
   (`web/listing-detail.js`, `test/listings-canonical.test.js`).
+- #105 (2026-09-28) TOG-6738: `WAYSELECT_PREVIEW` truthiness truth table pin —
+  enabled spellings `1`/`true`/`yes`/`on` vs disabled unset/empty/`0`/`false`/
+  `no`/`off` and every other spelling (`test/preview-flag-truth-table.test.js`,
+  test-only, no prod change).
 - #166 (2026-09-28) TOG-6717: request id on JSON errors — every JSON error
   carries a crypto-random `x-request-id` header echoed as `requestId` in the
   body (128-bit hex, distinct per response, header/body agree; success JSON
@@ -64,6 +437,15 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `17 6 * * *` cron result surfaces, who triages, first 5 diagnostic
   commands, and bug-card vs re-run rule, with a green-cron acceptance
   check (`docs/ingestion-smoke-triage-runbook.md`, `README.md` docs index).
+- #162 (2026-09-27) TOG-7271: gateway operator-key handling audit pin — hostile
+  operator/wrong keys through every gateway error path (401 variants,
+  500 misconfig/transport branches, all 400 validators), success bodies,
+  transport records, and console capture assert zero key material; the
+  `timingSafeEqual` compare and the no-logging-sink shape stay pinned
+  statically, and tracked snapshots carry no bearer material
+  (`test/operator-key-audit.test.js`, test-only, no source change: every
+  error path already returns static messages and auth stays
+  byte-identical).
 - #161 (2026-09-27) TOG-6362: explicit `sort` param on `/listings` (gap G1) —
   `default` keeps stub order; `price-asc` / `price-desc` order by the synthetic
   list-price estimate with unknown prices last and code-unit route-ID tie-break;
@@ -99,6 +481,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   empty state, and live `GET /listings` all carry `<html lang="en">` plus
   exactly one non-empty escaped `<title>` (`Listings — Wayselect`)
   (`test/listing-index-lang-title.test.js`, test-only, no prod change).
+- #157 (2026-09-27) TOG-6045: CLI --help/--version golden output pin — exact-byte
+  tests for global, select, explain, catalog, and catalog-import help plus
+  --version against package.json (`test/cli-golden.test.js`, test-only, no
+  source change).
 - #155 (2026-09-27) TOG-7319: pre-push vs CI parity audit — `bin/pre-push-check` grows from
   5 to 8 gates (engine, marker, smoke + search-index probe, e2e + demo),
   P2/P3/P4 go recursive and multi-file, and `test/pre-push-parity.test.js`
@@ -107,6 +493,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (`bin/pre-push-check`, `test/pre-push-parity.test.js`,
   `docs/pre-push-check.md`, `CONTRIBUTING.md`,
   `.github/pull_request_template.md`).
+- #103 (2026-09-27) chore(deps): bump `actions/setup-node` 4 → 7
+  (`.github/workflows/ci.yml`, `.github/workflows/acceptance.yml`,
+  CI-only, no prod change).
 - #154 (2026-09-27) TOG-7304: Host-header / X-Forwarded-Host handling audit pin — hostile
   Host/XFH values leave no trace in index/detail/fragment/404/seller-intake
   output, no route redirects, links stay relative, and rotating Host/XFH
@@ -117,6 +506,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   15 min after intake (`SELLER_INTENT_TTL_MS`, injectable `options.now`);
   expired confirms 404 as missing; intake sweeps stale entries
   (`web/server.js`, `test/seller-intent-ttl.test.js`).
+- #152 (2026-09-27) TOG-7272: seller-submission echo stored-XSS audit pin — hostile
+  strings through every seller-controlled echo path (confirm, receipt
+  incl. timestamp, detail, shell, fragment, index, error/missing-intent
+  pages, hostile-id form actions and shell fetch) render escaped
+  (`test/seller-xss-audit.test.js`, test-only, no source change: every
+  path already escapes via `escape-html` + `encodeURIComponent`, and
+  the accepted-but-silent `description`/`etag` fields have no echo path).
 - #151 (2026-09-27) TOG-7286: concurrent slow-fragment load budget —
   12 parallel listing-detail JSON-fragment hits with
   `WAYSELECT_DETAIL_FRAGMENT_DELAY_MS` set all return 200 with intact
@@ -140,7 +536,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `Vary: Accept` (one `res.setHeader` per route branch); non-negotiated
   routes (healthz, purchase stub, index) stay without it
   (`web/server.js`, `test/vary-accept.test.js`).
-- TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
+- #147 (2026-09-27) TOG-6707: seller-intake 405 carries `Allow: POST` — the intake branch
   routes wrong-method refusals through the shared `sendMethodNotAllowed`
   helper (RFC 9110 §15.5.6) instead of raw `sendJson`; HEAD-contract pin
   updated for the intake path (`web/server.js`,
@@ -158,13 +554,25 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `resolveClientIp` trusted-proxy matching and XFF client identity share
   one bucket across plain/mapped/upper/translated/loopback spellings
   (`test/ipv6-mapped-resolve-pin.test.js`, test-only, no source change).
-- TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
+- #145 (2026-09-27) TOG-6712: bounded JSON body reads — `readJsonBody` carries a 10s total
   read deadline (`MAX_JSON_BODY_READ_MS`) that fails closed with
   `body_timeout` (408 at the seller route, retryable; drains the stream
   for socket reuse) instead of hanging on a short/stalling body
-  (`web/jsonBody.js`, `web/server.js`, `src/intakeLimits.js`,
+  (`web/jsonBody.js`, `web/server.js`, `src/index.js`, `src/intakeLimits.js`,
   `test/json-body-read-timeout.test.js`).
+- #144 (2026-09-27) TOG-5859: capability-aware select output contract —
+  typed-requirement JSON validation, selected/no-eligible human output,
+  fail-closed missing limits, and executable README example; document the
+  v1 `--json` shape and guard it against drift (`test/select-output-contract.test.js`,
+  `test/cli-docs-examples.test.js`, `README.md`, `docs/cli.md`, docs/test-only).
 - #141 (2026-09-27) TOG-6723: `--version` 0.0.0 fallback pin — missing or unparseable manifest (or a non-string version) degrades to `wayselect 0.0.0`, exit 0, without touching the real manifest (`test/cli-version-fallback.test.js`, test-only).
+- #140 (2026-09-27) TOG-5739: structured request logging + 405 Allow
+  consistency — one JSON line per request `{method,path,status,latencyMs}`
+  via injectable `options.logger`; seller intake/confirm 405s funnel through
+  `sendMethodNotAllowed` (`Allow: POST` / `Allow: GET, POST`)
+  (`web/server.js`, `test/request-logging.test.js`,
+  `test/json-error-no-store.test.js`, `test/head-method-contract.test.js`,
+  `test/seller-confirm.test.js`).
 - #139 (2026-09-27) TOG-6724: bad `--now` exit-code/no-write contract pin —
   invalid `--now` exits 1 with empty stdout, exact
   `CatalogFreshnessError` bytes, `--out` dir never created, and no
@@ -182,6 +590,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   with small newly-authored fixtures only, plus `accept:capability-select`
   (`test/capability-select-golden.test.js`,
   `bin/accept-wayselect-capability-select`, `package.json`, test-only).
+- #113 (2026-09-27) TOG-5728: Node test matrix 20.x + 24.x with engine gate —
+  fail-fast-false matrix plus a stdlib-only `bin/check-node-engines` gate
+  failing fast with ENGINE-MISMATCH before `npm ci`
+  (`.github/workflows/ci.yml`, `bin/check-node-engines`).
 - #118 (2026-09-27) TOG-5722: wire search-index `--check` probe and e2e
   staging acceptance into CI as fixture-only jobs, no network/credentials
   (`.github/workflows/ci.yml`).
@@ -203,11 +615,21 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   (POST) / listing miss (GET), never a purchase refusal; exact
   three-segment target still 403; `%252E%252E` and triple encoding decode
   exactly once (`test/purchase-double-encoded-segments.test.js`, test-only).
+- #135 (2026-09-27) TOG-5742: catalog-entry version-negotiation note + v1 pin —
+  pinned contract, no-silent-upgrade policy, 4-step v2 bump procedure, plus
+  `SCHEMA_VERSION` v1 and rejection pins (`docs/catalog-entry-versioning.md`,
+  `test/validate-catalog-entry.test.js`).
 - #126 (2026-09-27) TOG-6714: clear delayed detail-fragment timer on
   client abort — `req.once('close')` → `clearTimeout`, fired-timer path
   removes its own listener and skips the send on a dead socket; abort
   leaves zero pending timers (fail-to-pass pin) (`web/server.js`,
   `test/detail-fragment-abort.test.js`).
+- #134 (2026-09-27) TOG-6392: index heading hierarchy audit — `h1
+  Listings` + visible `h2 Filter listings` / `h2 Results` labelledby
+  sections on every index state (populated, empty, past-the-end,
+  windowed), pinned by a new audit test plus served-route coverage
+  (`web/listing-detail.js`, `test/listing-index-headings.test.js`,
+  `test/listing-a11y.test.js`, `test/listing-empty-error-states.test.js`).
 - #130 (2026-09-27) TOG-6721: over-offset empty-page contract — far-over-offset
   windows return an empty page with the total intact (pure-function level) and
   200, never 400, with the full/filtered match count over HTTP
@@ -217,6 +639,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   non-JSON/truncated/wrong-tool/empty-entries/missing files, exact
   `SearchIndexError` strings pinned, rebuild-from-fixture recovery covered
   (`test/search-index-corrupt-previous.test.js`, test-only).
+- #132 (2026-09-27) TOG-6722: invalid `maxCatalogAgeMs` fail-closed pin —
+  `-1`/`NaN`/`Infinity` budgets rejected with typed errors at all three
+  library entry points (`test/freshness-invalid-budget.test.js`, test-only).
 - #122 (2026-09-27) TOG-6369: serve `GET /favicon.ico` as 204 (ungated,
   rate-limit-exempt like `/healthz`; non-GET 405s with `Allow: GET`)
   (`web/server.js`, `test/favicon-route.test.js`,
@@ -270,6 +695,9 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   errors (`sendJson` for status >= 400, `sendMethodNotAllowed`, 429
   refusal); success JSON and HTML untouched (`web/server.js`,
   `test/json-error-no-store.test.js`).
+- #112 (2026-09-27) TOG-6897: conventional PR title/description lint — `pr-lint`
+  job on `ubuntu-latest` with no third-party actions and no checkout, plus
+  push-to-main coverage (`.github/workflows/pr-lint.yml`, CI-only).
 - #107 (2026-09-27) TOG-6370: `q` length cap (200, fail-closed 400 naming
   the bound) + form `maxlength` hint (`web/filter.js`,
   `web/listing-detail.js`, `test/listing-filter.test.js`,
@@ -281,6 +709,42 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
   `{error: "rate_limited", retryAfterSec}` body pinned (keys, types,
   header agreement) via stubbed-verdict + live-limiter tests
   (`test/rate-limit-body-contract.test.js`, test-only, no prod change).
+- #102 (2026-09-27) chore(deps): bump `actions/checkout` 4 → 7
+  (`.github/workflows/ci.yml`, CI-only, no prod change).
+- #106 (2026-09-27) TOG-6732: index page skip-link + `#main-content`
+  parity test vs detail page (`test/listing-index-skiplink.test.js`,
+  test-only, no prod change).
+- #104 (2026-09-27) TOG-5737: README accuracy audit — 13 claim-level
+  fixes vs merged behavior (`README.md`, docs-only, no prod change).
+- #101 (2026-09-27) TOG-5749: transport executable-URL rejection fuzz —
+  seeded (0x5749) malicious route/catalog shapes all rejected
+  (`test/transport-fuzz.test.js`, test-only, no prod change).
+- #99 (2026-09-27) TOG-4969: seller intake + confirm + receipt (S7) —
+  POST `/sellers/submissions` fail-closed validation, confirm screen
+  restating price/capabilities/verdict, intent-only receipt
+  (`web/seller.js`, `web/server.js`, `test/seller-confirm.test.js`,
+  `scripts/seller-acceptance.sh`, `docs/seller-onboarding-spec-v1.md`).
+- #94 (2026-09-27) TOG-6336: large-catalog stress fixture (seeded
+  2000-route synthetic catalog) + refresh benchmark budget CLI
+  (`scripts/generate-large-catalog.mjs`, `bin/benchmark-large-catalog`,
+  `fixtures/catalog.large-synthetic.json`,
+  `test/large-catalog-benchmark.test.js`,
+  `docs/large-catalog-benchmark.md`, `package.json`).
+- #91 (2026-09-27) TOG-6379: concurrent-request test — shared limiter
+  budget, per-response nonce uniqueness, route isolation
+  (`test/concurrent-requests.test.js`, test-only, no prod change).
+- #89 (2026-09-27) TOG-5754: diff-report readability — gap-delta line
+  and empty-diff wording in `formatDiffReport` plus regenerated golden
+  samples (`src/catalogDiff.js`, `test/snapshot.test.js`,
+  `snapshots/diff-report-consecutive-green.md`,
+  `snapshots/sample-diff-with-changes.md`).
+- #86 (2026-09-27) TOG-6039: README docs index linking every `docs/`
+  acceptance spec (`README.md`, docs-only, no prod change).
+- #55 (2026-09-27) TOG-5857: S1 typed-requirement flags on
+  select/explain (R1, R2) — modalities, context/output bounds,
+  tool/structured/reasoning requirements, fail-closed file requirements
+  (`bin/wayselect`, `docs/cli.md`, `src/eligibility.js`, `src/index.js`,
+  `test/cli.test.js`, `test/ranking.test.js`).
 - #100 (2026-09-27) TOG-6386: automated dep-update PRs via Dependabot
   (monthly npm + github-actions, free tier, no auto-merge) + Automation
   section in policy doc (`.github/dependabot.yml`,

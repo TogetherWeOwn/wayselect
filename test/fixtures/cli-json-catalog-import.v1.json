@@ -1,0 +1,19 @@
+{
+  "command": "catalog import",
+  "schemaVersion": "v1",
+  "dryRun": true,
+  "networkUsed": false,
+  "source": "https://models.dev/api.json",
+  "snapshotTimestamp": "2026-09-24T10:00:00.000Z",
+  "snapshotHash": "sha256:29c1986a3039ed49dae8a62c95aa77db37598e4f5ca5cea0490300c0d2eef6f3",
+  "rawHash": "sha256:e8ea768e131c7464a6e3ce5139af9849f2f204082adf5fdf289ecf8cd59dd88e",
+  "providerCount": 1,
+  "entryCount": 1,
+  "quarantined": [
+    {
+      "routeId": "acme/mystery",
+      "reason": "provider acme model mystery contains unknown field: frobnicate"
+    }
+  ],
+  "outPath": null
+}

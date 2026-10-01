@@ -150,6 +150,61 @@ test("TOG-6730: corrupt previous never poisons the fixture rebuild", async () =>
   assert.match(rebuilt.contentHash, /^sha256:[a-f0-9]{64}$/);
 });
 
+test("CLI rejects --check with --previous regardless of file contents or flag order", async () => {
+  const base = await fs.mkdtemp(
+    join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? tmpdir(), "wayselect-check-previous-"),
+  );
+  try {
+    const { catalog, provenance } = await fixtureParts();
+    const valid = join(base, "valid.json");
+    const corrupt = join(base, "corrupt.json");
+    await fs.writeFile(valid, JSON.stringify(buildSearchIndex(catalog, provenance, refreshOptions())));
+    await fs.writeFile(corrupt, "not json {{{");
+    const outDir = join(base, "out");
+    for (const previous of [valid, corrupt, join(base, "missing.json"), ""]) {
+      for (const flags of [
+        ["--check", "--previous", previous],
+        ["--previous", previous, "--check"],
+      ]) {
+        const result = await runRefresh([
+          "bin/wayselect-search-index-refresh",
+          ...flags,
+          "--out",
+          outDir,
+          "--max-catalog-age-hours",
+          "24",
+        ]);
+        assert.equal(result.code, 1, JSON.stringify(flags));
+        assert.equal(result.stdout, "");
+        assert.equal(
+          result.stderr,
+          "Error: --previous cannot be used with --check; omit --check to compare a previous index\n",
+        );
+        assert.equal(await pathExists(outDir), false);
+      }
+    }
+  } finally {
+    await fs.rm(base, { recursive: true, force: true });
+  }
+});
+
+test("CLI rejects --check with --previous before loading the catalog", async () => {
+  const result = await runRefresh([
+    "bin/wayselect-search-index-refresh",
+    "--check",
+    "--previous",
+    "missing-previous.json",
+    "--catalog",
+    "missing-catalog.json",
+  ]);
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(
+    result.stderr,
+    "Error: --previous cannot be used with --check; omit --check to compare a previous index\n",
+  );
+});
+
 test("TOG-6730: CLI fails closed on non-JSON --previous bytes", async () => {
   const base = await fs.mkdtemp(join(tmpdir(), "wayselect-corrupt-index-"));
   try {

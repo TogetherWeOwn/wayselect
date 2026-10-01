@@ -27,6 +27,16 @@ const RUN_TO_GATE = {
   "npm test": ['"npm", ["test"'],
   "npm run smoke": ['"npm", ["run", "smoke"'],
   "npm run check:search-index": ["check:search-index"],
+  // TOG-7281: warn-only bench measurement maps to the P9 gate. Both
+  // steps keep `- run:` leading (key order is irrelevant to YAML) so the
+  // extractor below sees them. The artifact upload is a `uses:` step the
+  // extractor skips — the bench-job shape test below pins it instead.
+  "node bin/benchmark-large-catalog | tee /large-catalog-timings.json": [
+    "bin/benchmark-large-catalog",
+  ],
+  'echo "::warning::large-catalog benchmark over budget (warn-only; budgets enforced by test/large-catalog-benchmark.test.js)"': [
+    "::warning::",
+  ],
   "node bin/check-no-todo-markers": ["bin/check-no-todo-markers"],
   "node scripts/e2e-staging-acceptance.mjs --out /e2e-evidence.json": [
     "scripts/e2e-staging-acceptance.mjs",
@@ -131,18 +141,54 @@ test("acceptance workflow local steps are mirrored or explicitly excluded", () =
   assert.ok(gate.includes("acceptance.sh"), "gate must document the clone-mode exclusion");
 });
 
-test("docs pin the 8-gate contract", () => {
+test("docs pin the 9-gate contract", () => {
   const doc = read("docs/pre-push-check.md");
-  assert.ok(doc.includes("8 pass, 0 fail"), "doc must state the 8-gate summary");
-  for (const step of ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"]) {
+  assert.ok(doc.includes("9 pass, 0 fail"), "doc must state the 9-gate summary");
+  for (const step of ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"]) {
     assert.ok(doc.includes(step), `doc must describe gate ${step}`);
   }
   assert.ok(
-    read("CONTRIBUTING.md").includes("8 pass, 0 fail"),
-    "CONTRIBUTING must state the 8-gate summary",
+    read("CONTRIBUTING.md").includes("9 pass, 0 fail"),
+    "CONTRIBUTING must state the 9-gate summary",
   );
   assert.ok(
-    read(".github/pull_request_template.md").includes("8 pass, 0 fail"),
-    "PR template must state the 8-gate summary",
+    read(".github/pull_request_template.md").includes("9 pass, 0 fail"),
+    "PR template must state the 9-gate summary",
   );
+});
+
+test("P9 mirrors the warn-only bench CI job", () => {
+  const gate = read("bin/pre-push-check");
+  assert.ok(gate.includes("bin/benchmark-large-catalog"), "P9 must run the bench");
+  assert.ok(
+    gate.includes("::warning::"),
+    "P9 must emit the same warn-only annotation CI emits",
+  );
+});
+
+test("bench CI job stays warn-only with a timings artifact (TOG-7281)", () => {
+  const ci = read(".github/workflows/ci.yml");
+  assert.ok(ci.includes("large-catalog-bench"), "bench job must exist");
+  assert.ok(ci.includes("continue-on-error: true"), "bench run must not red the job");
+  assert.ok(
+    ci.includes("actions/upload-artifact@v4"),
+    "bench job must upload the timings artifact",
+  );
+  assert.ok(
+    ci.includes("large-catalog-timings"),
+    "artifact must carry the timings name",
+  );
+  assert.ok(ci.includes("if: always()"), "artifact upload must run on bench failure too");
+  assert.ok(
+    ci.includes("if-no-files-found: warn"),
+    "missing timings must warn, never fail the job",
+  );
+  // Pipefail: `bench | tee` must propagate a bench exit 1, else the
+  // warning step never fires. `shell: bash` runs `bash -eo pipefail`;
+  // the default `bash -e` would report tee's exit 0.
+  const benchBlock = ci.slice(
+    ci.indexOf("  large-catalog-bench:"),
+    ci.indexOf("  marker-gate:"),
+  );
+  assert.ok(benchBlock.includes("shell: bash"), "bench step needs pipefail shell");
 });
