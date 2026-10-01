@@ -1,0 +1,11 @@
+# Keep the runtime image to app code + production deps (TOG-5738).
+.git
+.github
+node_modules
+coverage
+*.log
+.paperclip-runtime/
+.claude/
+*.png
+evals/
+snapshots/

@@ -34,7 +34,7 @@ function tieCandidate(routeId) {
     configuredOperations: ["chat"],
     capabilities: {},
     rates: { inputPerMillion: 1, outputPerMillion: 2 },
-    evidence: { observedAt: "2026-09-26T15:00:00.000Z" },
+    evidence: { observedAt: new Date(evaluationOptions.now.getTime() - 60 * 60 * 1000).toISOString() },
   };
 }
 

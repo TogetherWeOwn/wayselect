@@ -1,0 +1,344 @@
+#!/usr/bin/env node
+
+// Executable acceptance script for the Wayselect buyer trust-signals slice
+// (TOG-8061; spec docs/wayselect-buyer-trust-signals.md).
+//
+// §4 baseline regression (runnable before the slice): B1–B3. The B4
+// slice-absent marker retired when the slice landed — §5 probes R2/G1/D1
+// now assert the sections are present instead.
+// §5 forward contract: R1–R4 (ratings), G1–G2 (guarantee), D1–D10
+// (disputes stub). §5 probes report SKIP (trust slice not present) until
+// the slice lands, then must report zero skips.
+// §6 N1 no-payout guard is probed; N2 (the web/seller/buyer regression
+// trio) stays a separate QA step per the spec's end-to-end.
+//
+// Usage: node bin/accept-wayselect-trust   (or: npm run accept:trust)
+// Zero dependencies: Node standard library only. Starts the real server from
+// web/server.js on ephemeral ports, probes it, exits 0 when there are zero
+// failures (skips allowed), 1 otherwise. Budget: under 15 minutes.
+
+import { createApp } from "../web/server.js";
+
+const BUDGET_MS = 15 * 60 * 1000;
+const startedAt = Date.now();
+const results = [];
+
+function record(status, id, label, detail = "") {
+  results.push({ status, id, label, detail });
+  const suffix = detail ? ` — ${detail}` : "";
+  process.stdout.write(`${status.toUpperCase()} ${id} — ${label}${suffix}\n`);
+}
+
+function check(cond, id, label, detail = "") {
+  record(cond ? "pass" : "fail", id, label, cond ? "" : detail);
+  return cond;
+}
+
+function skip(id, label, reason) {
+  record("skip", id, label, reason);
+}
+
+async function listen(env) {
+  const server = createApp(env);
+  await new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+function baseOf(server) {
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function close(server) {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+async function request(base, path, options) {
+  const res = await fetch(`${base}${path}`, options);
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status: res.status, text, json };
+}
+
+function jsonRequest(base, path, method, body) {
+  return request(base, path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+const TRUST_SKIP = "trust slice not present";
+const VALID_REASONS = ["not_as_described", "never_delivered", "billing_issue", "other"];
+
+const on = await listen({ WAYSELECT_PREVIEW: "1" });
+const off = await listen({});
+const baseOn = baseOf(on);
+const baseOff = baseOf(off);
+
+try {
+  // ---- §4 baseline regression (runnable before the slice) ----
+  const index = await request(baseOn, "/listings");
+  check(index.status === 200, "B1", "index returns 200", `got ${index.status}`);
+  const alphaPos = index.text.indexOf("Alpha Chat");
+  const imagePos = index.text.indexOf("Image Lite");
+  const unknownPos = index.text.indexOf("Unknown Tools");
+  check(
+    alphaPos !== -1 && imagePos !== -1 && unknownPos !== -1 &&
+      alphaPos < imagePos && imagePos < unknownPos,
+    "B1b",
+    "index preserves stub order (trust lines never re-rank)",
+    `got ${index.status}`,
+  );
+  check(
+    index.text.includes("badge-granted") &&
+      index.text.includes("badge-blocked") &&
+      index.text.includes("badge-unknown"),
+    "B1c",
+    "eligibility badges intact beside the rating lines",
+  );
+  const alpha = await request(baseOn, "/listings/northstar/alpha-chat");
+  check(
+    alpha.status === 200 &&
+      alpha.text.includes("<h1>Alpha Chat</h1>") &&
+      alpha.text.includes('aria-label="Eligibility"'),
+    "B2",
+    "detail keeps F1–F9 fields, eligibility section, disabled CTA",
+    `got ${alpha.status}`,
+  );
+  const purchase = await jsonRequest(baseOn, "/listings/northstar/alpha-chat/purchase", "POST", {});
+  check(
+    purchase.status === 403 && purchase.json?.error === "preview_only",
+    "B3",
+    "purchase still 403 preview_only — trust copy never arms a charge",
+    `got ${purchase.status}`,
+  );
+
+  // ---- §5 forward contract (skip until the slice lands) ----
+  const trustPresent = index.text.includes("★ 4.6 · 128 sales");
+  const forwardProbes = [
+    ["R1", "index rating lines per §3 (rated + unrated)"],
+    ["R2", "detail T2 seller-rating sections verbatim per §2"],
+    ["R3", "rating + eligibility consistency (numbers match, badges unchanged)"],
+    ["R4", "rating lines survive filtering unchanged"],
+    ["G1", "detail T3 purchase-guarantee section verbatim"],
+    ["G2", "guarantee present AND purchase still disabled 403"],
+    ["D1", "detail T4 report-a-problem section + stub entry"],
+    ["D2", "GET disputes on a fresh listing is an empty log"],
+    ["D3", "POST disputes files dispute-1 open"],
+    ["D4", "GET disputes after filing contains dispute-1 open"],
+    ["D5", "bad dispute shapes fail closed with invalid_dispute"],
+    ["D6", "disputes on an unknown listing 404"],
+    ["D7", "malformed JSON / wrong Content-Type fail closed"],
+    ["D8", "evil buyer input accepted as safely-encoded data"],
+    ["D9", "flag off gates every disputes route"],
+    ["D10", "purchase still 403 after filing a report"],
+    ["N1", "no payout surface on detail pages"],
+  ];
+  if (!trustPresent) {
+    for (const [id, label] of forwardProbes) {
+      skip(id, label, TRUST_SKIP);
+    }
+  } else {
+    check(
+      index.text.includes("★ 4.6 · 128 sales") &&
+        index.text.includes("★ 3.9 · 17 sales") &&
+        index.text.includes("No ratings yet"),
+      "R1",
+      "index rating lines per §3 (rated + unrated)",
+    );
+    const image = await request(baseOn, "/listings/northstar/image-lite");
+    const unknown = await request(baseOn, "/listings/northstar/unknown-tools");
+    const ratedBody = "★ 4.6 from 128 stub sales. Stub ratings: synthetic sales history for preview only. Not real buyers.";
+    const unratedBody = "No ratings yet. This listing has no stub sales history — nothing is hidden, there is just nothing to show.";
+    check(
+      alpha.text.includes('aria-label="Seller rating"') &&
+        alpha.text.includes(ratedBody) &&
+        image.text.includes("★ 3.9 from 17 stub sales.") &&
+        unknown.text.includes(unratedBody),
+      "R2",
+      "detail T2 seller-rating sections verbatim per §2",
+    );
+    check(
+      index.text.includes("★ 4.6 · 128 sales") && alpha.text.includes(ratedBody) &&
+        alpha.text.includes("badge-granted") && image.text.includes("badge-blocked") &&
+        unknown.text.includes("badge-unknown"),
+      "R3",
+      "rating + eligibility consistency (numbers match, badges unchanged)",
+    );
+    const filtered = await request(baseOn, "/listings?q=alpha");
+    check(
+      filtered.status === 200 &&
+        filtered.text.includes("★ 4.6 · 128 sales") &&
+        !filtered.text.includes("Image Lite"),
+      "R4",
+      "rating lines survive filtering unchanged",
+      `got ${filtered.status}`,
+    );
+    const guaranteeBody = "Preview build: purchases are disabled, so you can never be charged here. When buying opens, every purchase is covered — if a listing is materially not as described, report it and get a full refund.";
+    check(
+      alpha.text.includes('aria-label="Purchase guarantee"') &&
+        alpha.text.includes(guaranteeBody) &&
+        image.text.includes(guaranteeBody) &&
+        unknown.text.includes(guaranteeBody),
+      "G1",
+      "detail T3 purchase-guarantee section verbatim on every listing",
+    );
+    check(
+      alpha.text.includes('aria-label="Purchase guarantee"') &&
+        alpha.text.includes("disabled") &&
+        purchase.status === 403 && purchase.json?.error === "preview_only",
+      "G2",
+      "guarantee present AND purchase still disabled 403",
+    );
+    const reportBody = "Something wrong with this listing? File a stub report — nothing leaves this preview, and filing never charges or refunds anything.";
+    const disputesPath = "/listings/northstar/alpha-chat/disputes";
+    check(
+      alpha.text.includes('aria-label="Report a problem"') &&
+        alpha.text.includes(reportBody) &&
+        alpha.text.includes("Report a problem (stub)") &&
+        alpha.text.includes(`href="${disputesPath}"`),
+      "D1",
+      "detail T4 report-a-problem section + stub entry targeting the §6 route",
+    );
+    const fresh = await request(baseOn, disputesPath);
+    check(
+      fresh.status === 200 &&
+        fresh.json?.listing === "northstar/alpha-chat" &&
+        Array.isArray(fresh.json?.disputes) && fresh.json.disputes.length === 0,
+      "D2",
+      "GET disputes on a fresh listing is an empty log",
+      `got ${fresh.status}`,
+    );
+    const filed = await jsonRequest(baseOn, disputesPath, "POST", {
+      buyer: "mia",
+      reason: "not_as_described",
+    });
+    check(
+      filed.status === 201 &&
+        filed.json?.id === "dispute-1" &&
+        filed.json?.listing === "northstar/alpha-chat" &&
+        filed.json?.buyer === "mia" &&
+        filed.json?.reason === "not_as_described" &&
+        filed.json?.status === "open",
+      "D3",
+      "POST disputes files dispute-1 open",
+      `got ${filed.status}`,
+    );
+    const after = await request(baseOn, disputesPath);
+    check(
+      after.status === 200 &&
+        (after.json?.disputes ?? []).some(
+          (entry) => entry.id === "dispute-1" && entry.status === "open",
+        ),
+      "D4",
+      "GET disputes after filing contains dispute-1 open",
+      `got ${after.status}`,
+    );
+    const badShapes = await Promise.all([
+      jsonRequest(baseOn, disputesPath, "POST", { reason: "not_as_described" }),
+      jsonRequest(baseOn, disputesPath, "POST", { buyer: "   ", reason: "not_as_described" }),
+      jsonRequest(baseOn, disputesPath, "POST", { buyer: "x".repeat(121), reason: "not_as_described" }),
+      jsonRequest(baseOn, disputesPath, "POST", { buyer: "mia", reason: "nope" }),
+      jsonRequest(baseOn, disputesPath, "POST", { buyer: "mia", reason: "other", evil: true }),
+    ]);
+    check(
+      badShapes.every(
+        (res) =>
+          res.status === 400 && res.json?.error === "invalid_dispute" &&
+          VALID_REASONS.every((reason) => (res.json?.validReasons ?? []).includes(reason)),
+      ),
+      "D5",
+      "bad dispute shapes fail closed with invalid_dispute naming valid reasons",
+      `got ${badShapes.map((res) => res.status).join("/")}`,
+    );
+    const nope = await jsonRequest(baseOn, "/listings/northstar/nope/disputes", "POST", {
+      buyer: "mia",
+      reason: "other",
+    });
+    check(
+      nope.status === 404 && nope.json?.error === "not_found",
+      "D6",
+      "disputes on an unknown listing 404",
+      `got ${nope.status}`,
+    );
+    const malformed = await request(baseOn, disputesPath, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not-json",
+    });
+    const wrongType = await request(baseOn, disputesPath, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ buyer: "mia", reason: "other" }),
+    });
+    check(
+      malformed.status === 400 && malformed.json?.error === "invalid_dispute" &&
+        wrongType.status === 400 && wrongType.json?.error === "invalid_dispute",
+      "D7",
+      "malformed JSON / wrong Content-Type fail closed",
+      `got ${malformed.status}/${wrongType.status}`,
+    );
+    const evil = await jsonRequest(baseOn, disputesPath, "POST", {
+      buyer: "<script>alert(1)</script>",
+      reason: "other",
+    });
+    check(
+      evil.status === 201 && evil.json?.buyer === "<script>alert(1)</script>",
+      "D8",
+      "evil buyer input accepted as safely-encoded data",
+      `got ${evil.status}`,
+    );
+    const offGet = await request(baseOff, disputesPath);
+    const offPost = await jsonRequest(baseOff, disputesPath, "POST", {
+      buyer: "mia",
+      reason: "other",
+    });
+    check(
+      offGet.status === 404 && (offGet.json?.error ?? "").includes("preview") &&
+        offPost.status === 404 && (offPost.json?.error ?? "").includes("preview"),
+      "D9",
+      "flag off gates every disputes route",
+      `got ${offGet.status}/${offPost.status}`,
+    );
+    const purchaseAfter = await jsonRequest(
+      baseOn, "/listings/northstar/alpha-chat/purchase", "POST", {},
+    );
+    check(
+      purchaseAfter.status === 403 && purchaseAfter.json?.error === "preview_only",
+      "D10",
+      "purchase still 403 after filing a report",
+      `got ${purchaseAfter.status}`,
+    );
+    check(
+      [alpha.text, image.text, unknown.text].every(
+        (html) => !html.toLowerCase().includes("payout"),
+      ),
+      "N1",
+      "no payout surface on detail pages",
+    );
+  }
+} finally {
+  await Promise.all([close(on), close(off)]);
+}
+
+const elapsedMs = Date.now() - startedAt;
+const elapsedS = (elapsedMs / 1000).toFixed(1);
+const pass = results.filter((r) => r.status === "pass").length;
+const fail = results.filter((r) => r.status === "fail").length;
+const skipped = results.filter((r) => r.status === "skip").length;
+const overBudget = elapsedMs > BUDGET_MS;
+process.stdout.write(
+  `SUMMARY: ${pass} pass, ${fail} fail, ${skipped} skip — ${elapsedS}s (budget 15m)\n`,
+);
+if (overBudget) {
+  process.stdout.write("FAIL BUDGET — run exceeded the 15-minute budget\n");
+}
+process.exitCode = fail === 0 && !overBudget ? 0 : 1;

@@ -158,6 +158,39 @@ test("a partial limit maps each present side and leaves the rest absent", () => 
   assert.deepEqual(entry.limits, { contextWindow: 16000, maxOutputTokens: null });
 });
 
+test("quarantines models with unknown limit subfields", () => {
+  const input = authoredInput();
+  input.acme.models.extra = {
+    id: "extra",
+    name: "Extra",
+    modalities: { input: ["text"], output: ["text"] },
+    limit: { context: 8000, bogus: 1 },
+  };
+
+  const result = ingestModelsDev(input, {
+    source: SOURCE,
+    snapshotTimestamp: SNAPSHOT_TIMESTAMP,
+  });
+
+  // The unknown `limit` subfield quarantines the model instead of being
+  // silently dropped; known entries (incl. limit mapping) are unaffected.
+  assert.deepEqual(Object.keys(result.catalog.acme.models).sort(), [
+    "chat-one",
+    "vision-one",
+  ]);
+  const reasons = new Map(
+    result.quarantined.map((entry) => [entry.routeId, entry.reason]),
+  );
+  assert.match(
+    reasons.get("acme/extra"),
+    /limit contains unknown field: bogus/,
+  );
+  assert.equal(
+    result.catalog.acme.models["chat-one"].context_window,
+    8000,
+  );
+});
+
 test("computes provenance defaults and validates provenance input", () => {
   const input = authoredInput();
 

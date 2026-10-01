@@ -52,7 +52,8 @@ describe("filter form label association (TOG-6038)", () => {
   it("gives every input an id with a matching label for", () => {
     const form = filterForm(renderListingIndex(STUB_LISTINGS, undefined, emptyFilters()));
     const inputs = inputTags(form);
-    strictEqual(inputs.length, 1 + VALID_CAPABILITIES.length + VALID_MODALITIES.length);
+    // q + limit + offset text/number inputs (TOG-6733) plus facet checkboxes.
+    strictEqual(inputs.length, 3 + VALID_CAPABILITIES.length + VALID_MODALITIES.length);
     const labels = labelEntries(form);
     const seen = new Set();
     for (const tag of inputs) {
@@ -103,7 +104,7 @@ describe("filter form label association (TOG-6038)", () => {
 
   it("keeps the filter form labelled on the empty-result page", () => {
     const form = filterForm(renderListingIndex([], undefined, emptyFilters()));
-    strictEqual(inputTags(form).length, 1 + VALID_CAPABILITIES.length + VALID_MODALITIES.length);
+    strictEqual(inputTags(form).length, 3 + VALID_CAPABILITIES.length + VALID_MODALITIES.length);
     for (const tag of inputTags(form)) {
       const id = attr(tag, "id");
       ok(id && form.includes(`for="${id}"`), `label for="${id}" on empty page`);
@@ -115,13 +116,16 @@ describe("filter form keyboard operability (TOG-6038)", () => {
   it("uses only natively keyboard-operable controls with no tab-order overrides", () => {
     const form = filterForm(renderListingIndex(STUB_LISTINGS, undefined, emptyFilters()));
     const controls = [...form.matchAll(/<(input|button|select|textarea|a)\b/g)].map((m) => m[1]);
-    // 10 inputs + Apply submit button + Clear filters link.
-    strictEqual(controls.length, 12, `all controls native, got: ${controls.join(",")}`);
+    // 12 inputs (q + limit + offset (TOG-6733) + facets) + sort select +
+    // Apply submit button + Clear filters link.
+    // (TOG-6362: the sort dropdown is a native <select>, keyboard-operable
+    // with no tab-order overrides.)
+    strictEqual(controls.length, 15, `all controls native, got: ${controls.join(",")}`);
     ok(!form.includes("tabindex"), "no tab-order overrides");
     ok(!form.includes("disabled"), "no disabled controls");
     ok(!form.includes('role="button"'), "no div/span pseudo-buttons");
     ok(form.includes('<button type="submit">Apply filters</button>'), "named submit");
-    ok(form.includes('<a href="/listings">Clear filters</a>'), "named clear link");
+    ok(form.includes('<a href="/listings#results">Clear filters</a>'), "named clear link");
   });
 
   it("groups controls under named legends with an accessible form name", () => {
@@ -130,12 +134,18 @@ describe("filter form keyboard operability (TOG-6038)", () => {
     ok(form.includes('aria-label="Filter listings"'), "accessible form name");
     ok(form.includes("<legend>Capabilities</legend>"), "capabilities group name");
     ok(form.includes("<legend>Modalities</legend>"), "modalities group name");
+    // TOG-6362: the sort dropdown has an explicit label association and
+    // reflects the active sort.
+    ok(form.includes('<label for="filter-sort">'), "sort label associated");
+    ok(form.includes('id="filter-sort" name="sort"'), "sort control identity");
+    ok(form.includes('<option value="default" selected>'), "default sort selected");
   });
 
   it("covers filter controls with visible focus styles", () => {
     const html = renderListingIndex(STUB_LISTINGS, undefined, emptyFilters());
     ok(html.includes("input:focus-visible"), "focus ring on inputs");
     ok(html.includes("button:focus-visible"), "focus ring on submit");
+    ok(html.includes("select:focus-visible"), "focus ring on sort select (TOG-6362)");
     ok(html.includes("(forced-colors: active)"), "high-contrast fallback kept");
   });
 });

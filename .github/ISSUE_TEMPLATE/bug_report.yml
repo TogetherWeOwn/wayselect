@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in Wayselect behaves differently than the docs or tests say it should.
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Wayselect is fixture-only and dry-run only: bugs reproduce offline against a local checkout, never against a live service. Security vulnerabilities go through private reporting ([SECURITY.md](https://github.com/TogetherWeOwn/wayselect/blob/main/SECURITY.md)) instead — do not file them here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+      placeholder: "Selecting from the checked-in fixture returns `no-route`, but the fixture has an eligible candidate…"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce (offline)
+      description: Exact command, fixture input, and `main` commit SHA. Prefer the smallest fixture that still shows the bug.
+      placeholder: |
+        main @ <sha>
+        node bin/wayselect select --input fixtures/<name>.json
+        Expected: … / Got: …
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: "OS, Node version (`node --version`, 20+ required), and anything else relevant."
+      placeholder: "macOS 15, node v20.19.0"
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Logs, reason codes, screenshots, or links to related issues.
+    validations:
+      required: false

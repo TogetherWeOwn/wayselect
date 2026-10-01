@@ -64,7 +64,7 @@ populated vs empty is the `options: [...]` vs `options: []` JSON shape.
 | Index banner | `Preview build: stub data only.` (`web/listing-detail.js`) |
 | Detail banner | `Preview build: stub data only. No purchase is processed.` |
 | Preview unavailable (flag off) | H1 `Preview unavailable` + `This page is behind the WAYSELECT_PREVIEW flag, which is currently off.` |
-| Listing not found | H1 `Listing not found` + `No stub listing matches <p/m>.` + `Back to listings` → `/listings` |
+| Listing not found | H1 `Listing not found` + `No stub listing matches <p/m>.` + search hint (`searching the listings` → `/listings?q=<model>`) + `Back to listings` → `/listings` |
 | Filters match nothing (next slice, S8) | `No listings match these filters.` + `Clear filters` link → `/listings` |
 | Eligibility granted | Badge `Granted` + `Eligible for the preview capability check (operation chat, required capabilities toolUse, providers northstar, orbit).` (`web/eligibility.js`) |
 | Eligibility blocked | Badge `Blocked` + `Not eligible for the preview capability check (…).` |

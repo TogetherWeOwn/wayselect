@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
+import { writeFileAtomic } from "../src/atomicWrite.js";
 import { buildSnapshot } from "../src/snapshot.js";
 import { diffSnapshots, formatDiffReport } from "../src/catalogDiff.js";
 import {
@@ -25,10 +26,15 @@ function parseArguments(argv) {
     now: null,
     maxCatalogAgeHours: null,
     failOnGaps: false,
+    help: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
+    if (flag === "--help" || flag === "-h") {
+      values.help = true;
+      continue;
+    }
     if (flag === "--fail-on-gaps") {
       values.failOnGaps = true;
       continue;
@@ -62,8 +68,20 @@ function compactTimestamp(iso) {
   return iso.replace(/[-:.]/g, "");
 }
 
+function usage() {
+  return (
+    "Usage: node bin/wayselect-snapshot [--catalog <path>] [--out <dir>]\n" +
+    "    [--previous <snapshot>] [--report <path>] [--now <ISO>]\n" +
+    "    [--max-catalog-age-hours <n>] [--fail-on-gaps]\n"
+  );
+}
+
 async function main() {
   const args = parseArguments(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(usage());
+    return;
+  }
 
   let maxCatalogAgeMs;
   if (args.maxCatalogAgeHours !== null) {
@@ -92,7 +110,7 @@ async function main() {
   const shortHash = snapshot.contentHash.slice("sha256:".length, "sha256:".length + 8);
   const snapshotName = `snapshot-${compactTimestamp(snapshot.collectedAt)}-${shortHash}.json`;
   const snapshotPath = join(resolve(args.out), snapshotName);
-  await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+  await writeFileAtomic(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
 
   let diff = null;
   let reportPath = null;
@@ -104,7 +122,7 @@ async function main() {
     reportPath = args.report
       ? resolve(args.report)
       : join(resolve(args.out), `diff-report-${previousShort}-vs-${shortHash}.md`);
-    await writeFile(reportPath, report);
+    await writeFileAtomic(reportPath, report);
   }
 
   if (args.failOnGaps && snapshot.gaps.length > 0) {

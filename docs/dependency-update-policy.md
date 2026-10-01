@@ -44,6 +44,16 @@ Fail closed, consistent with the eligibility rules in `src/eligibility.js`:
 3. If no: record the no-op assessment on the tracking card; no churn PRs.
 4. Never bypass red CI or merge with known-exploited versions in the tree.
 
+## Automation (TOG-6386)
+
+`.github/dependabot.yml` opens the monthly update PRs behind this policy —
+npm (minor+patch grouped, majors separate) plus GitHub Actions, free tier.
+Dependabot never merges: every PR lands via human review as a
+policy-conformant PR (exact npm pins + lockfile; action refs converted to
+`@<sha> # <tag>` SHA-pin form before merge — never merge a floating tag).
+Dependabot cannot schedule day-of-month, so the "first week" review stays a
+human step on the tracking card.
+
 ## First policy-conformant update (TOG-5057, 2026-09-26)
 
 - Pinned `ajv` at `8.20.0`, `ajv-formats` at `3.0.1`, and `escape-html` at

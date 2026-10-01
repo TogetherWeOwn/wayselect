@@ -88,10 +88,43 @@ describe("listing a11y shell (TOG-5717)", () => {
 
   it("announces index result counts in a labelled results section", () => {
     const one = renderListingIndex([getStubListing("northstar", "alpha-chat")]);
-    ok(one.includes('aria-label="Results"'), "results landmark");
+    // TOG-6392: the results section is a labelledby section with a visible
+    // h2 heading (accessible name stays "Results") — the audited hierarchy.
+    ok(one.includes('aria-labelledby="results-heading"'), "results landmark");
+    ok(one.includes('<h2 id="results-heading">Results</h2>'), "visible results heading");
     ok(one.includes("1 listing found."), "singular count announced");
     const empty = renderListingIndex([]);
     ok(empty.includes('role="status"'), "empty state announced");
     ok(empty.includes("No listings match these filters."), "empty copy kept");
+  });
+
+  it("marks the index result count as a polite live region that updates on filter change", () => {
+    // TOG-6051 (Gap A1, part 2): the result-count paragraph carries an
+    // explicit aria-live="polite" so the announcement fires when the filter
+    // form re-renders the index — role="status" alone only implies it.
+    const renders = [
+      renderListingIndex([getStubListing("northstar", "alpha-chat")]),
+      renderListingIndex([]),
+      // Over-offset empty page: same live region, distinct copy.
+      renderListingIndex([], undefined, undefined, { total: 3, limit: 5, offset: 10 }),
+    ];
+    const announcements = [];
+    for (const html of renders) {
+      const live = [...html.matchAll(/<p role="status" aria-live="polite">([^<]*)<\/p>/g)].map(
+        (match) => match[1],
+      );
+      ok(live.length === 1, `exactly one polite live region, got ${live.length}`);
+      announcements.push(live[0]);
+    }
+    ok(announcements[0].includes("1 listing found."), "populated count announced");
+    ok(
+      announcements[1].includes("No listings match these filters."),
+      "filter-miss count announced",
+    );
+    ok(announcements[2].includes("No listings on this page."), "empty-page count announced");
+    ok(
+      new Set(announcements).size === announcements.length,
+      "announcement text changes between filter states",
+    );
   });
 });

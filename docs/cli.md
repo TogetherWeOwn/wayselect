@@ -14,7 +14,7 @@ output deterministic. Ranking ties break by UTF-16 code-unit route-ID order
 
 ```sh
 node bin/wayselect select --operation chat --require toolUse \
-  --allow northstar,orbit --evaluation-time 2026-09-26T16:00:00.000Z
+  --allow northstar,orbit --evaluation-time 2026-09-30T12:28:11.003Z
 ```
 
 ```text
@@ -31,7 +31,7 @@ Ranked candidates (2 eligible, 4 excluded):
   5. northstar/unknown-tools — excluded (missing-capability:toolUse)
   6. orbit/retired-chat — excluded (support-state:unsupported, operation-not-configured)
 
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 ```
 
 `select` with no arguments reads the demo request file
@@ -45,13 +45,13 @@ node bin/wayselect select
 
 ```sh
 node bin/wayselect explain --operation chat --require toolUse \
-  --allow northstar,orbit --evaluation-time 2026-09-26T16:00:00.000Z
+  --allow northstar,orbit --evaluation-time 2026-09-30T12:28:11.003Z
 ```
 
 ```text
 dry-run explain — dry-run / synthetic estimate — no live model calls, credentials, or network use
 Request: operation=chat, require=[toolUse], allow=[northstar, orbit]
-Evaluation time: 2026-09-26T16:00:00.000Z, max evidence age: 72h
+Evaluation time: 2026-09-30T12:28:11.003Z, max evidence age: 72h
 
 northstar/alpha-chat: eligible (provider northstar, support configured, est. 3 / million tokens)
 orbit/orbit-chat: eligible (provider orbit, support conformance-tested, est. 3 / million tokens)
@@ -69,7 +69,7 @@ orbit/retired-chat: excluded (provider orbit, support unsupported, est. 0.2 / mi
   - operation-not-configured
 
 verdict: selected northstar/alpha-chat
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 ```
 
 ## `--json`: machine-readable output
@@ -78,12 +78,13 @@ Both subcommands accept `--json`. The shape is identical apart from `command`:
 
 ```sh
 node bin/wayselect select --operation chat --require toolUse \
-  --allow northstar,orbit --evaluation-time 2026-09-26T16:00:00.000Z --json
+  --allow northstar,orbit --evaluation-time 2026-09-30T12:28:11.003Z --json
 ```
 
 ```json
 {
   "command": "select",
+  "schemaVersion": "v1",
   "dryRun": true,
   "dryRunLabel": "dry-run / synthetic estimate — no live model calls, credentials, or network use",
   "status": "selected",
@@ -92,15 +93,17 @@ node bin/wayselect select --operation chat --require toolUse \
   "rateDisclaimer": "Synthetic/list-price estimates only; not actual cost or savings.",
   "provenance": {
     "source": "synthetic://wayselect/fixture-v1",
-    "snapshotTimestamp": "2026-09-26T14:00:00.000Z",
-    "snapshotHash": "sha256:4c3fc1cff7c83871b4f0600b0688cb87fe27cb82f6f42672460dd2dadb2a2e5d"
+    "snapshotTimestamp": "2026-09-30T10:28:11.003Z",
+    "snapshotHash": "sha256:4c3fc1cff7c83871b4f0600b0688cb87fe27cb82f6f42672460dd2dadb2a2e5d",
+    "fetchedAt": "2026-09-30T12:28:11.003Z"
   },
   "request": {
     "operation": "chat",
     "requiredCapabilities": ["toolUse"],
-    "providerAllowlist": ["northstar", "orbit"]
+    "providerAllowlist": ["northstar", "orbit"],
+    "requirements": {}
   },
-  "evaluationTime": "2026-09-26T16:00:00.000Z",
+  "evaluationTime": "2026-09-30T12:28:11.003Z",
   "maxEvidenceAgeHours": 72,
   "rankedCandidates": [
     {
@@ -112,12 +115,73 @@ node bin/wayselect select --operation chat --require toolUse \
       "eligible": true,
       "estimatedRatePerMillion": 3,
       "reasons": []
+    },
+    {
+      "rank": 2,
+      "routeId": "orbit/orbit-chat",
+      "providerId": "orbit",
+      "modelId": "orbit-chat",
+      "supportState": "conformance-tested",
+      "eligible": true,
+      "estimatedRatePerMillion": 3,
+      "reasons": []
+    },
+    {
+      "rank": 3,
+      "routeId": "legacy/old-chat",
+      "providerId": "legacy",
+      "modelId": "old-chat",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 2,
+      "reasons": ["provider-not-allowed", "stale-evidence"]
+    },
+    {
+      "rank": 4,
+      "routeId": "northstar/image-lite",
+      "providerId": "northstar",
+      "modelId": "image-lite",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 2,
+      "reasons": ["operation-not-catalogued", "operation-not-configured", "unsupported-capability:toolUse"]
+    },
+    {
+      "rank": 5,
+      "routeId": "northstar/unknown-tools",
+      "providerId": "northstar",
+      "modelId": "unknown-tools",
+      "supportState": "configured",
+      "eligible": false,
+      "estimatedRatePerMillion": 0.75,
+      "reasons": ["missing-capability:toolUse"]
+    },
+    {
+      "rank": 6,
+      "routeId": "orbit/retired-chat",
+      "providerId": "orbit",
+      "modelId": "retired-chat",
+      "supportState": "unsupported",
+      "eligible": false,
+      "estimatedRatePerMillion": 0.2,
+      "reasons": ["support-state:unsupported", "operation-not-configured"]
     }
   ]
 }
 ```
 
-(`rankedCandidates` lists all six routes; eligible candidates sort lowest synthetic rate first, then lexicographic route ID; excluded routes retain catalog order. `provenance.fetchedAt` is stamped at evaluation time — expect a live wall-clock value there.)
+`rankedCandidates` lists all six routes; eligible candidates sort lowest synthetic
+rate first, then lexicographic route ID; excluded routes retain catalog order.
+The example includes every v1 field. `provenance.fetchedAt` above is illustrative:
+it records the live wall clock when the catalog is loaded, even with a pinned
+`--evaluation-time`. `request.requirements` is `{}` when no typed requirements
+are supplied; typed flags populate it with the resolved requirement values.
+
+The verdict field is `status` (`selected` or `no-eligible-route`), not `code`.
+No eligible route exits **3**, sets `selectedRouteId` to `null`, and retains every
+candidate with its exclusion `reasons`. This is the established
+[v1 JSON contract](cli-json-contract.md); it does not add `selected`/`excluded`
+arrays or a `code` alias from the original acceptance-spec sketches.
 
 ## Requirements via flags or a request file
 
@@ -142,7 +206,7 @@ Requirements come from `--request` or from flags; flags override the file.
 ```sh
 # Fully from flags (no request file):
 node bin/wayselect select --operation chat --require toolUse \
-  --allow northstar,orbit --evaluation-time 2026-09-26T16:00:00.000Z
+  --allow northstar,orbit --evaluation-time 2026-09-30T12:28:11.003Z
 
 # Bare selection file plus an override:
 node bin/wayselect explain --request fixtures/request.synthetic.json \
@@ -175,7 +239,7 @@ explicit reason, never silently included (spec R2).
 # Fully-qualifying modalities pick the image route (exit 0):
 node bin/wayselect select --operation vision-chat --allow northstar \
   --input-modalities image --output-modalities text \
-  --evaluation-time 2026-09-26T16:00:00.000Z
+  --evaluation-time 2026-09-30T12:28:11.003Z
 ```
 
 ```text
@@ -192,7 +256,7 @@ Ranked candidates (1 eligible, 5 excluded):
   5. orbit/orbit-chat — excluded (provider-not-allowed, operation-not-catalogued, operation-not-configured, missing-modality:input:image)
   6. orbit/retired-chat — excluded (support-state:unsupported, provider-not-allowed, operation-not-catalogued, operation-not-configured, missing-modality:input:image)
 
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 ```
 
 Unknown limits fail closed: the pinned fixture carries no `context_window`
@@ -202,7 +266,7 @@ fields, so a `--min-context-window` threshold excludes every candidate with
 ```sh
 node bin/wayselect select --operation chat --require vision \
   --allow northstar,orbit --min-context-window 10000000 \
-  --evaluation-time 2026-09-26T16:00:00.000Z; echo "exit=$?"
+  --evaluation-time 2026-09-30T12:28:11.003Z; echo "exit=$?"
 ```
 
 ```text
@@ -219,7 +283,7 @@ Ranked candidates (0 eligible, 6 excluded):
   5. orbit/orbit-chat — excluded (missing-capability:vision, missing-capability:contextWindow)
   6. orbit/retired-chat — excluded (support-state:unsupported, operation-not-configured, missing-capability:vision, missing-capability:contextWindow)
 
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 exit=3
 ```
 
@@ -228,13 +292,13 @@ exit=3
 ```sh
 node bin/wayselect explain --operation chat --allow northstar,orbit \
   --require-tools --input-modalities text \
-  --evaluation-time 2026-09-26T16:00:00.000Z
+  --evaluation-time 2026-09-30T12:28:11.003Z
 ```
 
 ```text
 dry-run explain — dry-run / synthetic estimate — no live model calls, credentials, or network use
 Request: operation=chat, require=[], allow=[northstar, orbit], typed=[inputModalities=[text], toolCalling]
-Evaluation time: 2026-09-26T16:00:00.000Z, max evidence age: 72h
+Evaluation time: 2026-09-30T12:28:11.003Z, max evidence age: 72h
 
 northstar/alpha-chat: eligible (provider northstar, support configured, est. 3 / million tokens)
 orbit/orbit-chat: eligible (provider orbit, support conformance-tested, est. 3 / million tokens)
@@ -253,7 +317,7 @@ orbit/retired-chat: excluded (provider orbit, support unsupported, est. 0.2 / mi
   - operation-not-configured
 
 verdict: selected northstar/alpha-chat
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 ```
 
 A request file may carry the same constraints as a `requirements` object
@@ -313,7 +377,7 @@ No --out path given; catalog document not written.
 ```
 
 `--json` emits the machine-readable summary instead (`command`,
-`networkUsed`, `source`, `snapshotTimestamp`, `snapshotHash`, `rawHash`,
+`schemaVersion`, `networkUsed`, `source`, `snapshotTimestamp`, `snapshotHash`, `rawHash`,
 `providerCount`, `entryCount`, `quarantined` with per-entry reasons,
 `outPath`). `--out <path>` writes the catalog document; without it nothing is
 written. Failures render as `<Name>: <message>` on stderr with exit code 1
@@ -324,7 +388,7 @@ zero surviving entries). `catalog --help` prints the same usage.
 
 | Code | Meaning | Example |
 | --- | --- | --- |
-| 0 | a route was selected (or help/version shown) | `wayselect select --operation chat --require toolUse --allow northstar,orbit --evaluation-time 2026-09-26T16:00:00.000Z` |
+| 0 | a route was selected (or help/version shown) | `wayselect select --operation chat --require toolUse --allow northstar,orbit --evaluation-time 2026-09-30T12:28:11.003Z` |
 | 1 | invalid input: unreadable file, bad JSON, failed validation | `wayselect select --request fixtures/missing.json` |
 | 2 | usage error: unknown subcommand/flag, missing value | `wayselect frobnicate`; `wayselect select --nope` |
 | 3 | no eligible route — output is still printed | `wayselect select --operation chat --require vision --allow northstar` |
@@ -333,7 +397,7 @@ No-eligible-route example:
 
 ```sh
 node bin/wayselect select --operation chat --require vision --allow northstar \
-  --evaluation-time 2026-09-26T16:00:00.000Z; echo "exit=$?"
+  --evaluation-time 2026-09-30T12:28:11.003Z; echo "exit=$?"
 ```
 
 (Pin `--evaluation-time`: without it the CLI evaluates at the wall clock,
@@ -356,7 +420,7 @@ Ranked candidates (0 eligible, 6 excluded):
   5. orbit/orbit-chat — excluded (provider-not-allowed, missing-capability:vision)
   6. orbit/retired-chat — excluded (support-state:unsupported, provider-not-allowed, operation-not-configured, missing-capability:vision)
 
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 exit=3
 ```
 

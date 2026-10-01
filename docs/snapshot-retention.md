@@ -69,7 +69,9 @@ Success prints a JSON plan to stdout with empty stderr:
 
 Exit codes follow the repo convention: 0 when the plan ran, 1 on runtime
 failures (unreadable directory, failed deletion), 2 on usage errors
-(unknown flag, missing value, bad `--keep-last`/`--max-age-days`/`--now`).
+(unknown flag, missing value, bad `--keep-last`/`--max-age-days`/`--now`,
+or a `--dir` containing a `..` segment — traversal attempts are refused
+before any listing or deletion).
 
 ## Safety notes
 
