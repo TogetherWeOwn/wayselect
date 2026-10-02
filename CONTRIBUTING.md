@@ -51,6 +51,10 @@ Full CLI reference: `docs/cli.md`. Acceptance specs and contracts: `docs/`
   after each commit so work is never local-only.
 - **PR body:** what changed, how it was verified (commands + pass/fail
   counts), and `Closes TOG-<id>.` One PR per card — one reviewable slice.
+  The PR template (`.github/pull_request_template.md`) reminds you to use a
+  Conventional Commits title (`type(scope): summary`, enforced by `pr-lint`).
+- **Issues:** use the bug-report / feature-request templates
+  (`.github/ISSUE_TEMPLATE/`); blank issues are disabled.
 - **CHANGELOG:** every merged PR gets one entry under `## Unreleased`,
   written by the author in the same PR (PR number, TOG id, what changed,
   files touched; docs-only and test-only PRs get entries too). The reviewer
@@ -107,4 +111,4 @@ No paid services, no credentials, no model pins, no production activation,
 no live transport. Future live-conformance work needs separate provenance,
 security, access, and review decisions.
 
-License: not yet chosen.
+License: MIT — see [LICENSE](LICENSE).

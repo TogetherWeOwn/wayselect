@@ -99,13 +99,13 @@ test("TOG-7321: WAYSELECT_TRUSTED_PROXY_IP defaults to direct-remote only", () =
   );
 });
 
-test("TOG-7321: the preview flag gates four content route sites", () => {
+test("TOG-7321: the preview flag gates five content route sites", () => {
   const server = readFileSync(SERVER_SRC, "utf8");
   const gates = server.match(/if\s*\(!isPreviewEnabled\(env\)\)/g) ?? [];
   assert.equal(
     gates.length,
-    4,
-    `expected 4 preview gates in web/server.js (index, intake, confirm, detail), found ${gates.length}`,
+    5,
+    `expected 5 preview gates in web/server.js (index, intake, confirm, detail, disputes), found ${gates.length}`,
   );
 });
 

@@ -1,4 +1,4 @@
-# CLI `--json` machine contract (TOG-5734, TOG-7302)
+# CLI `--json` machine contract (TOG-5734, TOG-7302, TOG-8326)
 
 `wayselect select --json` / `wayselect explain --json` /
 `wayselect catalog import --json` is a versioned machine interface.
@@ -24,6 +24,15 @@ Consumers pin against it; breaking changes must be declared, never silent.
   — byte-level snapshots of live CLI output with volatile fields scrubbed
   (the import fixture is fully deterministic: fixed `--source` /
   `--snapshot-timestamp` over a temp-dir input, so nothing is scrubbed).
+- In-band version marker: every payload carries top-level `schemaVersion`
+  (`const: "v1"` in the schema, mirroring `SCHEMA_VERSION` in
+  `src/validate-cli-json.js`). Consumers pin on this marker instead of
+  sniffing the shape; a breaking change bumps the version per the procedure
+  below, never silently. Pinned by
+  [`test/cli-json-schema-version.test.js`](../test/cli-json-schema-version.test.js)
+  (live select/explain/import output carries the marker and validates; the
+  validator rejects a dropped or wrong marker; `SCHEMA_VERSION` itself is
+  pinned to `"v1"` so a bump edits the test deliberately).
 - Tests: [`test/cli-json-contract.test.js`](../test/cli-json-contract.test.js)
   runs the CLI against the checked-in fixtures, validates the output against
   the schema, and compares it byte-for-byte to the snapshots.

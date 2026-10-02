@@ -16,6 +16,7 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   DEFAULT_KEEP_LAST,
@@ -231,6 +232,58 @@ test("TOG-5740: prune CLI rejects usage errors with exit 2", async () => {
     const result = await runCli(args);
     assert.equal(result.code, 2, `--apply ${args.join(" ")} must exit 2`);
     assert.match(result.stderr, /Usage: node bin\/wayselect-snapshot-prune/);
+  }
+});
+
+test("TOG-6727: prune CLI refuses ../ --dir without deleting anything", async () => {
+  // Directory confinement: a traversal-shaped --dir fails closed (exit 2)
+  // before any listing or deletion, so zero files are removed anywhere.
+  const sandbox = await fs.mkdtemp(join(tmpdir(), "wayselect-prune-confine-"));
+  try {
+    const outside = join(sandbox, "outside");
+    const work = join(sandbox, "work");
+    await fs.mkdir(outside, { recursive: true });
+    await fs.mkdir(work, { recursive: true });
+    const entries = [
+      ...snapshotFiles(10),
+      ...snapshotFiles(5, { startAgeDays: 40, stepDays: 5 }),
+    ];
+    await stageScratchFiles(outside, entries);
+    const before = (await fs.readdir(outside)).sort();
+
+    const script = fileURLToPath(new URL("../bin/wayselect-snapshot-prune", import.meta.url));
+    const args = [
+      script,
+      "--dir",
+      "../outside",
+      "--keep-last",
+      "10",
+      "--max-age-days",
+      "30",
+      "--now",
+      new Date(NOW).toISOString(),
+      "--apply",
+    ];
+    let result;
+    try {
+      await execFileAsync(process.execPath, args, { cwd: work });
+      result = { code: 0, stdout: "", stderr: "" };
+    } catch (error) {
+      result = {
+        code: error.code,
+        stdout: error.stdout ?? "",
+        stderr: String(error.stderr ?? ""),
+      };
+    }
+
+    assert.equal(result.code, 2, "../ --dir must fail closed with exit 2");
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /--dir must not contain \.\. segments/);
+    assert.match(result.stderr, /Usage: node bin\/wayselect-snapshot-prune/);
+    const after = (await fs.readdir(outside)).sort();
+    assert.deepEqual(after, before, "traversal attempt must delete zero files");
+  } finally {
+    await fs.rm(sandbox, { recursive: true, force: true });
   }
 });
 
