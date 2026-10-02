@@ -25,6 +25,9 @@
 //      CI job — runs node bin/benchmark-large-catalog, timings JSON to a
 //      temp dir; an over-budget run prints the same ::warning:: note CI
 //      emits, and fails this gate so a regression is caught before push)
+//   10. Accept harnesses (TOG-6385: mirrors the `accept` CI job — runs
+//      npm run accept:all, the 14 offline bin/accept-* harnesses chained
+//      in one script; a harness failure fails this gate before push)
 //
 // Intentionally not run locally: `npm ci` (CI's clean-install step; the
 // local gate uses the existing node_modules), `npm audit --audit-level=high`
@@ -328,6 +331,21 @@ process.stdout.write("RUN P9 — node bin/benchmark-large-catalog\n");
   } else {
     process.stdout.write("::warning::large-catalog benchmark over budget (warn-only; budgets enforced by test/large-catalog-benchmark.test.js)\n");
     ok = fail("P9", "large-catalog benchmark over budget", `exit ${bench.status}; timings at ${timingsPath}`) && ok;
+  }
+}
+
+// ---- P10: accept harnesses (TOG-6385: mirrors the `accept` CI job) ----
+process.stdout.write("RUN P10 — npm run accept:all\n");
+{
+  const accept = spawnSync("npm", ["run", "accept:all", "--silent"], {
+    cwd: ROOT,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (accept.status === 0) {
+    pass("P10", "accept harnesses green");
+  } else {
+    ok = fail("P10", "accept harness failed", `exit ${accept.status}`) && ok;
   }
 }
 

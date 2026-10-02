@@ -67,17 +67,18 @@ Full CLI reference: `docs/cli.md`. Acceptance specs and contracts: `docs/`
 Run the same gates CI runs, locally, before pushing:
 
 ```sh
-npm run pre-push   # expect: SUMMARY: 9 pass, 0 fail — pre-push READY
+npm run pre-push   # expect: SUMMARY: 10 pass, 0 fail — pre-push READY
 ```
 
 This runs the engine gate, JS-parse, JSON-parse, workflow-parse,
-`npm test`, marker gate, smoke + search-index probe, e2e + demo, and
-large-catalog bench-measurement gates —
+`npm test`, marker gate, smoke + search-index probe, e2e + demo,
+large-catalog bench-measurement, and accept-harness gates —
 one local gate per CI job, so green pre-push predicts green CI. Optional per-clone hook (never committed):
 `cp docs/pre-push-hook.sample .git/hooks/pre-push`. Details:
 `docs/pre-push-check.md`. CI itself (`.github/workflows/ci.yml` plus
 `.github/workflows/acceptance.yml`) runs `npm test`, the fixture-only
-ingestion smoke, the search-index probe, the marker gate, the dependency
+ingestion smoke, the search-index probe, the marker gate, the offline
+accept harnesses (`npm run accept:all`), the dependency
 audit gate (`npm audit --audit-level=high`, CI-only: it needs the npm
 registry), and e2e staging
 acceptance on push, PR, and nightly.
