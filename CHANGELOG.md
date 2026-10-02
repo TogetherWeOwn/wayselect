@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #235 (2026-10-02) TOG-8344: actions/upload-artifact 4→7 with the
+  pre-push-parity golden re-pinned to v7 (test-only follow-up;
+  `test/pre-push-parity.test.js`).
+
 - #196 TOG-6393: filter submits, clear/recovery links and pagination land on the focusable `#results` section; retain visible headings, polite live-region announcements, sticky filters and pagination semantics (`web/listing-detail.js`, listing focus/filter/pagination tests).
 
 - #108 (2026-10-01) TOG-6372: CLI-vs-modules audit doc (gap G11) —

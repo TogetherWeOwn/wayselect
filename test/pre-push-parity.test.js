@@ -170,8 +170,10 @@ test("bench CI job stays warn-only with a timings artifact (TOG-7281)", () => {
   const ci = read(".github/workflows/ci.yml");
   assert.ok(ci.includes("large-catalog-bench"), "bench job must exist");
   assert.ok(ci.includes("continue-on-error: true"), "bench run must not red the job");
+  // Pinned to the upload-artifact major in .github/workflows/ci.yml
+  // (v7 since TOG-8344 / PR #235).
   assert.ok(
-    ci.includes("actions/upload-artifact@v4"),
+    ci.includes("actions/upload-artifact@v7"),
     "bench job must upload the timings artifact",
   );
   assert.ok(
