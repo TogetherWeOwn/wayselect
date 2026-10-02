@@ -203,7 +203,7 @@ const candidates = applySupportConfiguration(normalizeCatalog(fx.catalog, fx.pro
 const out = evaluateEligibility(
   candidates,
   { operation: "chat", requiredCapabilities: ["toolUse"], providerAllowlist: ["northstar", "orbit"] },
-  { now: new Date("2026-09-26T16:00:00.000Z"), maxEvidenceAgeMs: 72 * 3600 * 1000, skipCatalogCheck: true },
+  { now: new Date("2026-09-30T12:28:11.003Z"), maxEvidenceAgeMs: 72 * 3600 * 1000, skipCatalogCheck: true },
 );
 console.log(out.find((e) => e.routeId === "northstar/alpha-chat").eligible);
 // true
@@ -306,7 +306,7 @@ const candidates = applySupportConfiguration(normalizeCatalog(fx.catalog, fx.pro
 const verdict = selectRoute(
   candidates,
   { operation: "chat", requiredCapabilities: ["toolUse"], providerAllowlist: ["northstar", "orbit"] },
-  { now: new Date("2026-09-26T16:00:00.000Z"), maxEvidenceAgeMs: 72 * 3600 * 1000, skipCatalogCheck: true },
+  { now: new Date("2026-09-30T12:28:11.003Z"), maxEvidenceAgeMs: 72 * 3600 * 1000, skipCatalogCheck: true },
 );
 console.log(verdict.status, verdict.selected.routeId);
 // selected northstar/alpha-chat
@@ -364,7 +364,7 @@ const result = await handleChatCompletionsRequest({
   body: { model: "auto", messages: [{ role: "user", content: "Say hello." }] },
   gatewayKey: "k",
   candidates,
-  eligibilityOptions: { now: new Date("2026-09-26T16:00:00.000Z"), maxEvidenceAgeMs: 72 * 3600 * 1000, skipCatalogCheck: true },
+  eligibilityOptions: { now: new Date("2026-09-30T12:28:11.003Z"), maxEvidenceAgeMs: 72 * 3600 * 1000, skipCatalogCheck: true },
 });
 console.log(result.httpStatus, result.body.model, result.body.wayselect.selectedRouteId);
 // 200 northstar/unknown-tools northstar/unknown-tools
@@ -594,7 +594,7 @@ import { checkCatalogFreshness, normalizeCatalog } from "./src/index.js";
 import { readFileSync } from "node:fs";
 const fx = JSON.parse(readFileSync("fixtures/catalog.synthetic.json", "utf8"));
 const catalog = normalizeCatalog(fx.catalog, fx.provenance);
-console.log(checkCatalogFreshness(catalog, { now: new Date("2026-09-26T16:00:00.000Z"), maxCatalogAgeMs: 24 * 3600 * 1000 }).fresh);
+console.log(checkCatalogFreshness(catalog, { now: new Date("2026-09-30T12:28:11.003Z"), maxCatalogAgeMs: 24 * 3600 * 1000 }).fresh);
 // true
 ```
 
@@ -608,7 +608,7 @@ import { requireFreshCatalog, normalizeCatalog } from "./src/index.js";
 import { readFileSync } from "node:fs";
 const fx = JSON.parse(readFileSync("fixtures/catalog.synthetic.json", "utf8"));
 const catalog = normalizeCatalog(fx.catalog, fx.provenance);
-console.log(requireFreshCatalog(catalog, { now: new Date("2026-09-26T16:00:00.000Z"), maxCatalogAgeMs: 24 * 3600 * 1000 }).fresh);
+console.log(requireFreshCatalog(catalog, { now: new Date("2026-09-30T12:28:11.003Z"), maxCatalogAgeMs: 24 * 3600 * 1000 }).fresh);
 // true
 ```
 
@@ -784,7 +784,7 @@ contentHashVerified, declaredHashVerified, provenance, freshness }`;
 import { auditIngestionSnapshot, buildSnapshot } from "./src/index.js";
 import { readFileSync } from "node:fs";
 const fx = JSON.parse(readFileSync("fixtures/catalog.synthetic.json", "utf8"));
-const snapshot = buildSnapshot(fx.catalog, fx.provenance, { now: "2026-09-26T16:00:00.000Z" });
+const snapshot = buildSnapshot(fx.catalog, fx.provenance, { now: "2026-09-30T12:28:11.003Z" });
 console.log(auditIngestionSnapshot(snapshot).ok);
 // true
 ```
@@ -1183,7 +1183,7 @@ const report = formatProbeReport({
   fetchedAt: "2026-09-26T16:00:00.000Z", fetchSource: "offline-fixture", rawHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   fetchDurationMs: 5, networkUsed: false, fixtureProvenance: fx.provenance, fixtureCount: catalog.entries.length,
   liveProviderCount: live.providerCount, liveCount: live.routes.size, quarantined: [...live.quarantined],
-  freshness: checkCatalogFreshness(catalog, { now: new Date("2026-09-26T16:00:00.000Z"), maxCatalogAgeMs: 24 * 3600 * 1000 }),
+  freshness: checkCatalogFreshness(catalog, { now: new Date("2026-09-30T12:28:11.003Z"), maxCatalogAgeMs: 24 * 3600 * 1000 }),
   provenance: compareProbeProvenance(fx.provenance, { source: "offline-fixture", fetchedAt: "2026-09-26T16:00:00.000Z", rawHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000" }),
   diff: diffProbedRoutes(catalog.entries, live.routes),
 });

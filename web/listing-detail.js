@@ -529,7 +529,7 @@ function filterForm(filters, pageInfo) {
   // the form's accessible name so SR users hear one consistent label.
   return `<section aria-labelledby="filter-heading">
 <h2 id="filter-heading">Filter listings</h2>
-<form method="get" action="/listings" role="search" aria-label="Filter listings">
+<form method="get" action="/listings#results" role="search" aria-label="Filter listings">
 <label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"></label>
 <label for="filter-limit">Results per page <input type="number" id="filter-limit" name="limit" value="${escapeHtml(limit)}" min="1" max="${LISTINGS_MAX_LIMIT}"></label>
 <label for="filter-offset">Skip results <input type="number" id="filter-offset" name="offset" value="${escapeHtml(offset)}" min="0"></label>
@@ -543,7 +543,7 @@ ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 ${sortOptions(active.sort)}
 </select></label>
 <button type="submit">Apply filters</button>
-<a href="/listings">Clear filters</a>
+<a href="/listings#results">Clear filters</a>
 </form>
 </section>`;
 }
@@ -574,6 +574,11 @@ ${detail}
 // array renders with the legacy "N listings found." copy. Prev/Next links
 // preserve the active filters (and the explicit sort, TOG-6362) so paging
 // never drops a filter or silently reverts to stub order.
+// TOG-6393: full-page filter and pagination GETs land on a focusable
+// results section. Append this static fragment after HTML-escaping the URL;
+// query building and the existing polite live region stay unchanged.
+const RESULTS_FRAGMENT = "#results";
+
 function pageHref(filters, limit, offset) {
   const params = new URLSearchParams();
   if (typeof filters?.q === "string" && filters.q !== "") {
@@ -611,7 +616,7 @@ function pageNumberLinks(filters, limit, currentPage, totalPages) {
   let prev = 0;
   for (const p of sorted) {
     if (p - prev > 1) parts.push(`<span aria-hidden="true">&hellip;</span>`);
-    const href = escapeHtml(pageHref(filters, limit, (p - 1) * limit));
+    const href = escapeHtml(pageHref(filters, limit, (p - 1) * limit)) + RESULTS_FRAGMENT;
     parts.push(
       p === currentPage
         ? `<a href="${href}" aria-current="page">${p}</a>`
@@ -628,7 +633,7 @@ function pageNav(filters, total, limit, offset, shown) {
   const links = [];
   if (offset > 0) {
     links.push(
-      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}" rel="prev">Previous</a>`,
+      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}${RESULTS_FRAGMENT}" rel="prev">Previous</a>`,
     );
   }
   if (totalPages > 1) {
@@ -636,7 +641,7 @@ function pageNav(filters, total, limit, offset, shown) {
   }
   if (offset + shown < total) {
     links.push(
-      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}" rel="next">Next</a>`,
+      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}${RESULTS_FRAGMENT}" rel="next">Next</a>`,
     );
   }
   return links.length === 0 ? "" : `<nav aria-label="Listings pages"><p>${links.join(" ")}</p></nav>`;
@@ -658,14 +663,15 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
   // (labelledby, not aria-label) so the index keeps an unbroken h1 -> h2
   // hierarchy on populated, empty, and past-the-end renders alike. The
   // accessible name stays "Results" so existing SR announcements match.
-  const resultsOpen = `<section aria-labelledby="results-heading">\n<h2 id="results-heading">Results</h2>`;
+  // TOG-6393: a unique fragment focus target, not an extra Tab stop.
+  const resultsOpen = `<section aria-labelledby="results-heading" id="results" tabindex="-1">\n<h2 id="results-heading">Results</h2>`;
   if (listings.length === 0) {
     // Offset past the end is a valid empty page, not a filter miss: say so
     // and link back to the first page instead of blaming the filters.
     results =
       total > 0
-        ? `${resultsOpen}\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
-        : `${resultsOpen}\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
+        ? `${resultsOpen}\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}${RESULTS_FRAGMENT}">Back to first page</a>\n</section>`
+        : `${resultsOpen}\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings#results">Clear filters</a>\n</section>`;
   } else {
     const status =
       `${countCopy} found.` + (windowed ? ` Showing ${offset + 1}-${offset + listings.length}.` : "");

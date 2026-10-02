@@ -330,12 +330,12 @@ describe("sortListings (TOG-6362)", () => {
 describe("filter-bar rendering", () => {
   it("renders a GET filter form with q, capability, modality, and sort controls", () => {
     const html = renderListingIndex(STUB_LISTINGS, undefined, emptyFilters());
-    ok(html.includes('<form method="get" action="/listings"'));
+    ok(html.includes('<form method="get" action="/listings#results"'));
     ok(html.includes('name="q"'));
     ok(html.includes('name="capability"'));
     ok(html.includes('name="modality"'));
     ok(html.includes('name="sort"'), "sort select present (TOG-6362)");
-    ok(html.includes('href="/listings"'));
+    ok(html.includes('href="/listings#results"'));
     // XSS rule: reflected q is escaped.
     const evil = renderListingIndex(STUB_LISTINGS, undefined, {
       ...emptyFilters(),
@@ -348,7 +348,7 @@ describe("filter-bar rendering", () => {
   it("renders the empty state with a clear link when nothing matches", () => {
     const html = renderListingIndex([], undefined, emptyFilters());
     ok(html.includes("No listings match these filters."));
-    ok(html.includes('href="/listings"'));
+    ok(html.includes('href="/listings#results"'));
     ok(!html.includes("<ul>"));
   });
 

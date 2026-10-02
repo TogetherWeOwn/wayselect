@@ -55,7 +55,7 @@ function assertAuditedHierarchy(html, label) {
   // Labelledby refs resolve to the visible headings; accessible names match.
   ok(html.includes('<section aria-labelledby="filter-heading">'), `${label}: filter section labelled`);
   ok(html.includes(FILTER_HEADING), `${label}: filter heading visible`);
-  ok(html.includes('<section aria-labelledby="results-heading">'), `${label}: results section labelled`);
+  ok(html.includes('<section aria-labelledby="results-heading" id="results" tabindex="-1">'), `${label}: results section labelled`);
   ok(html.includes(RESULTS_HEADING), `${label}: results heading visible`);
   strictEqual(
     (html.match(/id="filter-heading"/g) ?? []).length,

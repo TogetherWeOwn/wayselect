@@ -84,7 +84,7 @@ from flags, exclusions named per candidate):
 ```sh
 node bin/wayselect select --operation chat --allow northstar,orbit \
   --input-modalities text --output-modalities text --require-tools \
-  --evaluation-time 2026-09-26T16:00:00.000Z
+  --evaluation-time 2026-09-30T12:28:11.003Z
 ```
 
 ```text
@@ -101,7 +101,7 @@ Ranked candidates (2 eligible, 4 excluded):
   5. northstar/unknown-tools — excluded (missing-capability:toolUse)
   6. orbit/retired-chat — excluded (support-state:unsupported, operation-not-configured)
 
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 ```
 
 (Pin `--evaluation-time`: without it the CLI evaluates at the wall clock,
@@ -195,8 +195,8 @@ The catalog fixture carries provenance (`source`, `snapshotTimestamp`,
 Refresh through the script, never by hand-editing:
 
 ```sh
-node bin/refresh-catalog-fixtures --timestamp 2026-09-26T14:00:00.000Z
-node bin/refresh-catalog-fixtures --check --now 2026-09-26T15:00:00.000Z
+node bin/refresh-catalog-fixtures --timestamp 2026-09-30T10:28:11.003Z
+node bin/refresh-catalog-fixtures --check --now 2026-09-30T12:28:11.003Z
 npm run refresh:check
 ```
 
@@ -240,7 +240,7 @@ exit non-zero on any drift (an alert):
 
 ```sh
 npm run check:drift
-node bin/check-provenance-drift --now 2026-09-26T16:00:00.000Z --out drift-report.json
+node bin/check-provenance-drift --now 2026-09-30T12:28:11.003Z --out drift-report.json
 ```
 
 - **D1 self-hash:** the live catalog body recomputes to its own recorded
@@ -296,7 +296,10 @@ node bin/wayselect-search-index-refresh --max-catalog-age-hours 24 --out search-
 The probe (`--check`, five checks R1–R5) builds, rebuilds, and reloads: done
 criteria for TOG-5460 is the CLI probe passing twice consecutively with the same
 content hash. Same-input refreshes over `--previous` report
-`changedVsPrevious:false`. The evaluation clock follows the same
+`changedVsPrevious:false`. `--previous` is only supported when writing a
+refresh: combining it with `--check` fails with exit 1 and a usage error on
+stderr, without running the probe or writing an index. Omit `--check` to
+validate and compare a previous index. The evaluation clock follows the same
 snapshot-derived pattern as the suite (`support/helpers.js`
 `evaluationNow()`): when no `--now` is given, the CLI evaluates two hours
 after the live fixture `snapshotTimestamp`, so the probe stays green across
@@ -388,6 +391,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Acceptance spec — capability-aware dry-run select](docs/acceptance-spec-capability-select.md) — next-feature acceptance for capability-aware selection (v1).
 - [CLI `--json` machine contract](docs/cli-json-contract.md) — versioned machine interface for `select --json` / `explain --json`.
 - [Preview server route table](docs/preview-server.openapi.json) — machine-readable OpenAPI route table for `web/server.js` (every route, method, params, status codes).
+- [CLI surface vs modules audit](docs/cli-module-coverage.md) — which CLI binary exercises every export of `searchIndex.js` / `snapshot.js` / `provenanceAudit.js`.
 - [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
 - [`bin/` operator catalog](docs/bin-operator-catalog.md) — one line per script: purpose, when to run, key flags.
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
