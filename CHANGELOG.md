@@ -18,6 +18,8 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-6385: the 14 offline `bin/accept-*` harnesses now run in CI (`accept` job, `npm run accept:all`) and as pre-push gate P10; gate contract is 10 pass, 0 fail (`.github/workflows/ci.yml`, `package.json`, `bin/pre-push-check`, `test/pre-push-parity.test.js`, `docs/pre-push-check.md`, `CONTRIBUTING.md`, PR/issue templates, `docs/incident-runbook.md`).
+
 - #196 TOG-6393: filter submits, clear/recovery links and pagination land on the focusable `#results` section; retain visible headings, polite live-region announcements, sticky filters and pagination semantics (`web/listing-detail.js`, listing focus/filter/pagination tests).
 
 - #108 (2026-10-01) TOG-6372: CLI-vs-modules audit doc (gap G11) —

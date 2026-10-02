@@ -11,7 +11,7 @@ stays the grant-gated track.
 
 1. `node --version` — needs 20+.
 2. From the repo root, run the gate once: `npm run pre-push`.
-3. Confirm the tail line reads `SUMMARY: 9 pass, 0 fail — pre-push READY`.
+3. Confirm the tail line reads `SUMMARY: 10 pass, 0 fail — pre-push READY`.
 4. Optional, local-only: install the hook — `cp docs/pre-push-hook.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`.
 5. Push normally: `git push`. The hook runs the same script; a failing gate aborts the push before anything leaves your machine.
 
@@ -33,6 +33,7 @@ workflow's local steps — a green pre-push predicts a green CI:
 | P7 | Smoke + index probe | `ingestion-smoke`, `search-index-probe` | Runs the exact CI steps (`npm run smoke`, `npm run check:search-index`) |
 | P8 | E2E + demo | `e2e-staging-acceptance`, `acceptance` workflow | `node scripts/e2e-staging-acceptance.mjs` (evidence to a temp dir, repo stays clean) + `npm run demo` |
 | P9 | Bench measurement | `large-catalog-bench` | `node bin/benchmark-large-catalog` (timings JSON to a temp dir, repo stays clean); over budget prints the same `::warning::` note CI emits and fails this gate, so a regression is caught before push |
+| P10 | Accept harnesses | `accept` | `npm run accept:all` (the 14 offline `bin/accept-*` harnesses chained in one script); a harness failure fails this gate before push |
 
 Exit code is 0 when every step passes, 1 otherwise.
 
