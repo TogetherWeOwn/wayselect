@@ -18,6 +18,10 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #173 (2026-09-30) TOG-8344: actions/checkout 4→7 with the fixture-refresh
+  scheduler golden re-pinned to v7 (test-only follow-up;
+  `test/fixture-refresh-scheduler.test.js`).
+
 - #234 (2026-10-02) TOG-8344: actions/setup-node 4→7 with the
   fixture-refresh scheduler golden re-pinned to v7 (test-only follow-up;
   `test/fixture-refresh-scheduler.test.js`).

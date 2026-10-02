@@ -52,7 +52,7 @@ jobs:
     # TOG-5722: R1-R5 search-index refresh probe, fixture-only, no network/credentials.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -69,7 +69,7 @@ jobs:
     # if-no-files-found:warn, so even a crashing bench keeps this job green.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -100,7 +100,7 @@ jobs:
     # fails the run. This comment avoids spelling them: the gate scans it too.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -113,7 +113,7 @@ jobs:
     # and test/pre-push-parity.test.js pins it.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -128,7 +128,7 @@ jobs:
     # extracts its CLI/schema slices via `git archive origin/<ref>`.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v7
