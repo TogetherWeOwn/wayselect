@@ -142,6 +142,31 @@ describe("S3 route-id allowlist", () => {
     }
   });
 
+  it("rejects the TOG-5960 exploratory-QA routeId cases", async () => {
+    const sellerFixtures = await readFixtures("seller-submission.synthetic.json");
+    // modelId/entry.id pair containing a slash builds a 3-segment routeId
+    // that never matches the 2-segment LISTING_ROUTE.
+    const slashPair = structuredClone(sellerFixtures.valid);
+    slashPair.modelId = "x/y";
+    slashPair.entry.id = "x/y";
+    assertSellerRejects(slashPair, { code: "invalid-value", key: "modelId", source: SOURCE });
+
+    // Padded and newline IDs are also rejected by the slug allowlist.
+    const paddedCases = [
+      ["providerId", "  northstar  "],
+      ["providerId", "north\nstar"],
+      ["modelId", "  seller-chat  "],
+    ];
+    for (const [field, value] of paddedCases) {
+      const bad = structuredClone(sellerFixtures.valid);
+      bad[field] = value;
+      if (field === "modelId") {
+        bad.entry.id = value;
+      }
+      assertSellerRejects(bad, { code: "invalid-value", key: field, source: SOURCE });
+    }
+  });
+
   it("rejects non-slug entry.id in seller intake", async () => {
     const fixtures = await readFixtures("seller-submission.synthetic.json");
     const bad = structuredClone(fixtures.valid);
