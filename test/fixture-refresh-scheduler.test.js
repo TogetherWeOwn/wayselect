@@ -29,6 +29,10 @@ test("scheduler workflow is registered on a daily off-peak cron", async () => {
 test("scheduler workflow runs the read-only freshness probe", async () => {
   const text = await readWorkflow();
   assert.match(text, /npm run refresh:check/);
+  // TOG-13307: the check step pipes through `tee`, so it must run under
+  // `shell: bash` (bash -eo pipefail). The default `bash -e` shell reports
+  // tee's exit 0, swallowing a stale-failure and skipping the staleness issue.
+  assert.match(text, /name: Check fixture freshness\n\s+shell: bash/);
   // Pinned to the action majors in .github/workflows/fixture-refresh-check.yml
   // (checkout v7 since TOG-8344 / PR #173, setup-node v7 since PR #234).
   assert.match(text, /uses:\s*actions\/checkout@v7/);

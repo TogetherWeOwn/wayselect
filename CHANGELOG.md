@@ -18,6 +18,12 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #239 (2026-10-03) TOG-13307: run the fixture-refresh check step under
+  `shell: bash` (`bash -eo pipefail`) so a stale/hashing failure survives the
+  `| tee` pipe and fails the job instead of reporting tee's exit 0, plus a
+  scheduler-golden pin on the shell (`.github/workflows/fixture-refresh-check.yml`,
+  `test/fixture-refresh-scheduler.test.js`).
+
 - #238 (2026-10-03) TOG-13268: refresh stale synthetic catalog fixtures to a current snapshot
   through the supported refresh script (provenance timestamp advanced, body
   hash unchanged, evidence/evaluation times shifted uniformly to preserve the
