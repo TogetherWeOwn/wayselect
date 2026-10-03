@@ -18,7 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-13268: refresh stale synthetic catalog fixtures to a current snapshot
+- #238 (2026-10-03) TOG-13268: refresh stale synthetic catalog fixtures to a current snapshot
   through the supported refresh script (provenance timestamp advanced, body
   hash unchanged, evidence/evaluation times shifted uniformly to preserve the
   stale-evidence story; restores the 24h freshness gate)
