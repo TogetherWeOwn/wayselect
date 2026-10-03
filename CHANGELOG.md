@@ -18,6 +18,13 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- TOG-13268: refresh stale synthetic catalog fixtures to a current snapshot
+  through the supported refresh script (provenance timestamp advanced, body
+  hash unchanged, evidence/evaluation times shifted uniformly to preserve the
+  stale-evidence story; restores the 24h freshness gate)
+  (`fixtures/catalog.synthetic.json`,
+  `fixtures/configuration.synthetic.json`, `fixtures/request.synthetic.json`).
+
 - #173 (2026-09-30) TOG-8344: actions/checkout 4→7 with the fixture-refresh
   scheduler golden re-pinned to v7 (test-only follow-up;
   `test/fixture-refresh-scheduler.test.js`).
