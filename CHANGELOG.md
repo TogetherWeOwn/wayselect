@@ -18,6 +18,11 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #240 (2026-10-04) TOG-15339: pass `--no-renames` to the changed-paths diff in the
+  changelog gate so `git mv src/x.js docs/x.md` lists both paths and no longer
+  skips green, plus a scratch-repo test that forces `diff.renames=true`
+  (`bin/check-changelog-entry`, `test/changelog-entry-gate.test.js`).
+
 - #239 (2026-10-03) TOG-13307: run the fixture-refresh check step under
   `shell: bash` (`bash -eo pipefail`) so a stale/hashing failure survives the
   `| tee` pipe and fails the job instead of reporting tee's exit 0, plus a
