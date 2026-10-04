@@ -141,6 +141,19 @@ test("code change with an Unreleased TOG bullet passes", async (t) => {
   assert.match(result.stdout, /CHANGELOG-GATE-OK/);
 });
 
+test("moving a code file into docs still reds", async (t) => {
+  // Rename detection would list only docs/app.md and skip green; the deleted
+  // src/app.js is a code change and needs its bullet like any other.
+  const result = await scenario(t, (dir) => {
+    git(dir, ["config", "diff.renames", "true"]);
+    mkdirSync(join(dir, "docs"), { recursive: true });
+    git(dir, ["mv", "src/app.js", "docs/app.md"]);
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /CHANGELOG-GATE-FAIL/);
+  assert.match(result.stdout, /src\/app\.js/);
+});
+
 test("test-only change needs a bullet too", async (t) => {
   const result = await scenario(t, (dir) => {
     mkdirSync(join(dir, "test"), { recursive: true });
