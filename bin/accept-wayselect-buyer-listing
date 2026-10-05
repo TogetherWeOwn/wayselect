@@ -231,9 +231,10 @@ check(
 );
 check(
   intent !== null && !(intent instanceof Error) &&
-    JSON.stringify(Object.keys(intent).sort()) === JSON.stringify(["buyerId", "modelId", "provenance", "providerId", "routeId"]),
+    JSON.stringify(Object.keys(intent).sort()) === JSON.stringify(["buyerId", "idempotencyKey", "modelId", "provenance", "providerId", "routeId"]) &&
+    intent.idempotencyKey === null,
   "B6b",
-  "intent carries no payment fields (exact key set)",
+  "intent carries no payment fields (exact key set; absent idempotency key normalizes to null per #222)",
   intent instanceof Error ? "" : Object.keys(intent).join(","),
 );
 let declineError = null;

@@ -18,6 +18,7 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
+- #236 (2026-10-05) TOG-6385: the 14 offline `bin/accept-*` harnesses now run in CI (`accept` job, `npm run accept:all`) and as pre-push gate P10 (`.github/workflows/ci.yml`, `package.json`, `bin/pre-push-check`, `test/pre-push-parity.test.js`, `docs/pre-push-check.md`, `CONTRIBUTING.md`, PR/issue templates, `docs/incident-runbook.md`).
 - #240 (2026-10-04) TOG-15339: pass `--no-renames` to the changed-paths diff in the
   changelog gate so `git mv src/x.js docs/x.md` lists both paths and no longer
   skips green, plus a scratch-repo test that forces `diff.renames=true`

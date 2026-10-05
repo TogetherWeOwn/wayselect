@@ -28,7 +28,7 @@ body:
     attributes:
       label: How would we verify it?
       description: Commands a reviewer can run, and the expected pass/fail signal (`npm run pre-push`, `npm test`, accept script…).
-      placeholder: "`npm test` — new cases pass; `npm run pre-push` — 9 pass, 0 fail."
+      placeholder: "`npm test` — new cases pass; `npm run pre-push` — 10 pass, 0 fail."
     validations:
       required: false
   - type: textarea

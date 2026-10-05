@@ -31,6 +31,7 @@
     "accept:checkout": "node bin/accept-wayselect-checkout",
     "accept:gateway-phase1": "node bin/accept-wayselect-gateway-phase1",
     "accept:trust": "node bin/accept-wayselect-trust",
+    "accept:all": "node bin/accept-wayselect-web && node bin/accept-wayselect-search-filter && node bin/accept-wayselect-seller && node bin/accept-wayselect-seller-payout && node bin/accept-wayselect-buyer && node bin/accept-wayselect-buyer-listing && node bin/accept-wayselect-payout && node bin/accept-wayselect-eligibility && node bin/accept-wayselect-capability-select && node bin/accept-wayselect-dryrun-explain && node bin/accept-wayselect-checkout && node bin/accept-wayselect-gateway-phase1 && node bin/accept-wayselect-trust && node bin/accept-fixture-refresh",
     "snapshot": "node bin/wayselect-snapshot",
     "prune:snapshots": "node bin/wayselect-snapshot-prune",
     "check:provenance": "node bin/check-ingestion-provenance",
