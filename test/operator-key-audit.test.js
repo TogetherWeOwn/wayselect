@@ -89,7 +89,7 @@ async function errorPathRequests(all) {
         }],
       }),
     })],
-    ["400 stream:true", request({ candidates: all, body: body({ stream: true }) })],
+    ["200 stream:true (SSE, still keyless)", request({ candidates: all, body: body({ stream: true }) })],
     ["400 bad stream type", request({ candidates: all, body: body({ stream: "yes" }) })],
     ["400 n>1", request({ candidates: all, body: body({ n: 2 }) })],
     ["400 logprobs", request({ candidates: all, body: body({ logprobs: true }) })],

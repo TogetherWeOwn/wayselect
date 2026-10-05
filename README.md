@@ -1,5 +1,8 @@
 # Wayselect
 
+[![CI](https://github.com/TogetherWeOwn/wayselect/actions/workflows/ci.yml/badge.svg)](https://github.com/TogetherWeOwn/wayselect/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > **Early development — fixture-only, dry-run only.** No live routing, no live model calls, no live provider credentials, no endpoint discovery. Makes no compatibility, cost, or savings claims. Catalog presence (`catalogued`) is not support, permission, configuration, conformance, or availability. (The Phase-1 gateway handler verifies an operator-held bearer key supplied at call time; see Library boundaries.)
 
 Wayselect is a small Node 20+ ES module library with a local CLI. It turns a newly authored synthetic, models.dev-shaped catalog fixture into an explicit support configuration, applies fail-closed eligibility rules, and returns an inspectable selection explanation. The selection transport in this slice is an in-memory fake adapter only (`FakeTransport`); the only outbound network paths anywhere are the explicit opt-in `--fetch` flags for catalog ingestion and the models.dev freshness probe.
@@ -81,7 +84,7 @@ from flags, exclusions named per candidate):
 ```sh
 node bin/wayselect select --operation chat --allow northstar,orbit \
   --input-modalities text --output-modalities text --require-tools \
-  --evaluation-time 2026-09-26T16:00:00.000Z
+  --evaluation-time 2026-09-30T12:28:11.003Z
 ```
 
 ```text
@@ -98,7 +101,7 @@ Ranked candidates (2 eligible, 4 excluded):
   5. northstar/unknown-tools — excluded (missing-capability:toolUse)
   6. orbit/retired-chat — excluded (support-state:unsupported, operation-not-configured)
 
-Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-26T14:00:00.000Z
+Provenance: synthetic://wayselect/fixture-v1 @ 2026-09-30T10:28:11.003Z
 ```
 
 (Pin `--evaluation-time`: without it the CLI evaluates at the wall clock,
@@ -192,8 +195,8 @@ The catalog fixture carries provenance (`source`, `snapshotTimestamp`,
 Refresh through the script, never by hand-editing:
 
 ```sh
-node bin/refresh-catalog-fixtures --timestamp 2026-09-26T14:00:00.000Z
-node bin/refresh-catalog-fixtures --check --now 2026-09-26T15:00:00.000Z
+node bin/refresh-catalog-fixtures --timestamp 2026-09-30T10:28:11.003Z
+node bin/refresh-catalog-fixtures --check --now 2026-09-30T12:28:11.003Z
 npm run refresh:check
 ```
 
@@ -237,7 +240,7 @@ exit non-zero on any drift (an alert):
 
 ```sh
 npm run check:drift
-node bin/check-provenance-drift --now 2026-09-26T16:00:00.000Z --out drift-report.json
+node bin/check-provenance-drift --now 2026-09-30T12:28:11.003Z --out drift-report.json
 ```
 
 - **D1 self-hash:** the live catalog body recomputes to its own recorded
@@ -293,7 +296,10 @@ node bin/wayselect-search-index-refresh --max-catalog-age-hours 24 --out search-
 The probe (`--check`, five checks R1–R5) builds, rebuilds, and reloads: done
 criteria for TOG-5460 is the CLI probe passing twice consecutively with the same
 content hash. Same-input refreshes over `--previous` report
-`changedVsPrevious:false`. The evaluation clock follows the same
+`changedVsPrevious:false`. `--previous` is only supported when writing a
+refresh: combining it with `--check` fails with exit 1 and a usage error on
+stderr, without running the probe or writing an index. Omit `--check` to
+validate and compare a previous index. The evaluation clock follows the same
 snapshot-derived pattern as the suite (`support/helpers.js`
 `evaluationNow()`): when no `--now` is given, the CLI evaluates two hours
 after the live fixture `snapshotTimestamp`, so the probe stays green across
@@ -339,10 +345,10 @@ ingested body fails closed instead of writing an unverifiable document.
 - `src/selection.js` produces a dry-run decision and full candidate explanations.
 - `src/transport.js` exposes only `FakeTransport`; executable location fields are rejected.
 - `src/canonical.js` provides the shared stable-stringify helper (re-exported through `src/catalog.js`/`src/index.js` and used by the refresh and ingest hash paths). The catalog snapshot hash (`computeCatalogSnapshotHash`) and the search-index content hash (`computeContentHash`) use local key-sorted canonical forms with the same semantics.
-- `src/gateway.js` exposes the Phase-1 OpenAI chat-completions skeleton as a pure in-process handler (`handleChatCompletionsRequest`) with no HTTP binding of its own: the OpenAI-shaped `POST /v1/chat/completions` contract (non-streaming only), `model` auto-route + pinned semantics, the spec error table, FakeTransport-backed with `dryRun:true` and synthetic text labeled synthetic. **Synthetic-only:** every completion in this slice is fake-backed (`networkUsed:false` enforced on every result); no live calls, no live provider credentials, no spend. Requests carry an operator-held bearer key that the handler verifies at call time (missing/wrong → 401).
+- `src/gateway.js` exposes the gateway handlers as pure in-process functions (`handleChatCompletionsRequest`, `handleMessagesRequest`) with no HTTP binding of their own: the OpenAI-shaped `POST /v1/chat/completions` contract, the Anthropic-shaped `POST /v1/messages` contract (required `max_tokens`, text blocks plus an optional `system` prompt), shared `model` auto-route + pinned semantics, the per-surface spec error tables, and SSE streaming on both surfaces (OpenAI `data: {chunk}` + `data: [DONE]`; Anthropic `message_start` … `message_stop`) rendered from one normalized delta stream with upstream retry only before the first byte. `tools` + `stream:true` fails closed with 400 on both surfaces. FakeTransport-backed with `dryRun:true` and synthetic text labeled synthetic. **Synthetic-only:** every completion in this slice is fake-backed (`networkUsed:false` enforced on every result); no live calls, no live provider credentials, no spend. Requests carry an operator-held bearer key that the handlers verify at call time (missing/wrong → 401).
 - `bin/wayselect` is the CLI: `select`/`explain` subcommands plus the opt-in `catalog import` ingestion path (`--fetch` is that CLI's only networked path; `--help`, `--version`, exit codes 0/1/2/3; see `docs/cli.md`) with the bare-invocation fixture demo kept for backward compatibility.
 - `bin/refresh-catalog-fixtures` stamps fixture provenance and verifies it (`--check`).
-- `bin/accept-wayselect-gateway-phase1` is the Phase-1 gateway conformance script (auto-route, pinned-eligible, pinned-ineligible 400, no-eligible-route 400, 401 cases; README synthetic-only check). Offline: in-process handler plus a fetch stub that throws.
+- `bin/accept-wayselect-gateway-phase1` is the gateway conformance script (auto-route, pinned-eligible, pinned-ineligible 400, no-eligible-route 400, 401 cases, `stream:true` SSE check; README synthetic-only check). Offline: in-process handlers plus a fetch stub that throws. Full Phase-2 byte-shape coverage (Anthropic surface, both SSE shapes, `tools`+`stream` 400s, killed-upstream first-byte behavior) lives in `test/gateway-phase2.test.js`.
 
 The normalized capability names are `attachment`, `reasoning`, `toolUse`, `structuredOutput`, `imageInput`, `textInput`, and `textOutput`. A required name not present in normalized data is reported as `missing-capability:<name>` and is never guessed.
 
@@ -374,9 +380,9 @@ unknown, malformed means rejected); normalized entries expose frozen
 
 ## Explicit non-goals
 
-This slice does not include live provider calls, endpoint discovery, live provider credentials, paid inference, real usage or billing data, third-party catalog redistribution, production deployment, universal compatibility, or a savings claim. The only HTTP surface is the local preview server (`node web/server.js`, gated by `WAYSELECT_PREVIEW`); the only credential check is the operator-held gateway bearer key the Phase-1 handler verifies at call time. Future transport or live-conformance work requires separate provenance, security, access, and review decisions.
+This slice does not include live provider calls, endpoint discovery, live provider credentials, paid inference, real usage or billing data, third-party catalog redistribution, production deployment, universal compatibility, or a savings claim. The only HTTP surface is the local preview server (`node web/server.js`, gated by `WAYSELECT_PREVIEW`); the only credential check is the operator-held gateway bearer key the gateway handlers verify at call time. Future transport or live-conformance work requires separate provenance, security, access, and review decisions.
 
-The gateway surface (`src/gateway.js`, Phase 1) is synthetic-only: completions are FakeTransport-backed (`networkUsed:false` is enforced on every result), carry `dryRun:true` + `synthetic:true`, and can never spend or touch the network. Streaming/SSE, the Anthropic surface, and live transport are later phases.
+The gateway surface (`src/gateway.js`, Phases 1–2) is synthetic-only: completions and streams are FakeTransport-backed (`networkUsed:false` is enforced on every result), carry `dryRun:true` + `synthetic:true`, and can never spend or touch the network. Streams render from one normalized delta stream with upstream retry only before the first byte. Live transport is a later phase.
 
 ## Docs index
 
@@ -385,9 +391,11 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Acceptance spec — capability-aware dry-run select](docs/acceptance-spec-capability-select.md) — next-feature acceptance for capability-aware selection (v1).
 - [CLI `--json` machine contract](docs/cli-json-contract.md) — versioned machine interface for `select --json` / `explain --json`.
 - [Preview server route table](docs/preview-server.openapi.json) — machine-readable OpenAPI route table for `web/server.js` (every route, method, params, status codes).
+- [CLI surface vs modules audit](docs/cli-module-coverage.md) — which CLI binary exercises every export of `searchIndex.js` / `snapshot.js` / `provenanceAudit.js`.
 - [`wayselect` CLI reference](docs/cli.md) — copy-pasteable `select`/`explain` examples, `--json`, exit codes.
 - [`bin/` operator catalog](docs/bin-operator-catalog.md) — one line per script: purpose, when to run, key flags.
 - [Dependency-update policy](docs/dependency-update-policy.md) — how dependencies are updated and who owns it.
+- [Export-control note](docs/export-control.md) — public-availability basis, no encryption functionality, no controlled technology.
 - [Eligibility reason glossary](docs/eligibility-reasons.md) — operator lookup for every eligibility reason code.
 - [models.dev ingestion dry-run contract](docs/models-dev-ingestion-dryrun-contract.md) — pinned interface for the ingestion adapter.
 - [models.dev freshness-probe offline contract](docs/models-dev-freshness-probe-offline-contract.md) — what `bin/check-models-dev-freshness` reads, never touches, and how to verify zero network use.
@@ -395,6 +403,7 @@ Acceptance specs and contracts live in `docs/`. Start here:
 - [Deployment runbook](docs/deployment-runbook.md) — preview-server image build, staging/preview-only run, env contract, rollback; no production activation.
 - [Local pre-push check](docs/pre-push-check.md) — run the same gates CI runs before you push.
 - [Nightly ingestion-smoke triage runbook](docs/ingestion-smoke-triage-runbook.md) — where the `17 6 * * *` cron surfaces, who triages, first 5 commands, bug-card vs re-run rule.
+- [Production incident runbook](docs/incident-runbook.md) — staging/prod rollback steps, health-check commands, owner/approver per step; staging executable, production dormant.
 - [Buyer activation spec](docs/wayselect-buyer-activation.md) — search → compare → shortlist first-value path.
 - [Buyer listing spec](docs/wayselect-buyer-listing.md) — listing fields + purchase acceptance (v2).
 - [Eligibility-explain acceptance](docs/wayselect-eligibility-acceptance.md) — fail-closed eligibility paths on the CLI.
@@ -421,6 +430,7 @@ merge): [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
 - Fixture policy: fixtures under `fixtures/` are synthetic and checked in. Add or edit them as data files; refresh stamped provenance through `bin/refresh-catalog-fixtures`, never by hand-editing. Keep unknown fields rejected at the `src/catalog.js` boundary and never guess missing capability data.
 - Node 20+ ESM; keep `bin/wayselect` thin and `src/` boundaries intact. Run `npm run accept:fixture-refresh` + `npm run check:drift` after each refresh. No new runtime dependencies without a CTO note.
 - Keep README claims accurate to merged behavior only — no compatibility, cost, or savings language.
+- Be kind: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) applies in every project space.
 
 License: MIT — see [LICENSE](LICENSE).
 

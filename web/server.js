@@ -32,7 +32,19 @@
 //                                            JSON (TOG-6050))
 //   POST /listings/:provider/:model/purchase — stub CTA target: 404 for
 //                                            unknown listings, 403 for known
-//                                            listings (no backend writes)
+//                                            listings (no backend writes).
+//                                            Honors the optional
+//                                            `Idempotency-Key` header
+//                                            (TOG-6030): same key + same
+//                                            effect replays the stored
+//                                            refusal/echo without recording
+//                                            a second effect; same key +
+//                                            different effect is 422
+//                                            `idempotency_key_reused`.
+//                                            Cross-origin requests (Origin/
+//                                            Referer mismatch, TOG-6366)
+//                                            refuse 403 forbidden_origin
+//                                            before the listing lookup
 //   POST /sellers/submissions                — seller intake (TOG-4969):
 //                                            validates the JSON body with
 //                                            validateSellerSubmission and
@@ -48,9 +60,14 @@
 //                                            (no live publish, ever)
 // Everything else 404. When WAYSELECT_PREVIEW is off, gated routes return 404.
 //
-// Security headers (TOG-5731, nonce CSP TOG-6049):
-//   - Every response carries `X-Content-Type-Options: nosniff` (HTML and
-//     JSON alike, including the 429 rate-limit refusal below).
+// Security headers (TOG-5731, nonce CSP TOG-6049, Permissions-Policy TOG-8332):
+//   - Every response carries `X-Content-Type-Options: nosniff`,
+//     `Referrer-Policy: no-referrer`, and a deny-by-default
+//     `Permissions-Policy` (camera/mic/geolocation/payment/usb — none used
+//     anywhere in web/; HTML and JSON alike, including the 429 rate-limit
+//     refusal below). HSTS is deliberately absent: plain-HTTP server, so
+//     browsers would ignore it per RFC 6797 §8.1 (see the HSTS note on
+//     SECURITY_HEADERS).
 //   - HTML responses additionally deny framing (`X-Frame-Options: DENY`
 //     plus `frame-ancestors 'none'`) and carry a per-response nonce CSP.
 //     Feasibility verdict (TOG-6049): nonces work — every page carries
@@ -103,6 +120,9 @@ import {
   sortListings,
 } from "./filter.js";
 import { STUB_LISTINGS, getStubListing } from "./stub-listing.js";
+import { createDisputeStore, validateDisputeBody } from "./disputes.js";
+import { stableStringify } from "../src/canonical.js";
+import { MAX_IDEMPOTENCY_KEY_LENGTH } from "../src/index.js";
 import { readJsonBody } from "./jsonBody.js";
 import {
   confirmModel,
@@ -116,13 +136,26 @@ import { SellerSubmissionError, validateSellerSubmission } from "../src/sellerSu
 
 const LISTING_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/?$/;
 const PURCHASE_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/purchase\/?$/;
+const DISPUTES_ROUTE = /^\/listings\/([^/]+)\/([^/]+)\/disputes\/?$/;
 const SELLER_INTAKE_ROUTE = /^\/sellers\/submissions\/?$/;
 const SELLER_CONFIRM_ROUTE = /^\/sellers\/submissions\/([^/]+)\/([^/]+)\/confirm\/?$/;
 
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
+  // TOG-8332: deny powerful browser features the preview never uses (no
+  // media/geolocation/payment APIs anywhere in web/ — grep-verified). Sent
+  // on every response, HTML and JSON alike, so a compromised fragment or
+  // error page cannot reach for camera/mic/location either.
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 };
+
+// HSTS note (TOG-8332 audit): deliberately NOT sent. This server binds
+// plain HTTP only (no TLS listener anywhere in the tree); per RFC 6797 §8.1
+// browsers ignore Strict-Transport-Security received over an insecure
+// transport, so emitting it here would be a dead header implying a TLS
+// guarantee the server does not provide. If a TLS-terminating reverse
+// proxy is ever placed in front, HSTS belongs on the proxy, not here.
 
 // HTML-only hardening (TOG-5731, nonces TOG-6049): deny framing both the
 // legacy (`X-Frame-Options`) and the standard (`frame-ancestors`) way, and
@@ -263,6 +296,80 @@ function sendMethodNotAllowed(res, allow) {
   sendJsonError(res, 405, { error: "method_not_allowed" }, { allow });
 }
 
+// Server-side CSRF guard for the purchase POST (TOG-6366, gap G5/S1).
+//
+// Threat model: CSP `form-action 'self'` is enforced by the victim's
+// browser only when that browser honors the CSP header. A hostile page on
+// another origin can still submit a cross-origin POST to the purchase route
+// (hidden auto-submitting form, no-cors fetch) and the request rides the
+// victim's ambient credentials (cookies/session) once this route performs
+// a write. Today the stub refuses every POST with 403, so the impact is
+// nil — this check is defense-in-depth that survives the day the route
+// writes. It compares the request's own `Origin` (else `Referer`) authority
+// against its `Host` authority and refuses mismatches with 403
+// `forbidden_origin`.
+//
+// Why Host as the baseline is safe here (cf. the TOG-7304 audit): Host is
+// never trusted for *output* — no link, redirect, or bucket derives from
+// it. It is only a consistency baseline for *input* the attacker cannot
+// forge in the threat scenario: in a browser-driven CSRF the browser sets
+// Host from the target URL and Origin from the hostile page, and page
+// script cannot override either. A non-browser client (curl) can forge
+// both, but it is not a confused deputy — there is no victim session to
+// ride. Scheme is deliberately ignored (authority-only comparison): the
+// preview server does not know its public scheme behind a proxy, and the
+// browser threat is covered by the authority mismatch alone.
+//
+// Fail-open only for truly headerless requests (curl/API clients send
+// neither header): a victim browser cannot be made to withhold Origin on
+// a cross-origin POST, so the missing-headers path is not a bypass.
+// Present-but-unparseable values fail closed. Error responses carry
+// `Cache-Control: no-store` via sendJsonError, so no `Vary: Origin` is
+// needed for shared caches.
+export function isSameOriginRequest(req) {
+  const headers = req?.headers ?? {};
+  const origin = headerString(headers.origin);
+  // `referer` is the standard spelling; accept the `referrer` variant too.
+  const referer = headerString(headers.referer ?? headers.referrer);
+  if (origin === null && referer === null) {
+    return true;
+  }
+  const host = headerString(headers.host);
+  if (host === null) {
+    return false;
+  }
+  let hostAuthority;
+  try {
+    hostAuthority = new URL(`http://${host}`).host;
+  } catch {
+    return false;
+  }
+  if (origin !== null) {
+    let originAuthority;
+    try {
+      originAuthority = new URL(origin).host;
+    } catch {
+      return false;
+    }
+    return originAuthority === hostAuthority;
+  }
+  try {
+    return new URL(referer).host === hostAuthority;
+  } catch {
+    return false;
+  }
+}
+
+// Single header value or null when absent. A duplicated header (array)
+// fails closed downstream as unparseable — browsers never send duplicate
+// Origin/Referer, so ambiguity is never legitimate here.
+function headerString(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  return value === undefined ? null : "";
+}
+
 // Bucket requests by route shape for the rate limiter: exact path for the
 // index, route templates for detail/purchase, and a fallback for 404s so
 // scanners cannot burn the budget of real routes (or vice versa).
@@ -274,6 +381,9 @@ function routeBucket(method, pathname) {
   }
   if (PURCHASE_ROUTE.test(pathname)) {
     return `${method} /listings/:provider/:model/purchase`;
+  }
+  if (DISPUTES_ROUTE.test(pathname)) {
+    return `${method} /listings/:provider/:model/disputes`;
   }
   if (SELLER_CONFIRM_ROUTE.test(pathname)) {
     return `${method} /sellers/submissions/:provider/:model/confirm`;
@@ -354,6 +464,16 @@ export function configureHttpTimeouts(server, overrides = {}) {
 // the map. One named constant so the value lives in a single place.
 export const SELLER_INTENT_TTL_MS = 15 * 60 * 1000;
 
+// Purchase idempotency-key header (TOG-6030, gap G2): the conventional
+// `Idempotency-Key` name (Stripe-style) so future clients and proxies pass
+// it through untouched.
+export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
+
+// Cap on recorded idempotency records per app instance (TOG-6030): bounds
+// the dedup map the same way the rate limiter bounds buckets — an unbounded
+// map is a slow memory leak under key rotation.
+export const MAX_IDEMPOTENCY_RECORDS = 1000;
+
 export function createApp(env = process.env, options = {}) {
   const limiter = options.rateLimiter ?? createRateLimiter(options.rateLimit);
   // Clock for intent expiry (TOG-6716): injectable via `options.now` so
@@ -372,6 +492,45 @@ export function createApp(env = process.env, options = {}) {
   // Expired entries 404 as missing on read and are swept on intake, so
   // unread stale intents cannot grow the map.
   const sellerIntents = new Map();
+  // Buyer trust-signal disputes (TOG-8061): routeId -> filed stub reports.
+  // In-memory only — restart clears, ids restart at `dispute-1` per
+  // listing. Filing never charges, refunds, or writes beyond this map.
+  const disputes = createDisputeStore();
+  // Purchase idempotency records (TOG-6030): the preview stub records no
+  // durable effect, and the stub takes no body variance (POST purchase
+  // carries no payload — routing is path-only), so the "effect" is just
+  // the route the key was first seen on: idempotencyKey -> { routeId,
+  // fingerprint }. Same key + same route replays the stored refusal
+  // without a new record; same key + different route is 422
+  // `idempotency_key_reused` (the client must mint a fresh key for a
+  // different attempt). In-memory only — restart clears, no backend, no
+  // secrets, no PII at rest: only the route and a canonical fingerprint,
+  // never a raw body or key echo into logs. No TTL: records live for the
+  // process lifetime, bounded by the eviction cap below.
+  const purchaseIdempotency = new Map();
+  // Route fingerprint: the (routeId, idempotencyKey) pair the server
+  // derives itself — never client-supplied — canonicalized so equal
+  // pairs match and unequal pairs mismatch. Named for what it hashes
+  // (route + key, not a payload): a future backend with request bodies
+  // must hash the body too, never copy this as real dedup.
+  function purchaseRouteFingerprint(routeId, idempotencyKey) {
+    return stableStringify({ idempotencyKey, routeId });
+  }
+  // Records one idempotent effect, evicting the oldest entries past the cap
+  // so key rotation cannot grow the map without bound.
+  function recordIdempotentEffect(routeId, idempotencyKey) {
+    while (purchaseIdempotency.size >= MAX_IDEMPOTENCY_RECORDS) {
+      const oldest = purchaseIdempotency.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      purchaseIdempotency.delete(oldest.value);
+    }
+    purchaseIdempotency.set(idempotencyKey, {
+      routeId,
+      fingerprint: purchaseRouteFingerprint(routeId, idempotencyKey),
+    });
+  }
   // Reads the live intent for a route: null when never staged or expired.
   // Expired entries are deleted on read so a stale confirm never revives.
   function getLiveIntent(routeId) {
@@ -574,10 +733,82 @@ export function createApp(env = process.env, options = {}) {
       return;
     }
 
+    // Buyer trust-signal disputes (TOG-8061, spec §5 D2–D9 + shape §6):
+    // JSON-only stub routes, flag-gated (flag off → 404). GET lists the
+    // filed reports for one real stub listing; POST files one after the
+    // strict body gate. Unknown listings 404 as misses; only real stubs
+    // take reports. Filing never touches purchase (D10).
+    const disputesMatch = pathname.match(DISPUTES_ROUTE);
+    if (disputesMatch) {
+      if (req.method !== "GET" && req.method !== "POST") {
+        sendMethodNotAllowed(res, "GET, POST");
+        return;
+      }
+      if (!isPreviewEnabled(env)) {
+        sendJson(res, 404, { error: "preview_disabled" });
+        return;
+      }
+      const [, rawDisputeProvider, rawDisputeModel] = disputesMatch;
+      let disputeProviderId;
+      let disputeModelId;
+      try {
+        disputeProviderId = decodeURIComponent(rawDisputeProvider);
+        disputeModelId = decodeURIComponent(rawDisputeModel);
+      } catch {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      const disputeListing = getStubListing(disputeProviderId, disputeModelId);
+      if (!disputeListing) {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      const routeId = `${disputeProviderId}/${disputeModelId}`;
+      if (req.method === "GET") {
+        sendJson(res, 200, { listing: routeId, disputes: disputes.list(routeId) });
+        return;
+      }
+      const disputeBody = await readJsonBody(req);
+      if (!disputeBody.ok) {
+        const status = disputeBody.code === "body_too_large" ? 413
+          : disputeBody.code === "body_timeout" ? 408
+          : 400;
+        sendJson(res, status, {
+          error: "invalid_dispute",
+          message: `Stub dispute rejected: ${disputeBody.code}.`,
+          validReasons: ["not_as_described", "never_delivered", "billing_issue", "other"],
+        });
+        return;
+      }
+      const validated = validateDisputeBody(disputeBody.value);
+      if (!validated.ok) {
+        sendJson(res, 400, {
+          error: "invalid_dispute",
+          message: validated.message,
+          validReasons: ["not_as_described", "never_delivered", "billing_issue", "other"],
+        });
+        return;
+      }
+      // Evil buyer input (D8) is accepted as data: it rides JSON-encoded and
+      // any future HTML view must escape it like every other dynamic value.
+      sendJson(res, 201, disputes.file(routeId, validated.value));
+      return;
+    }
+
     const purchaseMatch = pathname.match(PURCHASE_ROUTE);
     if (purchaseMatch) {
       if (req.method !== "POST") {
         sendMethodNotAllowed(res, "POST");
+        return;
+      }
+      // TOG-6366 (gap G5/S1): server-side CSRF guard. Runs before the
+      // listing lookup so a cross-origin probe cannot distinguish 404
+      // (unknown listing) from 403 (real listing) — every cross-origin
+      // POST gets the same 403 `forbidden_origin` regardless of whether
+      // the listing exists. Only 403 `preview_only` (same-origin or
+      // headerless) means "listing exists, writes disabled" (TOG-5710).
+      if (!isSameOriginRequest(req)) {
+        sendJson(res, 403, { error: "forbidden_origin" });
         return;
       }
       // TOG-5710: a nonexistent resource must 404 first; 403 is only
@@ -596,10 +827,70 @@ export function createApp(env = process.env, options = {}) {
         sendJson(res, 404, { error: "listing_not_found" });
         return;
       }
+      // Stub CTA target: never writes, always refuses — with
+      // idempotency-key support (TOG-6030, gap G2). Ordering after the
+      // 404/405 gates: a replayed key on an unknown listing still 404s,
+      // and a wrong-method replay still 405s, so the key never masks a
+      // routing verdict. A blank key fails closed 400 (same vocab as
+      // the purchase validator: missing-field on `idempotencyKey`); an
+      // overlong key fails closed 400 (invalid-value); a reused key on
+      // a different route is 422 `idempotency_key_reused` (mint a fresh
+      // key for a different attempt). Same key + same route replays the
+      // stored refusal without recording a second effect. Without a key
+      // the stub refuses exactly as before (no echo field).
+      const rawKey = req.headers?.[IDEMPOTENCY_KEY_HEADER];
+      const idempotencyKey =
+        rawKey === undefined || rawKey === null ? null : String(rawKey);
+      if (idempotencyKey !== null && idempotencyKey.trim() === "") {
+        sendJson(res, 400, {
+          error: "invalid_idempotency_key",
+          code: "missing-field",
+          key: "idempotencyKey",
+          source: null,
+          message: "idempotencyKey must be a non-empty string",
+        });
+        return;
+      }
+      if (idempotencyKey !== null && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+        sendJson(res, 400, {
+          error: "invalid_idempotency_key",
+          code: "invalid-value",
+          key: "idempotencyKey",
+          source: null,
+          message: `idempotencyKey must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters`,
+        });
+        return;
+      }
+      const routeId = `${providerId}/${modelId}`;
+      if (idempotencyKey !== null) {
+        const fingerprint = purchaseRouteFingerprint(routeId, idempotencyKey);
+        const record = purchaseIdempotency.get(idempotencyKey);
+        if (record !== undefined) {
+          if (record.fingerprint !== fingerprint) {
+            sendJson(res, 422, {
+              error: "idempotency_key_reused",
+              key: "idempotencyKey",
+              message:
+                "Idempotency-Key was already used for a different purchase attempt. " +
+                "Mint a fresh key for a different attempt; retry the same attempt with the same key.",
+            });
+            return;
+          }
+          sendJson(res, 403, {
+            error: "preview_only",
+            message: "Purchases are disabled in preview. No backend writes.",
+            idempotencyKey,
+            replayed: true,
+          });
+          return;
+        }
+        recordIdempotentEffect(routeId, idempotencyKey);
+      }
       // Stub CTA target: never writes, always refuses.
       sendJson(res, 403, {
         error: "preview_only",
         message: "Purchases are disabled in preview. No backend writes.",
+        ...(idempotencyKey === null ? {} : { idempotencyKey }),
       });
       return;
     }

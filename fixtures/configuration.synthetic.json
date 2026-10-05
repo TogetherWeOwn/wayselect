@@ -5,7 +5,7 @@
       "supportState": "configured",
       "operations": ["chat"],
       "evidence": {
-        "observedAt": "2026-08-03T04:00:00.000Z"
+        "observedAt": "2026-08-10T01:17:57.000Z"
       }
     },
     {
@@ -13,7 +13,7 @@
       "supportState": "configured",
       "operations": ["chat"],
       "evidence": {
-        "observedAt": "2026-09-25T16:00:00.000Z"
+        "observedAt": "2026-10-02T13:17:57.000Z"
       }
     },
     {
@@ -21,7 +21,7 @@
       "supportState": "configured",
       "operations": ["vision-chat"],
       "evidence": {
-        "observedAt": "2026-09-25T16:00:00.000Z"
+        "observedAt": "2026-10-02T13:17:57.000Z"
       }
     },
     {
@@ -29,7 +29,7 @@
       "supportState": "configured",
       "operations": ["chat"],
       "evidence": {
-        "observedAt": "2026-09-25T16:00:00.000Z"
+        "observedAt": "2026-10-02T13:17:57.000Z"
       }
     },
     {
@@ -37,7 +37,7 @@
       "supportState": "conformance-tested",
       "operations": ["chat"],
       "evidence": {
-        "observedAt": "2026-09-25T16:00:00.000Z"
+        "observedAt": "2026-10-02T13:17:57.000Z"
       }
     },
     {
@@ -45,7 +45,7 @@
       "supportState": "unsupported",
       "operations": [],
       "evidence": {
-        "observedAt": "2026-09-22T16:00:00.000Z"
+        "observedAt": "2026-09-29T13:17:57.000Z"
       }
     }
   ]

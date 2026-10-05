@@ -54,6 +54,7 @@ describe("preview route table (TOG-6040)", () => {
       "/healthz",
       "/listings",
       "/listings/{provider}/{model}",
+      "/listings/{provider}/{model}/disputes",
       "/listings/{provider}/{model}/purchase",
       "/sellers/submissions",
       "/sellers/submissions/{provider}/{model}/confirm",
@@ -161,6 +162,7 @@ describe("preview route table (TOG-6040)", () => {
       "/sellers/submissions",
       "purchase",
       "confirm",
+      "disputes",
     ];
     for (const marker of expectedMarkers) {
       ok(source.includes(marker), `server.js must still define ${marker}`);
@@ -173,6 +175,7 @@ describe("preview route table (TOG-6040)", () => {
       "/sellers/submissions",
       "purchase",
       "confirm",
+      "disputes",
     ];
     for (const marker of docMarkers) {
       ok(doc.includes(marker), `route table must represent ${marker}`);
@@ -183,6 +186,8 @@ describe("preview route table (TOG-6040)", () => {
     strictEqual(typeof spec.paths["/favicon.ico"].get, "object");
     strictEqual(typeof spec.paths["/listings"].get, "object");
     strictEqual(typeof spec.paths["/listings/{provider}/{model}"].get, "object");
+    strictEqual(typeof spec.paths["/listings/{provider}/{model}/disputes"].get, "object");
+    strictEqual(typeof spec.paths["/listings/{provider}/{model}/disputes"].post, "object");
     strictEqual(typeof spec.paths["/listings/{provider}/{model}/purchase"].post, "object");
     strictEqual(typeof spec.paths["/sellers/submissions"].post, "object");
     strictEqual(typeof spec.paths["/sellers/submissions/{provider}/{model}/confirm"].get, "object");
@@ -222,9 +227,13 @@ describe("preview route table (TOG-6040)", () => {
       "ListingNotFound",
       "PreviewDisabled",
       "PurchaseRefusal",
+      "IdempotencyKeyRejected",
+      "IdempotencyKeyReused",
+      "ForbiddenOrigin",
       "RateLimited",
       "BodyError",
       "InvalidSubmission",
+      "InvalidDispute",
       "InvalidFilter",
       "NoPendingIntent",
     ];
@@ -237,7 +246,7 @@ describe("preview route table (TOG-6040)", () => {
       );
     }
     // Success shapes stay id-free (error-only scope).
-    for (const name of ["HealthProbe", "DetailFragment", "ConfirmModel", "IndexResult"]) {
+    for (const name of ["HealthProbe", "DetailFragment", "ConfirmModel", "IndexResult", "DisputeList", "DisputeFiled", "DisputeBody"]) {
       const schema = spec.components.schemas[name];
       ok(
         !(schema.required ?? []).includes("requestId"),

@@ -105,7 +105,10 @@ function changedPaths(root, base, head) {
   const attempts = [[`${base}...${head}`], [`${base}..${head}`]];
   for (const [range] of attempts) {
     try {
-      const out = git(root, ["diff", "--name-only", range, "--"]);
+      // --no-renames: with rename detection `git mv src/x.js docs/x.md` lists
+      // only the new path, so the deleted code file would look docs-only. A
+      // rename is a delete plus an add; both sides must show.
+      const out = git(root, ["diff", "--name-only", "--no-renames", range, "--"]);
       return { paths: out.length === 0 ? [] : out.split("\n"), range };
     } catch {
       // Try the next range shape.

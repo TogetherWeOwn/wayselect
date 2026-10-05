@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-// Executable QA acceptance for the Phase-1 OpenAI chat-completions skeleton
-// (TOG-5951, gateway spec TOG-5939 §1.1/§1.3/§1.6).
+// Executable QA acceptance for the gateway handlers: the Phase-1 OpenAI
+// chat-completions skeleton (TOG-5951, gateway spec TOG-5939 §1.1/§1.3/§1.6)
+// plus the Phase-2 streaming contract (TOG-5956, spec §1.5).
 //
 // Usage: node bin/accept-wayselect-gateway-phase1   (or: npm run accept:gateway-phase1)
 // Zero dependencies: Node standard library only. Runs the in-process
@@ -187,7 +188,7 @@ function request(body, overrides = {}) {
   );
 }
 
-// ---- A6: image parts and stream:true fail closed with 400 ----
+// ---- A6: image parts fail closed with 400; stream:true returns SSE ----
 {
   const image = await handleChatCompletionsRequest(
     request({
@@ -209,7 +210,12 @@ function request(body, overrides = {}) {
     `http=${image.httpStatus}`,
   );
   const stream = await handleChatCompletionsRequest(request({ stream: true }));
-  check(stream.httpStatus === 400, "A6b", "stream:true returns 400 (non-streaming only)", `http=${stream.httpStatus}`);
+  const streamOk =
+    stream.httpStatus === 200 &&
+    stream.headers?.["Content-Type"] === "text/event-stream" &&
+    typeof stream.body === "string" &&
+    stream.body.endsWith("data: [DONE]\n\n");
+  check(streamOk, "A6b", "stream:true returns SSE ending in data: [DONE]", `http=${stream.httpStatus}`);
 }
 
 // ---- A7: README states synthetic-only ----

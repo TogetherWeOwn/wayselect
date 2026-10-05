@@ -38,6 +38,8 @@ const RUN_TO_GATE = {
     "::warning::",
   ],
   "node bin/check-no-todo-markers": ["bin/check-no-todo-markers"],
+  // TOG-6385: the `accept` job's harness step maps to the P10 gate.
+  "npm run accept:all": ['"npm", ["run", "accept:all"'],
   "node scripts/e2e-staging-acceptance.mjs --out /e2e-evidence.json": [
     "scripts/e2e-staging-acceptance.mjs",
   ],
@@ -141,19 +143,27 @@ test("acceptance workflow local steps are mirrored or explicitly excluded", () =
   assert.ok(gate.includes("acceptance.sh"), "gate must document the clone-mode exclusion");
 });
 
-test("docs pin the 9-gate contract", () => {
+test("docs pin the 10-gate contract", () => {
   const doc = read("docs/pre-push-check.md");
-  assert.ok(doc.includes("9 pass, 0 fail"), "doc must state the 9-gate summary");
-  for (const step of ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"]) {
+  assert.ok(doc.includes("10 pass, 0 fail"), "doc must state the 10-gate summary");
+  for (const step of ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10"]) {
     assert.ok(doc.includes(step), `doc must describe gate ${step}`);
   }
   assert.ok(
-    read("CONTRIBUTING.md").includes("9 pass, 0 fail"),
-    "CONTRIBUTING must state the 9-gate summary",
+    read("CONTRIBUTING.md").includes("10 pass, 0 fail"),
+    "CONTRIBUTING must state the 10-gate summary",
   );
   assert.ok(
-    read(".github/pull_request_template.md").includes("9 pass, 0 fail"),
-    "PR template must state the 9-gate summary",
+    read(".github/pull_request_template.md").includes("10 pass, 0 fail"),
+    "PR template must state the 10-gate summary",
+  );
+  assert.ok(
+    read("docs/incident-runbook.md").includes("10 pass, 0 fail"),
+    "incident runbook must state the 10-gate summary",
+  );
+  assert.ok(
+    read(".github/ISSUE_TEMPLATE/feature_request.yml").includes("10 pass, 0 fail"),
+    "feature-request template must state the 10-gate summary",
   );
 });
 
@@ -170,8 +180,10 @@ test("bench CI job stays warn-only with a timings artifact (TOG-7281)", () => {
   const ci = read(".github/workflows/ci.yml");
   assert.ok(ci.includes("large-catalog-bench"), "bench job must exist");
   assert.ok(ci.includes("continue-on-error: true"), "bench run must not red the job");
+  // Pinned to the upload-artifact major in .github/workflows/ci.yml
+  // (v7 since TOG-8344 / PR #235).
   assert.ok(
-    ci.includes("actions/upload-artifact@v4"),
+    ci.includes("actions/upload-artifact@v7"),
     "bench job must upload the timings artifact",
   );
   assert.ok(

@@ -117,6 +117,7 @@ th, td { border: 1px solid #888; padding: 0.5rem 0.75rem; text-align: left; }
 main:focus { outline: none; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; border-radius: 0.25rem; }
 @media (forced-colors: active) { a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid Highlight; } select:focus-visible { outline: 3px solid Highlight; } }
+@media (forced-colors: active) { .badge { border: 1px solid CanvasText; } }
 .skeleton { border-radius: 0.375rem; background: linear-gradient(90deg, rgba(128, 128, 128, 0.28) 25%, rgba(128, 128, 128, 0.12) 50%, rgba(128, 128, 128, 0.28) 75%); background-size: 200% 100%; animation: skeleton-pulse 1.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .skip-link { transition: none; } }
 @keyframes skeleton-pulse { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -186,6 +187,73 @@ function eligibilitySection(listing, override) {
 ${reasons}</section>`;
 }
 
+// Buyer trust signals (TOG-8061, spec docs/wayselect-buyer-trust-signals.md
+// §2–§3): display-only stub ratings, preview-honest guarantee copy, and the
+// dispute entry point. Copy is pinned in the spec — no word changes without
+// a Code Reviewer pass on that doc. Every dynamic value is HTML-escaped
+// (the web-spec XSS rule binds T1–T4).
+//
+// Fail-closed rating validation: `average` must be a finite number in 0–5
+// inclusive, `sales` an integer ≥ 0; anything else renders the unrated copy
+// and the page still 200s — never a default score, never stars without a
+// count.
+function validRating(rating) {
+  if (rating === null || typeof rating !== "object" || Array.isArray(rating)) {
+    return null;
+  }
+  const { average, sales } = rating;
+  if (typeof average !== "number" || !Number.isFinite(average) || average < 0 || average > 5) {
+    return null;
+  }
+  if (!Number.isInteger(sales) || sales < 0) {
+    return null;
+  }
+  return { average, sales };
+}
+
+// T1 rating line for the index (`★ {avg} · {n} sales`, `{avg}` one decimal)
+// or the unrated copy. Renders after the eligibility badge, never before it,
+// and never re-ranks index order.
+function ratingLine(rating) {
+  const valid = validRating(rating);
+  if (!valid) {
+    return "No ratings yet";
+  }
+  return `★ ${valid.average.toFixed(1)} · ${valid.sales} sales`;
+}
+
+// T2 seller-rating section: aggregate line + stub disclaimer, or the
+// unrated body verbatim.
+function ratingSection(listing) {
+  const valid = validRating(listing.rating);
+  const body = valid
+    ? `<p>★ ${escapeHtml(valid.average.toFixed(1))} from ${escapeHtml(valid.sales)} stub sales. Stub ratings: synthetic sales history for preview only. Not real buyers.</p>`
+    : `<p>No ratings yet. This listing has no stub sales history — nothing is hidden, there is just nothing to show.</p>`;
+  return `<section aria-label="Seller rating">
+<h2>Seller rating</h2>
+${body}</section>`;
+}
+
+// T3 purchase-guarantee section: pinned preview-honest copy — disabled
+// purchases first, the launch-intent `full refund` only when buying opens.
+function guaranteeSection() {
+  return `<section aria-label="Purchase guarantee">
+<h2>Purchase guarantee</h2>
+<p>Preview build: purchases are disabled, so you can never be charged here. When buying opens, every purchase is covered — if a listing is materially not as described, report it and get a full refund.</p></section>`;
+}
+
+// T4 dispute entry point: entry copy plus a link to the §6 disputes route.
+// A link, not a form: docs/wayselect-web-acceptance.md F8 pins exactly one
+// `<form>` (the purchase stub) on detail pages, so a second form would fail
+// the web and checkout acceptance scripts.
+function reportSection(listing) {
+  const href = `/listings/${encodeURIComponent(listing.providerId)}/${encodeURIComponent(listing.modelId)}/disputes`;
+  return `<section aria-label="Report a problem">
+<h2>Report a problem</h2>
+<p>Something wrong with this listing? File a stub report — nothing leaves this preview, and filing never charges or refunds anything.</p>
+<p><a href="${escapeHtml(href)}">Report a problem (stub)</a></p></section>`;
+}
+
 function costCell(cost, key) {
   const value = cost?.[key];
   return typeof value === "number" && Number.isFinite(value) ? `$${escapeHtml(value)}` : "unknown";
@@ -204,10 +272,17 @@ function listingDetailBody(listing, evaluationOverride) {
     (value, index, all) => all.indexOf(value) === index,
   );
 
+  // T2–T4 (TOG-8061): fixed order Eligibility → Seller rating → Purchase
+  // guarantee → Report a problem → Capabilities. One builder feeds the shell,
+  // the `<noscript>` branch, and the JSON fragment, so shell/noscript/async
+  // can never drift (T5).
   return `<div class="preview-banner" role="note">Preview build: stub data only. No purchase is processed.</div>
 <h1>${escapeHtml(entry.name)}</h1>
 <p>Listing <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code> from ${escapeHtml(listing.providerName)}.</p>
 ${eligibilitySection(listing, evaluationOverride)}
+${ratingSection(listing)}
+${guaranteeSection()}
+${reportSection(listing)}
 <h2>Capabilities</h2>
 <table>
 <tbody>
@@ -454,7 +529,7 @@ function filterForm(filters, pageInfo) {
   // the form's accessible name so SR users hear one consistent label.
   return `<section aria-labelledby="filter-heading">
 <h2 id="filter-heading">Filter listings</h2>
-<form method="get" action="/listings" role="search" aria-label="Filter listings">
+<form method="get" action="/listings#results" role="search" aria-label="Filter listings">
 <label for="filter-q">Search <input type="text" id="filter-q" name="q" value="${escapeHtml(q)}" maxlength="${LISTINGS_MAX_QUERY_LENGTH}"></label>
 <label for="filter-limit">Results per page <input type="number" id="filter-limit" name="limit" value="${escapeHtml(limit)}" min="1" max="${LISTINGS_MAX_LIMIT}"></label>
 <label for="filter-offset">Skip results <input type="number" id="filter-offset" name="offset" value="${escapeHtml(offset)}" min="0"></label>
@@ -468,7 +543,7 @@ ${checkboxRow("modality", VALID_MODALITIES, modalities)}
 ${sortOptions(active.sort)}
 </select></label>
 <button type="submit">Apply filters</button>
-<a href="/listings">Clear filters</a>
+<a href="/listings#results">Clear filters</a>
 </form>
 </section>`;
 }
@@ -499,6 +574,11 @@ ${detail}
 // array renders with the legacy "N listings found." copy. Prev/Next links
 // preserve the active filters (and the explicit sort, TOG-6362) so paging
 // never drops a filter or silently reverts to stub order.
+// TOG-6393: full-page filter and pagination GETs land on a focusable
+// results section. Append this static fragment after HTML-escaping the URL;
+// query building and the existing polite live region stay unchanged.
+const RESULTS_FRAGMENT = "#results";
+
 function pageHref(filters, limit, offset) {
   const params = new URLSearchParams();
   if (typeof filters?.q === "string" && filters.q !== "") {
@@ -536,7 +616,7 @@ function pageNumberLinks(filters, limit, currentPage, totalPages) {
   let prev = 0;
   for (const p of sorted) {
     if (p - prev > 1) parts.push(`<span aria-hidden="true">&hellip;</span>`);
-    const href = escapeHtml(pageHref(filters, limit, (p - 1) * limit));
+    const href = escapeHtml(pageHref(filters, limit, (p - 1) * limit)) + RESULTS_FRAGMENT;
     parts.push(
       p === currentPage
         ? `<a href="${href}" aria-current="page">${p}</a>`
@@ -553,7 +633,7 @@ function pageNav(filters, total, limit, offset, shown) {
   const links = [];
   if (offset > 0) {
     links.push(
-      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}" rel="prev">Previous</a>`,
+      `<a href="${escapeHtml(pageHref(filters, limit, Math.max(0, offset - limit)))}${RESULTS_FRAGMENT}" rel="prev">Previous</a>`,
     );
   }
   if (totalPages > 1) {
@@ -561,7 +641,7 @@ function pageNav(filters, total, limit, offset, shown) {
   }
   if (offset + shown < total) {
     links.push(
-      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}" rel="next">Next</a>`,
+      `<a href="${escapeHtml(pageHref(filters, limit, offset + limit))}${RESULTS_FRAGMENT}" rel="next">Next</a>`,
     );
   }
   return links.length === 0 ? "" : `<nav aria-label="Listings pages"><p>${links.join(" ")}</p></nav>`;
@@ -583,14 +663,15 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
   // (labelledby, not aria-label) so the index keeps an unbroken h1 -> h2
   // hierarchy on populated, empty, and past-the-end renders alike. The
   // accessible name stays "Results" so existing SR announcements match.
-  const resultsOpen = `<section aria-labelledby="results-heading">\n<h2 id="results-heading">Results</h2>`;
+  // TOG-6393: a unique fragment focus target, not an extra Tab stop.
+  const resultsOpen = `<section aria-labelledby="results-heading" id="results" tabindex="-1">\n<h2 id="results-heading">Results</h2>`;
   if (listings.length === 0) {
     // Offset past the end is a valid empty page, not a filter miss: say so
     // and link back to the first page instead of blaming the filters.
     results =
       total > 0
-        ? `${resultsOpen}\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}">Back to first page</a>\n</section>`
-        : `${resultsOpen}\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings">Clear filters</a>\n</section>`;
+        ? `${resultsOpen}\n<p role="status" aria-live="polite">${escapeHtml(countCopy)} found. No listings on this page.</p>\n<a href="${escapeHtml(pageHref(active, limit, 0))}${RESULTS_FRAGMENT}">Back to first page</a>\n</section>`
+        : `${resultsOpen}\n<p role="status" aria-live="polite">No listings match these filters.</p>\n<a href="/listings#results">Clear filters</a>\n</section>`;
   } else {
     const status =
       `${countCopy} found.` + (windowed ? ` Showing ${offset + 1}-${offset + listings.length}.` : "");
@@ -603,7 +684,9 @@ export function renderListingIndex(listings, evaluationsOverride, filters, pageI
           // S2 (TOG-5475, preserved through the main rebase): path
           // segments are URL-encoded inside the HTML escape so ids with
           // reserved characters keep working hrefs without XSS.
-          return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)}</li>`;
+          // T1 (TOG-8061): the rating line follows the eligibility badge so
+          // it can never move before or override the badge state.
+          return `<li><a href="/listings/${escapeHtml(encodeURIComponent(listing.providerId))}/${escapeHtml(encodeURIComponent(listing.modelId))}">${escapeHtml(listing.entry.name)} <code>${escapeHtml(listing.providerId)}/${escapeHtml(listing.modelId)}</code></a> ${eligibilityBadge(described)} ${escapeHtml(ratingLine(listing.rating))}</li>`;
         })
         .join("\n")}\n</ul>\n${pageNav(active, total, limit, offset, listings.length)}</section>`;
   }

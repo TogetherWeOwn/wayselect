@@ -48,11 +48,27 @@ jobs:
       - run: npm ci
       - run: npm run smoke
 
+  accept:
+    # Gap O1 (TOG-6385): the 14 bin/accept-* harnesses previously ran only
+    # manually. They are offline by construction (ephemeral localhost ports,
+    # scratch copies, FakeTransport; no network, credentials, or prod
+    # activation) and finish in seconds, so they run on every push/PR.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+      - run: node bin/check-node-engines
+      - run: npm ci
+      - run: npm run accept:all
+
   search-index-probe:
     # TOG-5722: R1-R5 search-index refresh probe, fixture-only, no network/credentials.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -69,7 +85,7 @@ jobs:
     # if-no-files-found:warn, so even a crashing bench keeps this job green.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -87,7 +103,7 @@ jobs:
         shell: bash
       - run: echo "::warning::large-catalog benchmark over budget (warn-only; budgets enforced by test/large-catalog-benchmark.test.js)"
         if: steps.bench.outcome == 'failure'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: large-catalog-timings
@@ -100,7 +116,7 @@ jobs:
     # fails the run. This comment avoids spelling them: the gate scans it too.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -113,8 +129,8 @@ jobs:
     # and test/pre-push-parity.test.js pins it.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -128,7 +144,7 @@ jobs:
     # extracts its CLI/schema slices via `git archive origin/<ref>`.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v7
@@ -169,7 +185,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -229,7 +245,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm

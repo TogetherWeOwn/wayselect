@@ -54,7 +54,7 @@ make_request() {
   node -e "
 const fs = require('node:fs');
 fs.writeFileSync(process.argv[1], JSON.stringify({
-  evaluationTime: '2026-09-26T16:00:00.000Z',
+  evaluationTime: JSON.parse(fs.readFileSync('fixtures/request.synthetic.json', 'utf8')).evaluationTime,
   maxEvidenceAgeHours: 72,
   selection: {
     operation: process.argv[2],
