@@ -11,6 +11,7 @@ Conventions used below: `--now <ISO>` pins the evaluation clock (reproducibility
 | Script | Purpose | When to run | Key flags |
 | --- | --- | --- | --- |
 | `bin/accept-fixture-refresh` | QA acceptance for fixture refresh: re-runs refresh on scratch copies, checks hash pin, same-stamp no-op, `--check`, golden demo, full suite | After touching `bin/refresh-catalog-fixtures` or the refresh pipeline | `--out <file>`, `--keep-tmp` |
+| `bin/accept-snapshot-restore` | QA acceptance for snapshot backup/restore + catalog rollback: backup verifies, lost snapshots restore, bad-ingestion diff flags removed routes, catalog byte-restore reselects the golden, full suite | After changing snapshot, ingest, or catalog code; the backup/restore drill itself | `--out <file>`, `--keep-tmp` |
 | `bin/accept-wayselect-buyer` | Acceptance for the buyer activation spec (search → compare → terminal honesty) against the real preview server | After changing buyer search/compare surfaces | (none) |
 | `bin/accept-wayselect-buyer-listing` | Acceptance for the buyer listing slice (schema keys, explain trace, stale fail-closed, confirm-intent refusal, provenance receipt) | After changing listing fields or purchase-intent validation | (none) |
 | `bin/accept-wayselect-capability-select` | Acceptance for capability-aware dry-run select (A1–A7 goldens on small fixtures, no network) | After changing select/eligibility capability logic | (none) |
@@ -43,4 +44,5 @@ Conventions used below: `--now <ISO>` pins the evaluation clock (reproducibility
 
 Related docs: CLI reference (`docs/cli.md`), pre-push gate (`docs/pre-push-check.md`),
 ingestion-smoke triage (`docs/ingestion-smoke-triage-runbook.md`), snapshot retention
-(`docs/snapshot-retention.md`), search-prompt eval rerun (`docs/search-prompt-eval-seed-rerun.md`).
+(`docs/snapshot-retention.md`), snapshot backup/restore + catalog rollback
+(`docs/snapshot-backup-restore.md`), search-prompt eval rerun (`docs/search-prompt-eval-seed-rerun.md`).
