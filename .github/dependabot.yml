@@ -42,6 +42,14 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # Same minor+patch batching as npm (TOG-8344): one grouped PR per cycle
+    # instead of a per-action flood. Majors stay separate and deliberate.
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "ci(deps)"

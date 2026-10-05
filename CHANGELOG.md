@@ -18,7 +18,36 @@ Each entry names the merged PR so a reviewer can trace it back to the diff.
 
 ## Unreleased
 
-- TOG-6385: the 14 offline `bin/accept-*` harnesses now run in CI (`accept` job, `npm run accept:all`) and as pre-push gate P10; gate contract is 10 pass, 0 fail (`.github/workflows/ci.yml`, `package.json`, `bin/pre-push-check`, `test/pre-push-parity.test.js`, `docs/pre-push-check.md`, `CONTRIBUTING.md`, PR/issue templates, `docs/incident-runbook.md`).
+- #236 (2026-10-05) TOG-6385: the 14 offline `bin/accept-*` harnesses now run in CI (`accept` job, `npm run accept:all`) and as pre-push gate P10 (`.github/workflows/ci.yml`, `package.json`, `bin/pre-push-check`, `test/pre-push-parity.test.js`, `docs/pre-push-check.md`, `CONTRIBUTING.md`, PR/issue templates, `docs/incident-runbook.md`).
+- #240 (2026-10-04) TOG-15339: pass `--no-renames` to the changed-paths diff in the
+  changelog gate so `git mv src/x.js docs/x.md` lists both paths and no longer
+  skips green, plus a scratch-repo test that forces `diff.renames=true`
+  (`bin/check-changelog-entry`, `test/changelog-entry-gate.test.js`).
+
+- #239 (2026-10-03) TOG-13307: run the fixture-refresh check step under
+  `shell: bash` (`bash -eo pipefail`) so a stale/hashing failure survives the
+  `| tee` pipe and fails the job instead of reporting tee's exit 0, plus a
+  scheduler-golden pin on the shell (`.github/workflows/fixture-refresh-check.yml`,
+  `test/fixture-refresh-scheduler.test.js`).
+
+- #238 (2026-10-03) TOG-13268: refresh stale synthetic catalog fixtures to a current snapshot
+  through the supported refresh script (provenance timestamp advanced, body
+  hash unchanged, evidence/evaluation times shifted uniformly to preserve the
+  stale-evidence story; restores the 24h freshness gate)
+  (`fixtures/catalog.synthetic.json`,
+  `fixtures/configuration.synthetic.json`, `fixtures/request.synthetic.json`).
+
+- #173 (2026-09-30) TOG-8344: actions/checkout 4→7 with the fixture-refresh
+  scheduler golden re-pinned to v7 (test-only follow-up;
+  `test/fixture-refresh-scheduler.test.js`).
+
+- #234 (2026-10-02) TOG-8344: actions/setup-node 4→7 with the
+  fixture-refresh scheduler golden re-pinned to v7 (test-only follow-up;
+  `test/fixture-refresh-scheduler.test.js`).
+
+- #235 (2026-10-02) TOG-8344: actions/upload-artifact 4→7 with the
+  pre-push-parity golden re-pinned to v7 (test-only follow-up;
+  `test/pre-push-parity.test.js`).
 
 - #196 TOG-6393: filter submits, clear/recovery links and pagination land on the focusable `#results` section; retain visible headings, polite live-region announcements, sticky filters and pagination semantics (`web/listing-detail.js`, listing focus/filter/pagination tests).
 
